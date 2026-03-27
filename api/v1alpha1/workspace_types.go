@@ -17,22 +17,50 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// SourceSpec defines the Git repository configuration
+type SourceSpec struct {
+	// RepoURL is the URL of the Git repository to clone
+	// +required
+	RepoURL string `json:"repoURL"`
+
+	// TargetRevision defines the commit, tag, or branch to checkout
+	// +required
+	TargetRevision string `json:"targetRevision"`
+
+	// Path is the directory path within the Git repository
+	// +optional
+	// +kubebuilder:default="."
+	Path string `json:"path,omitempty"`
+
+	// SecretRef is a reference to a secret containing authentication credentials for the repository
+	// +optional
+	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
+}
+
+// TerraformSpec defines the Terraform or OpenTofu configuration
+type TerraformSpec struct {
+	// Version is the Terraform or OpenTofu version to use
+	// +required
+	Version string `json:"version"`
+
+	// TfvarsPath is the path to the tfvars file within the repository
+	// +optional
+	TfvarsPath string `json:"tfvarsPath,omitempty"`
+}
 
 // WorkspaceSpec defines the desired state of Workspace
 type WorkspaceSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// Source defines the Git repository configuration
+	// +required
+	Source SourceSpec `json:"source"`
 
-	// foo is an example field of Workspace. Edit workspace_types.go to remove/update
-	// +optional
-	Foo *string `json:"foo,omitempty"`
+	// Terraform defines the Terraform or OpenTofu configuration
+	// +required
+	Terraform TerraformSpec `json:"terraform"`
 }
 
 // WorkspaceStatus defines the observed state of Workspace.

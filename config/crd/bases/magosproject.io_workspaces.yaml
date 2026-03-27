@@ -39,10 +39,55 @@ spec:
           spec:
             description: spec defines the desired state of Workspace
             properties:
-              foo:
-                description: foo is an example field of Workspace. Edit workspace_types.go
-                  to remove/update
-                type: string
+              source:
+                description: Source defines the Git repository configuration
+                properties:
+                  path:
+                    default: .
+                    description: Path is the directory path within the Git repository
+                    type: string
+                  repoURL:
+                    description: RepoURL is the URL of the Git repository to clone
+                    type: string
+                  secretRef:
+                    description: SecretRef is a reference to a secret containing authentication
+                      credentials for the repository
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  targetRevision:
+                    description: TargetRevision defines the commit, tag, or branch
+                      to checkout
+                    type: string
+                required:
+                - repoURL
+                - targetRevision
+                type: object
+              terraform:
+                description: Terraform defines the Terraform or OpenTofu configuration
+                properties:
+                  tfvarsPath:
+                    description: TfvarsPath is the path to the tfvars file within
+                      the repository
+                    type: string
+                  version:
+                    description: Version is the Terraform or OpenTofu version to use
+                    type: string
+                required:
+                - version
+                type: object
+            required:
+            - source
+            - terraform
             type: object
           status:
             description: status defines the observed state of Workspace
