@@ -1,3 +1,16 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+    name: demo
+---
+apiVersion: magosproject.io/v1alpha1
+kind: Project
+metadata:
+  name: demo-project
+  namespace: demo
+spec:
+  name: demo-project
+---
 apiVersion: magosproject.io/v1alpha1
 kind: Workspace
 metadata:

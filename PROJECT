@@ -17,4 +17,12 @@ resources:
   kind: Workspace
   path: github.com/magosproject/magos/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: magosproject.io
+  kind: Project
+  path: github.com/magosproject/magos/api/v1alpha1
+  version: v1alpha1
 version: "3"

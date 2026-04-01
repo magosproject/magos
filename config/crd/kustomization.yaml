@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/magosproject.io_workspaces.yaml
+- bases/magosproject.io_projects.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
