@@ -34,9 +34,11 @@ Build and deploy the operator:
 ```bash
 # Build the operator image
 make docker-build IMG=magos-operator:local
+make docker-build IMG=magos-job:local
 
 # Load image into Kind
 kind load docker-image magos-operator:local
+kind load docker-image magos-job:local
 
 # Deploy with Helm
 make deploy IMG=magos-operator:local namespace=magos
