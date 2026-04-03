@@ -109,6 +109,7 @@ build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
 .PHONY: run
+ARGS ?= --enable-workspace-controller --enable-project-controller --enable-variableset-controller --enable-rollout-controller
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go $(ARGS)
 
