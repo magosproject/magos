@@ -1,0 +1,9 @@
+apiVersion: magosproject.io/v1alpha1
+kind: Rollout
+metadata:
+  labels:
+    app.kubernetes.io/name: magos
+    app.kubernetes.io/managed-by: kustomize
+  name: rollout-sample
+spec:
+  # TODO(user): Add fields here

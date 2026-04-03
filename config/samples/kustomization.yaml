@@ -1,4 +1,7 @@
 ## Append samples of your project ##
 resources:
 - v1alpha1_workspace.yaml
+- v1alpha1_project.yaml
+- v1alpha1_variableset.yaml
+- v1alpha1_rollout.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

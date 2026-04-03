@@ -62,6 +62,13 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
+
+	// Controller enable flags
+	var enableWorkspaceController bool
+	var enableProjectController bool
+	var enableVariableSetController bool
+	var enableRolloutController bool
+
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -79,6 +86,17 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+
+	// Controller enable flags
+	flag.BoolVar(&enableWorkspaceController, "enable-workspace-controller", false,
+		"Enable the Workspace controller.")
+	flag.BoolVar(&enableProjectController, "enable-project-controller", false,
+		"Enable the Project controller.")
+	flag.BoolVar(&enableVariableSetController, "enable-variableset-controller", false,
+		"Enable the VariableSet controller.")
+	flag.BoolVar(&enableRolloutController, "enable-rollout-controller", false,
+		"Enable the Rollout controller.")
+
 	opts := zap.Options{
 		Development: true,
 	}
@@ -178,12 +196,48 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.WorkspaceReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Workspace")
-		os.Exit(1)
+	if enableWorkspaceController {
+		if err := (&controller.WorkspaceReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Workspace")
+			os.Exit(1)
+		}
+		setupLog.Info("Workspace controller enabled")
+	}
+
+	if enableProjectController {
+		if err := (&controller.ProjectReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Project")
+			os.Exit(1)
+		}
+		setupLog.Info("Project controller enabled")
+	}
+
+	if enableVariableSetController {
+		if err := (&controller.VariableSetReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "VariableSet")
+			os.Exit(1)
+		}
+		setupLog.Info("VariableSet controller enabled")
+	}
+
+	if enableRolloutController {
+		if err := (&controller.RolloutReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Rollout")
+			os.Exit(1)
+		}
+		setupLog.Info("Rollout controller enabled")
 	}
 	// +kubebuilder:scaffold:builder
 

@@ -27,6 +27,9 @@ rules:
 - apiGroups:
   - magosproject.io
   resources:
+  - projects
+  - rollouts
+  - variablesets
   - workspaces
   verbs:
   - create
@@ -39,12 +42,18 @@ rules:
 - apiGroups:
   - magosproject.io
   resources:
+  - projects/finalizers
+  - rollouts/finalizers
+  - variablesets/finalizers
   - workspaces/finalizers
   verbs:
   - update
 - apiGroups:
   - magosproject.io
   resources:
+  - projects/status
+  - rollouts/status
+  - variablesets/status
   - workspaces/status
   verbs:
   - get
