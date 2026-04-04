@@ -20,6 +20,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.4.0
+        with:
+          path: bin
+          key: ${{ runner.os }}-tools-${{ hashFiles('Makefile', 'go.mod', 'go.sum') }}
       - run: make lint
       - run: make build
       - run: make test
