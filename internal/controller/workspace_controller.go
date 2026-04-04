@@ -85,7 +85,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *magosprojectiov1alpha1.Workspace, jobName string) (*batchv1.Job, error) {
+func (r *WorkspaceReconciler) constructJobForWorkspace(_ context.Context, ws *magosprojectiov1alpha1.Workspace, jobName string) (*batchv1.Job, error) {
 	envVars := []corev1.EnvVar{
 		{Name: "REPO_URL", Value: ws.Spec.Source.RepoURL},
 		{Name: "TARGET_REVISION", Value: ws.Spec.Source.TargetRevision},

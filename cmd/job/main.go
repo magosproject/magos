@@ -36,7 +36,12 @@ func main() {
 		fmt.Printf("Failed to create temporary directory: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			fmt.Printf("Failed to remove temporary directory %s: %v", tmpDir, err)
+			os.Exit(1)
+		}
+	}()
 
 	fmt.Printf("Cloning repository %s @ %s into %s\n", repoURL, targetRevision, tmpDir)
 
