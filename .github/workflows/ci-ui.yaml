@@ -11,6 +11,7 @@ on:
     paths:
       - '.github_workflows/ci-ui.yaml'
       - 'ui/**'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}

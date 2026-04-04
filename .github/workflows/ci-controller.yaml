@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths-ignore:
       - "ui/**"
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
