@@ -14,7 +14,14 @@ spec:
     singular: project
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Project is the Schema for the projects API
@@ -39,10 +46,24 @@ spec:
           spec:
             description: spec defines the desired state of Project
             properties:
-              foo:
-                description: foo is an example field of Project. Edit project_types.go
-                  to remove/update
+              description:
+                description: Description provides a human-readable description of
+                  the project's purpose.
                 type: string
+              variableSetRef:
+                description: VariableSetRef references one or more VariableSets to
+                  be applied to all Workspaces within this Project.
+                items:
+                  description: VariableSetReference references a VariableSet resource
+                  properties:
+                    name:
+                      description: Name of the VariableSet.
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
             type: object
           status:
             description: status defines the observed state of Project
@@ -116,6 +137,32 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastReconcileTime:
+                description: LastReconcileTime is the timestamp of the last reconciliation
+                format: date-time
+                type: string
+              message:
+                description: Message is a human-readable explanation of the current
+                  phase
+                type: string
+              phase:
+                description: Phase represents the current phase of the Project
+                enum:
+                - Pending
+                - Reconciling
+                - Ready
+                - Idle
+                - Planning
+                - Planned
+                - Applying
+                - Applied
+                - Failed
+                - Deleting
+                type: string
+              reason:
+                description: Reason is a brief CamelCase string explaining the current
+                  phase
+                type: string
             type: object
         required:
         - spec

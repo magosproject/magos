@@ -36,7 +36,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	magosprojectiov1alpha1 "github.com/magosproject/magos/api/v1alpha1"
-	"github.com/magosproject/magos/internal/controller"
+	projectcontroller "github.com/magosproject/magos/internal/controller/project"
+	rolloutcontroller "github.com/magosproject/magos/internal/controller/rollout"
+	variablesetcontroller "github.com/magosproject/magos/internal/controller/variableset"
+	workspacecontroller "github.com/magosproject/magos/internal/controller/workspace"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -197,7 +200,7 @@ func main() {
 	}
 
 	if enableWorkspaceController {
-		if err := (&controller.WorkspaceReconciler{
+		if err := (&workspacecontroller.WorkspaceReconciler{
 			Client: mgr.GetClient(),
 			Scheme: mgr.GetScheme(),
 		}).SetupWithManager(mgr); err != nil {
@@ -208,7 +211,7 @@ func main() {
 	}
 
 	if enableProjectController {
-		if err := (&controller.ProjectReconciler{
+		if err := (&projectcontroller.ProjectReconciler{
 			Client: mgr.GetClient(),
 			Scheme: mgr.GetScheme(),
 		}).SetupWithManager(mgr); err != nil {
@@ -219,7 +222,7 @@ func main() {
 	}
 
 	if enableVariableSetController {
-		if err := (&controller.VariableSetReconciler{
+		if err := (&variablesetcontroller.VariableSetReconciler{
 			Client: mgr.GetClient(),
 			Scheme: mgr.GetScheme(),
 		}).SetupWithManager(mgr); err != nil {
@@ -230,7 +233,7 @@ func main() {
 	}
 
 	if enableRolloutController {
-		if err := (&controller.RolloutReconciler{
+		if err := (&rolloutcontroller.RolloutReconciler{
 			Client: mgr.GetClient(),
 			Scheme: mgr.GetScheme(),
 		}).SetupWithManager(mgr); err != nil {

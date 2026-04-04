@@ -20,28 +20,47 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+const (
+	// ProjectFinalizerName is the finalizer added to Project resources
+	ProjectFinalizerName = "magosproject.io/finalizer"
+)
+
+// VariableSetReference references a VariableSet resource
+type VariableSetReference struct {
+	// Name of the VariableSet.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+}
 
 // ProjectSpec defines the desired state of Project
 type ProjectSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-
-	// foo is an example field of Project. Edit project_types.go to remove/update
+	// Description provides a human-readable description of the project's purpose.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	Description string `json:"description,omitempty"`
+
+	// VariableSetRef references one or more VariableSets to be applied to all Workspaces within this Project.
+	// +optional
+	VariableSetRef []VariableSetReference `json:"variableSetRef,omitempty"`
 }
 
 // ProjectStatus defines the observed state of Project.
 type ProjectStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Phase represents the current phase of the Project
+	// +optional
+	Phase Phase `json:"phase,omitempty"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// Reason is a brief CamelCase string explaining the current phase
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// Message is a human-readable explanation of the current phase
+	// +optional
+	Message string `json:"message,omitempty"`
+
+	// LastReconcileTime is the timestamp of the last reconciliation
+	// +optional
+	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
 
 	// conditions represent the current state of the Project resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
@@ -60,6 +79,8 @@ type ProjectStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Project is the Schema for the projects API
 type Project struct {

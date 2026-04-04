@@ -6,4 +6,12 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: workspace-sample
 spec:
-  # TODO(user): Add fields here
+  source:
+    repoURL: https://github.com/magosproject/demo.git
+    targetRevision: main
+    path: .
+  terraform:
+    version: "1.14.0"
+    tfvarsPath: env/staging/vars.tfvars
+  projectRef:
+    name: data-platform

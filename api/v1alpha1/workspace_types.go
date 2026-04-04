@@ -21,6 +21,25 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	// WorkspaceFinalizerName is the finalizer added to Workspace resources
+	WorkspaceFinalizerName = "magosproject.io/finalizer"
+
+	// WorkspaceApprovedAnnotation is the annotation used to approve a workspace run
+	WorkspaceApprovedAnnotation = "magosproject.io/approved"
+
+	// WorkspaceReconcileRequestAnnotation is used to force a reconciliation (e.g., drift correction)
+	WorkspaceReconcileRequestAnnotation = "magosproject.io/reconcile-request"
+)
+
+// ProjectReference references a Project resource
+type ProjectReference struct {
+	// Name of the Project.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+}
+
 // SourceSpec defines the Git repository configuration
 type SourceSpec struct {
 	// RepoURL is the URL of the Git repository to clone
@@ -54,6 +73,10 @@ type TerraformSpec struct {
 
 // WorkspaceSpec defines the desired state of Workspace
 type WorkspaceSpec struct {
+	// ProjectRef is a reference to the project this workspace belongs to
+	// +required
+	ProjectRef ProjectReference `json:"projectRef"`
+
 	// Source defines the Git repository configuration
 	// +required
 	Source SourceSpec `json:"source"`
@@ -65,11 +88,25 @@ type WorkspaceSpec struct {
 
 // WorkspaceStatus defines the observed state of Workspace.
 type WorkspaceStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Phase represents the current phase of the Workspace
+	// +optional
+	Phase Phase `json:"phase,omitempty"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// Reason is a brief CamelCase string explaining the current phase
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// Message is a human-readable explanation of the current phase
+	// +optional
+	Message string `json:"message,omitempty"`
+
+	// ObservedRevision is the git revision that was most recently observed/applied
+	// +optional
+	ObservedRevision string `json:"observedRevision,omitempty"`
+
+	// LastReconcileTime is the timestamp of the last reconciliation
+	// +optional
+	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
 
 	// conditions represent the current state of the Workspace resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
@@ -88,6 +125,10 @@ type WorkspaceStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Project",type=string,JSONPath=`.spec.projectRef.name`
+// +kubebuilder:printcolumn:name="Revision",type=string,JSONPath=`.status.observedRevision`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Workspace is the Schema for the workspaces API
 type Workspace struct {

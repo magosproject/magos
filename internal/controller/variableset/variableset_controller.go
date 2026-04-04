@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package variableset
 
 import (
 	"context"
@@ -27,26 +27,26 @@ import (
 	magosprojectiov1alpha1 "github.com/magosproject/magos/api/v1alpha1"
 )
 
-// ProjectReconciler reconciles a Project object
-type ProjectReconciler struct {
+// VariableSetReconciler reconciles a VariableSet object
+type VariableSetReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=magosproject.io,resources=projects,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=magosproject.io,resources=projects/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=magosproject.io,resources=projects/finalizers,verbs=update
+// +kubebuilder:rbac:groups=magosproject.io,resources=variablesets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=magosproject.io,resources=variablesets/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=magosproject.io,resources=variablesets/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
-// the Project object against the actual cluster state, and then
+// the VariableSet object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.22.1/pkg/reconcile
-func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *VariableSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = logf.FromContext(ctx)
 
 	// TODO(user): your logic here
@@ -55,9 +55,9 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *VariableSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&magosprojectiov1alpha1.Project{}).
-		Named("project").
+		For(&magosprojectiov1alpha1.VariableSet{}).
+		Named("variableset").
 		Complete(r)
 }

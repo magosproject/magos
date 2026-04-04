@@ -14,7 +14,20 @@ spec:
     singular: workspace
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.projectRef.name
+      name: Project
+      type: string
+    - jsonPath: .status.observedRevision
+      name: Revision
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Workspace is the Schema for the workspaces API
@@ -39,6 +52,17 @@ spec:
           spec:
             description: spec defines the desired state of Workspace
             properties:
+              projectRef:
+                description: ProjectRef is a reference to the project this workspace
+                  belongs to
+                properties:
+                  name:
+                    description: Name of the Project.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
               source:
                 description: Source defines the Git repository configuration
                 properties:
@@ -86,6 +110,7 @@ spec:
                 - version
                 type: object
             required:
+            - projectRef
             - source
             - terraform
             type: object
@@ -161,6 +186,36 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastReconcileTime:
+                description: LastReconcileTime is the timestamp of the last reconciliation
+                format: date-time
+                type: string
+              message:
+                description: Message is a human-readable explanation of the current
+                  phase
+                type: string
+              observedRevision:
+                description: ObservedRevision is the git revision that was most recently
+                  observed/applied
+                type: string
+              phase:
+                description: Phase represents the current phase of the Workspace
+                enum:
+                - Pending
+                - Reconciling
+                - Ready
+                - Idle
+                - Planning
+                - Planned
+                - Applying
+                - Applied
+                - Failed
+                - Deleting
+                type: string
+              reason:
+                description: Reason is a brief CamelCase string explaining the current
+                  phase
+                type: string
             type: object
         required:
         - spec

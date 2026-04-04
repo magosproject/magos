@@ -22,18 +22,21 @@ func main() {
 	tfvarsPath := os.Getenv("TF_VAR_FILE")
 	gitUser := os.Getenv("GIT_USERNAME")
 	gitPass := os.Getenv("GIT_PASSWORD")
+	jobType := os.Getenv("MAGOS_JOB_TYPE")
+	planFile := os.Getenv("MAGOS_PLAN_FILE")
 
-	if repoURL == "" || targetRevision == "" || tfVersion == "" {
-		fmt.Println("Error: REPO_URL, TARGET_REVISION, and TF_VERSION are required environment variables")
+	if repoURL == "" || targetRevision == "" || tfVersion == "" || jobType == "" || planFile == "" {
+		fmt.Println("Error: REPO_URL, TARGET_REVISION, TF_VERSION, MAGOS_JOB_TYPE, and MAGOS_PLAN_FILE are required environment variables")
 		os.Exit(1)
 	}
 
 	ctx := context.Background()
 
-	// 1. Setup Temporary Directory
-	tmpDir, err := os.MkdirTemp("", "magos-job-*")
-	if err != nil {
-		fmt.Printf("Failed to create temporary directory: %v\n", err)
+	// 1. Setup Static Working Directory (Prevents absolute path mismatches between Plan and Apply)
+	tmpDir := "/tmp/magos-src"
+	os.RemoveAll(tmpDir) // Clean up any previous state
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		fmt.Printf("Failed to create directory: %v\n", err)
 		os.Exit(1)
 	}
 	defer os.RemoveAll(tmpDir)
@@ -103,19 +106,43 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 7. Terraform Plan
-	fmt.Println("Running 'terraform plan'...")
-	var planOpts []tfexec.PlanOption
-	if tfvarsPath != "" {
-		tfvarsFile := filepath.Join(tmpDir, tfvarsPath)
-		planOpts = append(planOpts, tfexec.VarFile(tfvarsFile))
-	}
+	switch jobType {
+	case "plan":
+		// 7. Terraform Plan
+		fmt.Println("Running 'terraform plan'...")
+		var planOpts []tfexec.PlanOption
+		if tfvarsPath != "" {
+			tfvarsFile := filepath.Join(tmpDir, tfvarsPath)
+			planOpts = append(planOpts, tfexec.VarFile(tfvarsFile))
+		}
 
-	hasChanges, err := tfClient.Plan(ctx, "", planOpts...)
-	if err != nil {
-		fmt.Printf("Terraform Plan failed: %v\n", err)
+		// Set out file for plan
+		planOpts = append(planOpts, tfexec.Out(planFile))
+
+		hasChanges, err := tfClient.Plan(ctx, "", planOpts...)
+		if err != nil {
+			fmt.Printf("Terraform Plan failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Terraform Plan completed successfully. Infrastructure has changes: %v\n", hasChanges)
+	case "apply":
+		// 7. Terraform Apply
+		fmt.Printf("Running 'terraform apply' using plan file %s...\n", planFile)
+
+		if err := tfClient.Apply(ctx, planFile); err != nil {
+			fmt.Printf("Terraform Apply failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("Terraform Apply completed successfully.")
+
+		fmt.Printf("Cleaning up plan file %s...\n", planFile)
+		if err := os.Remove(planFile); err != nil && !os.IsNotExist(err) {
+			fmt.Printf("Warning: Failed to delete plan file: %v\n", err)
+		}
+	default:
+		fmt.Printf("Unknown MAGOS_JOB_TYPE: %s\n", jobType)
 		os.Exit(1)
 	}
-
-	fmt.Printf("Terraform Plan completed successfully. Infrastructure has changes: %v\n", hasChanges)
 }
