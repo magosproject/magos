@@ -4,9 +4,6 @@ resources:
 - deployment.yaml
 - service.yaml
 images:
-- name: magos-ui
-  newName: magos-ui
-  newTag: latest
 - name: ui
   newName: ui
   newTag: local

@@ -4,9 +4,9 @@ metadata:
   name: ui-server-service
   namespace: system
   labels:
-    app: magos-ui
-    app.kubernetes.io/name: magos
-    app.kubernetes.io/component: magos-ui
+    control-plane: ui-server
+    app.kubernetes.io/name: ui-server
+    app.kubernetes.io/component: ui-server
     app.kubernetes.io/managed-by: kustomize
 spec:
   type: ClusterIP
@@ -17,5 +17,5 @@ spec:
     targetPort: 8080
   selector:
     control-plane: ui-server
-    app.kubernetes.io/name: magos
+    app.kubernetes.io/name: ui-server
 

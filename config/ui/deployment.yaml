@@ -5,21 +5,22 @@ metadata:
   namespace: system
   labels:
     control-plane: ui-server
-    app.kubernetes.io/name: magos
-    app.kubernetes.io/component: ui
+    app.kubernetes.io/name: ui-server
+    app.kubernetes.io/component: ui-server
     app.kubernetes.io/managed-by: kustomize
 spec:
   replicas: 1
   selector:
     matchLabels:
       control-plane: ui-server
-      app.kubernetes.io/name: magos
+      app.kubernetes.io/name: ui-server
   template:
     metadata:
       labels:
         control-plane: ui-server
-        app.kubernetes.io/name: magos
-        app.kubernetes.io/component: ui
+        app.kubernetes.io/name: ui-server
+        app.kubernetes.io/component: ui-server
+        app.kubernetes.io/managed-by: kustomize
     spec:
       securityContext:
         runAsNonRoot: true
