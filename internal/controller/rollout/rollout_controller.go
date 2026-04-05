@@ -111,6 +111,13 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 			}
 		}
 
+		if len(targetWorkspaces) == 0 {
+			// If no workspaces are found for this step yet, we should reflect that it's waiting/pending
+			rollout.Status.CurrentStep = i
+			r.updateStatus(ctx, rollout, magosprojectiov1alpha1.PhasePending, "WaitingForWorkspaces", "No workspaces found matching selector for step "+step.Name, metav1.ConditionUnknown)
+			return nil
+		}
+
 		// Evaluate the workspaces in this step
 		stepNeedsWork := false
 		anyFailed := false
