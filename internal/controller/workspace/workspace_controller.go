@@ -77,7 +77,7 @@ func (r *WorkspaceReconciler) getRepoCredentials(ctx context.Context, namespace,
 	var secretList corev1.SecretList
 
 	// List secrets in the namespace with the specific label
-	err := r.Client.List(ctx, &secretList,
+	err := r.List(ctx, &secretList,
 		client.InNamespace(namespace),
 		client.MatchingLabels{RepoSecretLabelKey: RepoSecretLabelValue},
 	)
