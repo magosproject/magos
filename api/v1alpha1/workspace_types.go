@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -54,10 +53,6 @@ type SourceSpec struct {
 	// +optional
 	// +kubebuilder:default="."
 	Path string `json:"path,omitempty"`
-
-	// SecretRef is a reference to a secret containing authentication credentials for the repository
-	// +optional
-	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
 }
 
 // TerraformSpec defines the Terraform or OpenTofu configuration

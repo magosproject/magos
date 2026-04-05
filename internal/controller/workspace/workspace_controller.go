@@ -1,17 +1,16 @@
 /*
 Copyright 2026.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at
 
     http://www.apache.org/licenses/LICENSE-2.0
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
 */
 
 package workspace
@@ -33,17 +32,94 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	magosprojectiov1alpha1 "github.com/magosproject/magos/api/v1alpha1"
+)
+
+const (
+	// Label used to identify repository credential secrets
+	RepoSecretLabelKey   = "magosproject.io/secret-type"
+	RepoSecretLabelValue = "repository"
+
+	// Keys expected in the Secret's data map
+	SecretKeyRepoURL       = "repoURL"
+	SecretKeyUsername      = "username"
+	SecretKeyPassword      = "password"
+	SecretKeySSHPrivateKey = "sshPrivateKey"
 )
 
 // WorkspaceReconciler reconciles a Workspace object
 type WorkspaceReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+}
+
+// getRepoCredentials looks for a Secret in the given namespace labeled with
+// magosproject.io/secret-type: repository that matches the target repoURL.
+func (r *WorkspaceReconciler) getRepoCredentials(ctx context.Context, namespace, targetRepoURL string) (*corev1.Secret, error) {
+	var secretList corev1.SecretList
+
+	// List secrets in the namespace with the specific label
+	err := r.Client.List(ctx, &secretList,
+		client.InNamespace(namespace),
+		client.MatchingLabels{RepoSecretLabelKey: RepoSecretLabelValue},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find the secret that matches the requested RepoURL
+	for i := range secretList.Items {
+		secret := &secretList.Items[i]
+		if string(secret.Data[SecretKeyRepoURL]) == targetRepoURL {
+			return secret, nil
+		}
+	}
+
+	return nil, nil // No credentials found
+}
+
+// findWorkspacesForSecret finds all workspaces in the secret's namespace that use the secret's repository URL
+func (r *WorkspaceReconciler) findWorkspacesForSecret(ctx context.Context, o client.Object) []reconcile.Request {
+	secret, ok := o.(*corev1.Secret)
+	if !ok {
+		return nil
+	}
+
+	if secret.Labels == nil || secret.Labels[RepoSecretLabelKey] != RepoSecretLabelValue {
+		return nil
+	}
+
+	repoURL, ok := secret.Data[SecretKeyRepoURL]
+	if !ok {
+		return nil
+	}
+
+	var workspaces magosprojectiov1alpha1.WorkspaceList
+	if err := r.List(ctx, &workspaces, client.InNamespace(secret.Namespace)); err != nil {
+		log.FromContext(ctx).Error(err, "Failed to list workspaces for secret change")
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for _, ws := range workspaces.Items {
+		if ws.Spec.Source.RepoURL == string(repoURL) {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      ws.Name,
+					Namespace: ws.Namespace,
+				},
+			})
+		}
+	}
+	return requests
 }
 
 // +kubebuilder:rbac:groups=magosproject.io,resources=workspaces,verbs=get;list;watch;create;update;patch;delete
@@ -101,8 +177,9 @@ func (r *WorkspaceReconciler) handleDeletion(ctx context.Context, workspace *mag
 
 	r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhaseDeleting, "Deleting", "Workspace is being deleted", metav1.ConditionFalse)
 
-	// Since Jobs and PVCs are owned by the Workspace (via OwnerReferences), Kubernetes garbage collection
-	// will automatically clean them up. We don't need to manually delete them.
+	// Since Jobs and PVCs are owned by the Workspace (via OwnerReferences),
+	// Kubernetes garbage collection will automatically clean them up. We don't
+	// need to manually delete them.
 
 	if controllerutil.ContainsFinalizer(workspace, magosprojectiov1alpha1.WorkspaceFinalizerName) {
 		logger.Info("Removing finalizer")
@@ -114,8 +191,8 @@ func (r *WorkspaceReconciler) handleDeletion(ctx context.Context, workspace *mag
 	return true, nil
 }
 
-// getRunID returns a deterministic hash of the Workspace Spec.
-// This allows the controller to reuse the plan job when only the Approval status changes.
+// getRunID returns a deterministic hash of the Workspace Spec. This allows the
+// controller to reuse the plan job when only the Approval status changes.
 func (r *WorkspaceReconciler) getRunID(ws *magosprojectiov1alpha1.Workspace) string {
 	data, _ := json.Marshal(ws.Spec)
 
@@ -141,7 +218,8 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		return err
 	}
 
-	// The run ID ensures that a plan is reused when only the Approved flag changes
+	// The run ID ensures that a plan is reused when only the Approved flag
+	// changes
 	runID := r.getRunID(workspace)
 
 	// The plan file we will write/read across both jobs
@@ -202,7 +280,8 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 				return nil
 			}
 
-			// Consume the approval annotation FIRST so it doesn't accidentally auto-apply future runs
+			// Consume the approval annotation FIRST so it doesn't accidentally
+			// auto-apply future runs
 			if workspace.Annotations != nil {
 				delete(workspace.Annotations, magosprojectiov1alpha1.WorkspaceApprovedAnnotation)
 				if err := r.Update(ctx, workspace); err != nil {
@@ -292,30 +371,47 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 		envVars = append(envVars, corev1.EnvVar{Name: "TF_VAR_FILE", Value: ws.Spec.Terraform.TfvarsPath})
 	}
 
-	// Pass Git credentials if SecretRef is provided
-	if ws.Spec.Source.SecretRef != nil {
-		envVars = append(envVars,
-			corev1.EnvVar{
-				Name: "GIT_USERNAME",
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: *ws.Spec.Source.SecretRef,
-						Key:                  "username",
-						Optional:             func(b bool) *bool { return &b }(true),
+	// Pass Git credentials if available
+	authSecret, err := r.getRepoCredentials(ctx, ws.Namespace, ws.Spec.Source.RepoURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve repository credentials: %w", err)
+	}
+
+	if authSecret != nil {
+		if _, ok := authSecret.Data[SecretKeySSHPrivateKey]; ok {
+			envVars = append(envVars,
+				corev1.EnvVar{
+					Name: "GIT_SSH_PRIVATE_KEY",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: authSecret.Name},
+							Key:                  SecretKeySSHPrivateKey,
+						},
 					},
 				},
-			},
-			corev1.EnvVar{
-				Name: "GIT_PASSWORD",
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: *ws.Spec.Source.SecretRef,
-						Key:                  "password",
-						Optional:             func(b bool) *bool { return &b }(true),
+			)
+		} else if _, ok := authSecret.Data[SecretKeyUsername]; ok {
+			envVars = append(envVars,
+				corev1.EnvVar{
+					Name: "GIT_USERNAME",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: authSecret.Name},
+							Key:                  SecretKeyUsername,
+						},
 					},
 				},
-			},
-		)
+				corev1.EnvVar{
+					Name: "GIT_PASSWORD",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: authSecret.Name},
+							Key:                  SecretKeyPassword,
+						},
+					},
+				},
+			)
+		}
 	}
 
 	var backoffLimit int32 = 0                // Don't retry blindly, especially if terraform fails
@@ -413,6 +509,11 @@ func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&magosprojectiov1alpha1.Workspace{}).
 		Owns(&batchv1.Job{}).                  // Watch for changes to Jobs owned by the Workspace
 		Owns(&corev1.PersistentVolumeClaim{}). // Watch PVCs
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.findWorkspacesForSecret),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
 		Named("workspace").
 		Complete(r)
 }

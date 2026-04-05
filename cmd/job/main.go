@@ -9,6 +9,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/magosproject/magos/internal/terraform"
 )
@@ -22,6 +23,7 @@ func main() {
 	tfvarsPath := os.Getenv("TF_VAR_FILE")
 	gitUser := os.Getenv("GIT_USERNAME")
 	gitPass := os.Getenv("GIT_PASSWORD")
+	gitSSHKey := os.Getenv("GIT_SSH_PRIVATE_KEY")
 	jobType := os.Getenv("MAGOS_JOB_TYPE")
 	planFile := os.Getenv("MAGOS_PLAN_FILE")
 
@@ -48,7 +50,16 @@ func main() {
 		Depth: 1, // Shallow clone for performance
 	}
 
-	if gitUser != "" || gitPass != "" {
+	if gitSSHKey != "" {
+		publicKeys, err := ssh.NewPublicKeys("git", []byte(gitSSHKey), "")
+		if err != nil {
+			fmt.Printf("Failed to create SSH keys: %v\n", err)
+			os.Exit(1)
+		}
+		// Skip HostKey checking for now, could be made configurable later
+		// publicKeys.HostKeyCallback = ssh.InsecureIgnoreHostKey()
+		cloneOpts.Auth = publicKeys
+	} else if gitUser != "" || gitPass != "" {
 		cloneOpts.Auth = &http.BasicAuth{
 			Username: gitUser,
 			Password: gitPass,
