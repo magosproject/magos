@@ -27,6 +27,9 @@ const (
 	// WorkspaceApprovedAnnotation is the annotation used to approve a workspace run
 	WorkspaceApprovedAnnotation = "magosproject.io/approved"
 
+	// WorkspaceAllowedReconcileAnnotation is the annotation used to permit a workspace execution
+	WorkspaceAllowedReconcileAnnotation = "magosproject.io/allowed-reconcile"
+
 	// WorkspaceReconcileRequestAnnotation is used to force a reconciliation (e.g., drift correction)
 	WorkspaceReconcileRequestAnnotation = "magosproject.io/reconcile-request"
 )

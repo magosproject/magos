@@ -211,6 +211,23 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Workspace", "name", workspace.Name, "namespace", workspace.Namespace)
 
+	// Check if the workspace is allowed to reconcile
+	isAllowed := false
+	if workspace.Annotations != nil {
+		isAllowed = workspace.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] == "true"
+	}
+
+	if !isAllowed {
+		logger.Info("Workspace execution is not allowed. Waiting for rollout controller to grant permission.", "workspace", workspace.Name)
+
+		// If it's already finished (applied or failed), we just keep its state.
+		// If it's just created, mark it as Pending.
+		if workspace.Status.Phase == "" {
+			r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhasePending, "PendingPermission", "Waiting for execution permission from Rollout orchestrator", metav1.ConditionUnknown)
+		}
+		return nil
+	}
+
 	// 1. Ensure PVC exists to transfer plan to apply securely
 	pvcName := fmt.Sprintf("%s-data", workspace.Name)
 	if err := r.ensurePVC(ctx, workspace, pvcName); err != nil {
@@ -276,7 +293,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 
 			if !isApproved {
 				logger.Info("Workspace has planned successfully, but is pending approval to apply", "workspace", workspace.Name)
-				r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhasePlanned, "PlanSucceeded", "Terraform Plan succeeded. Waiting for approval to Apply.", metav1.ConditionTrue)
+				r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhasePlanned, "PlanSucceeded", "Terraform Plan succeeded. Waiting for manual approval to Apply.", metav1.ConditionTrue)
 				return nil
 			}
 
@@ -318,6 +335,18 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// 5. Apply Succeeded
 	logger.Info("Apply Job completed successfully", "job", applyJobName)
 	workspace.Status.ObservedRevision = workspace.Spec.Source.TargetRevision
+
+	// Consume the allowed annotation upon successful completion
+	if workspace.Annotations != nil {
+		if _, ok := workspace.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation]; ok {
+			delete(workspace.Annotations, magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation)
+			if err := r.Update(ctx, workspace); err != nil {
+				logger.Error(err, "Failed to consume allowed annotation")
+				return err
+			}
+		}
+	}
+
 	r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhaseApplied, "ApplySucceeded", "Terraform Apply completed successfully", metav1.ConditionTrue)
 
 	return nil
@@ -473,18 +502,22 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *magos
 		return
 	}
 
-	latest.Status.Phase = phase
-	latest.Status.Reason = reason
-	latest.Status.Message = message
+	needsUpdate := false
+
+	if latest.Status.Phase != phase || latest.Status.Reason != reason || latest.Status.Message != message {
+		latest.Status.Phase = phase
+		latest.Status.Reason = reason
+		latest.Status.Message = message
+		needsUpdate = true
+	}
 
 	// Preserve observed revision if it was set
-	if workspace.Status.ObservedRevision != "" {
+	if workspace.Status.ObservedRevision != "" && latest.Status.ObservedRevision != workspace.Status.ObservedRevision {
 		latest.Status.ObservedRevision = workspace.Status.ObservedRevision
+		needsUpdate = true
 	}
 
 	now := metav1.Now()
-	latest.Status.LastReconcileTime = &now
-
 	condition := metav1.Condition{
 		Type:               magosprojectiov1alpha1.ConditionTypeReady,
 		Status:             status,
@@ -492,7 +525,16 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *magos
 		Message:            message,
 		LastTransitionTime: now,
 	}
-	meta.SetStatusCondition(&latest.Status.Conditions, condition)
+
+	if meta.SetStatusCondition(&latest.Status.Conditions, condition) {
+		needsUpdate = true
+	}
+
+	if !needsUpdate {
+		return
+	}
+
+	latest.Status.LastReconcileTime = &now
 
 	if err := r.Status().Update(ctx, latest); err != nil {
 		log.FromContext(ctx).Error(err, "Failed to update workspace status")
@@ -501,6 +543,7 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *magos
 
 	// Update the original object so the caller has the latest state
 	workspace.Status = latest.Status
+	workspace.ResourceVersion = latest.ResourceVersion
 }
 
 // SetupWithManager sets up the controller with the Manager.

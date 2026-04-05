@@ -23,35 +23,58 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+// RolloutStep defines a single step in a rollout strategy
+type RolloutStep struct {
+	// Name of the step
+	// +required
+	Name string `json:"name"`
+
+	// Selector to match workspaces for this step
+	// +required
+	Selector metav1.LabelSelector `json:"selector"`
+}
+
+// RolloutStrategy defines how the rollout should proceed
+type RolloutStrategy struct {
+	// Steps defines the sequential stages of the rollout
+	// +required
+	Steps []RolloutStep `json:"steps"`
+}
+
 // RolloutSpec defines the desired state of Rollout
 type RolloutSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// ProjectRef is a reference to the project this rollout orchestrates
+	// +required
+	ProjectRef string `json:"projectRef"`
 
-	// foo is an example field of Rollout. Edit rollout_types.go to remove/update
-	// +optional
-	Foo *string `json:"foo,omitempty"`
+	// Strategy defines the rollout execution plan
+	// +required
+	Strategy RolloutStrategy `json:"strategy"`
 }
 
 // RolloutStatus defines the observed state of Rollout.
 type RolloutStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Phase represents the current phase of the Rollout
+	// +optional
+	Phase Phase `json:"phase,omitempty"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// CurrentStep is the index of the currently executing step
+	// +optional
+	CurrentStep int `json:"currentStep"`
+
+	// Reason is a brief CamelCase string explaining the current phase
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// Message is a human-readable explanation of the current phase
+	// +optional
+	Message string `json:"message,omitempty"`
+
+	// LastReconcileTime is the timestamp of the last reconciliation
+	// +optional
+	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
 
 	// conditions represent the current state of the Rollout resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -60,6 +83,10 @@ type RolloutStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Project",type=string,JSONPath=`.spec.projectRef`
+// +kubebuilder:printcolumn:name="Step",type=integer,JSONPath=`.status.currentStep`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Rollout is the Schema for the rollouts API
 type Rollout struct {
