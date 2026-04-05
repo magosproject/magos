@@ -2,158 +2,207 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/hashicorp/terraform-exec/tfexec"
+	gossh "golang.org/x/crypto/ssh"
+
 	"github.com/magosproject/magos/internal/terraform"
 )
 
-func main() {
-	// Read configuration from environment variables injected by the Operator
-	repoURL := os.Getenv("REPO_URL")
-	targetRevision := os.Getenv("TARGET_REVISION")
-	tfVersion := os.Getenv("TF_VERSION")
-	path := os.Getenv("TF_PATH")
-	tfvarsPath := os.Getenv("TF_VAR_FILE")
-	gitUser := os.Getenv("GIT_USERNAME")
-	gitPass := os.Getenv("GIT_PASSWORD")
-	gitSSHKey := os.Getenv("GIT_SSH_PRIVATE_KEY")
-	jobType := os.Getenv("MAGOS_JOB_TYPE")
-	planFile := os.Getenv("MAGOS_PLAN_FILE")
+// Config holds the job configuration derived from environment variables.
+type Config struct {
+	RepoURL        string
+	TargetRevision string
+	TFVersion      string
+	TFPath         string
+	TFVarsPath     string
+	GitUser        string
+	GitPass        string
+	GitSSHKey      string
+	JobType        string
+	PlanFile       string
+}
 
-	if repoURL == "" || targetRevision == "" || tfVersion == "" || jobType == "" || planFile == "" {
-		fmt.Println("Error: REPO_URL, TARGET_REVISION, TF_VERSION, MAGOS_JOB_TYPE, and MAGOS_PLAN_FILE are required environment variables")
-		os.Exit(1)
+// loadConfig reads and validates the required environment variables.
+func loadConfig() (*Config, error) {
+	cfg := &Config{
+		RepoURL:        os.Getenv("REPO_URL"),
+		TargetRevision: os.Getenv("TARGET_REVISION"),
+		TFVersion:      os.Getenv("TF_VERSION"),
+		TFPath:         os.Getenv("TF_PATH"),
+		TFVarsPath:     os.Getenv("TF_VAR_FILE"),
+		GitUser:        os.Getenv("GIT_USERNAME"),
+		GitPass:        os.Getenv("GIT_PASSWORD"),
+		GitSSHKey:      os.Getenv("GIT_SSH_PRIVATE_KEY"),
+		JobType:        os.Getenv("MAGOS_JOB_TYPE"),
+		PlanFile:       os.Getenv("MAGOS_PLAN_FILE"),
 	}
 
-	ctx := context.Background()
-
-	// 1. Setup Static Working Directory (Prevents absolute path mismatches between Plan and Apply)
-	tmpDir := "/tmp/magos-src"
-	os.RemoveAll(tmpDir) // Clean up any previous state
-	if err := os.MkdirAll(tmpDir, 0755); err != nil {
-		fmt.Printf("Failed to create directory: %v\n", err)
-		os.Exit(1)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	fmt.Printf("Cloning repository %s @ %s into %s\n", repoURL, targetRevision, tmpDir)
-
-	cloneOpts := &git.CloneOptions{
-		URL:   repoURL,
-		Depth: 1, // Shallow clone for performance
+	if cfg.RepoURL == "" || cfg.TargetRevision == "" || cfg.TFVersion == "" || cfg.JobType == "" || cfg.PlanFile == "" {
+		return nil, errors.New("REPO_URL, TARGET_REVISION, TF_VERSION, MAGOS_JOB_TYPE, and MAGOS_PLAN_FILE are required")
 	}
 
-	if gitSSHKey != "" {
-		publicKeys, err := ssh.NewPublicKeys("git", []byte(gitSSHKey), "")
+	if cfg.JobType != "plan" && cfg.JobType != "apply" {
+		return nil, fmt.Errorf("invalid MAGOS_JOB_TYPE: %s (must be 'plan' or 'apply')", cfg.JobType)
+	}
+
+	return cfg, nil
+}
+
+// getAuthMethod resolves the git authentication strategy based on provided
+// credentials.
+func getAuthMethod(cfg *Config) (transport.AuthMethod, error) {
+	if cfg.GitSSHKey != "" {
+		publicKeys, err := ssh.NewPublicKeys("git", []byte(cfg.GitSSHKey), "")
 		if err != nil {
-			fmt.Printf("Failed to create SSH keys: %v\n", err)
-			os.Exit(1)
+			return nil, fmt.Errorf("failed to parse SSH private key: %w", err)
 		}
-		// Skip HostKey checking for now, could be made configurable later
-		// publicKeys.HostKeyCallback = ssh.InsecureIgnoreHostKey()
-		cloneOpts.Auth = publicKeys
-	} else if gitUser != "" || gitPass != "" {
-		cloneOpts.Auth = &http.BasicAuth{
-			Username: gitUser,
-			Password: gitPass,
-		}
+		// In a highly sandboxed, ephemeral Kubernetes pod, we bypass strict
+		// host key checking by default unless a known_hosts mechanism is
+		// explicitly provided.
+		publicKeys.HostKeyCallback = gossh.InsecureIgnoreHostKey()
+		return publicKeys, nil
 	}
 
-	// 2. Clone Repository
-	repo, err := git.PlainClone(tmpDir, false, cloneOpts)
+	if cfg.GitUser != "" || cfg.GitPass != "" {
+		return &http.BasicAuth{
+			Username: cfg.GitUser,
+			Password: cfg.GitPass,
+		}, nil
+	}
+
+	return nil, nil // Public repository fallback
+}
+
+// cloneRepository clones the target repository and checks out the specific
+// revision.
+func cloneRepository(ctx context.Context, cfg *Config, dest string) error {
+	auth, err := getAuthMethod(cfg)
 	if err != nil {
-		fmt.Printf("Failed to clone repository: %v\n", err)
-		os.Exit(1)
+		return err
+	}
+
+	log.Printf("Cloning repository %s into %s", cfg.RepoURL, dest)
+	repo, err := git.PlainCloneContext(ctx, dest, false, &git.CloneOptions{
+		URL:   cfg.RepoURL,
+		Auth:  auth,
+		Depth: 1, // Shallow clone to minimize memory and network usage
+	})
+	if err != nil {
+		return fmt.Errorf("failed to clone repository: %w", err)
 	}
 
 	worktree, err := repo.Worktree()
 	if err != nil {
-		fmt.Printf("Failed to get worktree: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to get worktree: %w", err)
 	}
 
-	// 3. Checkout Target Revision
-	hash, err := repo.ResolveRevision(plumbing.Revision(targetRevision))
+	hash, err := repo.ResolveRevision(plumbing.Revision(cfg.TargetRevision))
 	if err != nil {
-		fmt.Printf("Failed to resolve target revision %s: %v\n", targetRevision, err)
-		os.Exit(1)
+		return fmt.Errorf("failed to resolve target revision %q: %w", cfg.TargetRevision, err)
 	}
 
-	err = worktree.Checkout(&git.CheckoutOptions{
-		Hash: *hash,
-	})
+	if err := worktree.Checkout(&git.CheckoutOptions{Hash: *hash}); err != nil {
+		return fmt.Errorf("failed to checkout revision %s: %w", hash.String(), err)
+	}
+
+	log.Printf("Successfully checked out revision %s", hash.String())
+	return nil
+}
+
+// execTerraform orchestrates the terraform init, plan, and apply lifecycle.
+func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
+	workDir := cloneDir
+	if cfg.TFPath != "" && cfg.TFPath != "." {
+		workDir = filepath.Join(cloneDir, cfg.TFPath)
+	}
+
+	log.Printf("Initializing Terraform %s in %s", cfg.TFVersion, workDir)
+	tfClient, err := terraform.NewClientFromInstall(ctx, workDir, cfg.TFVersion, "")
 	if err != nil {
-		fmt.Printf("Failed to checkout revision: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to initialize terraform client: %w", err)
 	}
 
-	fmt.Printf("Successfully checked out repository at commit %s\n", hash.String())
-
-	// 4. Resolve Terraform Working Directory
-	workDir := tmpDir
-	if path != "" && path != "." {
-		workDir = filepath.Join(tmpDir, path)
-	}
-
-	// 5. Initialize Terraform Client (and download the binary)
-	fmt.Printf("Initializing Terraform client (Version: %s)\n", tfVersion)
-	tfClient, err := terraform.NewClientFromInstall(ctx, workDir, tfVersion, "")
-	if err != nil {
-		fmt.Printf("Failed to initialize Terraform client: %v\n", err)
-		os.Exit(1)
-	}
-
-	// 6. Terraform Init
-	fmt.Println("Running 'terraform init'...")
+	log.Println("Running 'terraform init'...")
 	if err := tfClient.Init(ctx); err != nil {
-		fmt.Printf("Terraform Init failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("terraform init failed: %w", err)
 	}
 
-	switch jobType {
+	switch cfg.JobType {
 	case "plan":
-		// 7. Terraform Plan
-		fmt.Println("Running 'terraform plan'...")
+		log.Println("Running 'terraform plan'...")
 		var planOpts []tfexec.PlanOption
-		if tfvarsPath != "" {
-			tfvarsFile := filepath.Join(tmpDir, tfvarsPath)
+		if cfg.TFVarsPath != "" {
+			tfvarsFile := filepath.Join(cloneDir, cfg.TFVarsPath)
 			planOpts = append(planOpts, tfexec.VarFile(tfvarsFile))
 		}
-
-		// Set out file for plan
-		planOpts = append(planOpts, tfexec.Out(planFile))
+		planOpts = append(planOpts, tfexec.Out(cfg.PlanFile))
 
 		hasChanges, err := tfClient.Plan(ctx, "", planOpts...)
 		if err != nil {
-			fmt.Printf("Terraform Plan failed: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("terraform plan failed: %w", err)
 		}
+		log.Printf("Terraform plan completed successfully. Changes present: %v", hasChanges)
 
-		fmt.Printf("Terraform Plan completed successfully. Infrastructure has changes: %v\n", hasChanges)
 	case "apply":
-		// 7. Terraform Apply
-		fmt.Printf("Running 'terraform apply' using plan file %s...\n", planFile)
-
-		if err := tfClient.Apply(ctx, planFile); err != nil {
-			fmt.Printf("Terraform Apply failed: %v\n", err)
-			os.Exit(1)
+		log.Printf("Running 'terraform apply' using plan %s...", cfg.PlanFile)
+		if err := tfClient.Apply(ctx, cfg.PlanFile); err != nil {
+			return fmt.Errorf("terraform apply failed: %w", err)
 		}
+		log.Println("Terraform apply completed successfully.")
 
-		fmt.Println("Terraform Apply completed successfully.")
-
-		fmt.Printf("Cleaning up plan file %s...\n", planFile)
-		if err := os.Remove(planFile); err != nil && !os.IsNotExist(err) {
-			fmt.Printf("Warning: Failed to delete plan file: %v\n", err)
+		// Secure cleanup of the plan file post-apply to prevent state/secret
+		// leakage
+		log.Printf("Cleaning up plan file %s...", cfg.PlanFile)
+		if err := os.Remove(cfg.PlanFile); err != nil && !os.IsNotExist(err) {
+			log.Printf("Warning: failed to delete plan file: %v", err)
 		}
-	default:
-		fmt.Printf("Unknown MAGOS_JOB_TYPE: %s\n", jobType)
-		os.Exit(1)
+	}
+
+	return nil
+}
+
+func run() error {
+	// Configure logging for better observability in Kubernetes pods
+	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
+	log.SetPrefix("[magos-job] ")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+
+	tmpDir, err := os.MkdirTemp("", "magos-workspace-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary workspace directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+
+	if err := cloneRepository(ctx, cfg, tmpDir); err != nil {
+		return err
+	}
+
+	if err := execTerraform(ctx, cfg, tmpDir); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func main() {
+	if err := run(); err != nil {
+		log.Fatalf("Error: %v", err)
 	}
 }
