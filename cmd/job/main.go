@@ -178,7 +178,7 @@ func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 		if !planExists {
 			return fmt.Errorf(
 				"terraform apply failed: plan file %s does not exist after waiting. "+
-					"The plan job may not have successfully transferred the state via the PVC",
+					"The plan job may not have successfully written or shared the plan file via the PVC",
 				cfg.PlanFile,
 			)
 		}
