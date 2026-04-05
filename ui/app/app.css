@@ -41,3 +41,83 @@ body {
     opacity: 0;
   }
 }
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--pulse-color, rgba(110, 68, 255, 0.5));
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(110, 68, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(110, 68, 255, 0);
+  }
+}
+
+.pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Step pipeline node — small circle used in the rollout list rows */
+.step-node {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition:
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+
+/* Connector line between pipeline steps */
+.step-connector {
+  height: 2px;
+  flex: 1;
+  min-width: 8px;
+  max-width: 24px;
+  transition: background-color 150ms ease;
+}
+
+/* Step pipeline node used on the detail page (ReactFlow custom node) */
+.step-pipeline-node {
+  padding: 12px 16px;
+  border-radius: var(--mantine-radius-md);
+  border: 1px solid var(--mantine-color-dark-4);
+  background: var(--mantine-color-body);
+  width: 220px;
+  overflow: hidden;
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.step-pipeline-node[data-status="completed"] {
+  border-color: var(--mantine-color-green-7);
+}
+
+.step-pipeline-node[data-status="active"] {
+  border-color: var(--mantine-color-magos-5);
+  box-shadow: 0 0 0 1px var(--mantine-color-magos-5);
+}
+
+.step-pipeline-node[data-status="failed"] {
+  border-color: var(--mantine-color-red-7);
+  box-shadow: 0 0 0 1px var(--mantine-color-red-7);
+}
+
+/* Label selector key=value chip */
+.label-chip {
+  font-family: var(--mantine-font-family-monospace, monospace);
+  font-size: 11px;
+  letter-spacing: -0.3px;
+  background: var(--mantine-color-dark-7);
+  border-radius: var(--mantine-radius-sm);
+  padding: 3px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

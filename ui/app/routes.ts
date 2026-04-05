@@ -7,6 +7,8 @@ export default [
     route("workspaces/:id", "routes/workspace.tsx"),
     route("projects", "routes/projects.tsx"),
     route("projects/:id", "routes/project.tsx"),
+    route("rollouts", "routes/rollouts.tsx"),
+    route("rollouts/:id", "routes/rollout.tsx"),
     route("variable-sets", "routes/variable-sets.tsx"),
     route("variable-sets/:id", "routes/variable-set.tsx"),
     route("settings", "routes/settings.tsx"),

@@ -29,6 +29,7 @@ import {
   IconBrandDiscord,
   IconBraces,
   IconHexagon,
+  IconArrowsShuffle,
 } from "@tabler/icons-react";
 import { Link, Outlet, useLocation } from "react-router";
 import { currentUser } from "../mock-data/user";
@@ -36,6 +37,7 @@ import { currentUser } from "../mock-data/user";
 const navItems = [
   { label: "Projects", icon: IconFolderOpen, to: "/projects" },
   { label: "Workspaces", icon: IconStack2, to: "/workspaces" },
+  { label: "Rollouts", icon: IconArrowsShuffle, to: "/rollouts" },
   { label: "Variable Sets", icon: IconBraces, to: "/variable-sets" },
 ];
 
