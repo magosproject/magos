@@ -278,10 +278,12 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	needsReset := false
 	resetReason := ""
 	resetMessage := ""
+	var exactRequeue time.Duration
 
 	// Evaluate if the Apply Job is completely finished (Success or Failed)
 	if errApply == nil && applyJob.Status.CompletionTime != nil {
-		if time.Since(applyJob.Status.CompletionTime.Time) > syncInterval {
+		elapsed := time.Since(applyJob.Status.CompletionTime.Time)
+		if elapsed >= syncInterval {
 			needsReset = true
 			if applyJob.Status.Succeeded > 0 {
 				resetReason = "DriftSync"
@@ -290,6 +292,8 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 				resetReason = "RetryApply"
 				resetMessage = "Retrying failed apply starting from new plan"
 			}
+		} else {
+			exactRequeue = syncInterval - elapsed
 		}
 	} else if errPlan == nil && planJob.Status.Failed > 0 {
 		// Evaluate if the Plan Job failed (Successful plans are ignored here because they transition to Apply)
@@ -300,10 +304,15 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 				break
 			}
 		}
-		if !failedTime.IsZero() && time.Since(failedTime) > syncInterval {
-			needsReset = true
-			resetReason = "RetryPlan"
-			resetMessage = "Retrying failed plan"
+		if !failedTime.IsZero() {
+			elapsed := time.Since(failedTime)
+			if elapsed >= syncInterval {
+				needsReset = true
+				resetReason = "RetryPlan"
+				resetMessage = "Retrying failed plan"
+			} else {
+				exactRequeue = syncInterval - elapsed
+			}
 		}
 	}
 
@@ -334,6 +343,9 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		logger.Info("Workspace execution is not allowed. Waiting for rollout controller to grant permission.", "workspace", workspace.Name)
 		if workspace.Status.Phase == "" {
 			r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhasePending, "PendingPermission", "Waiting for execution permission from Rollout orchestrator", metav1.ConditionUnknown)
+		}
+		if exactRequeue > 0 {
+			return ctrl.Result{RequeueAfter: exactRequeue}, nil
 		}
 		return ctrl.Result{}, nil
 	}
