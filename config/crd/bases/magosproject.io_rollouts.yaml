@@ -14,7 +14,20 @@ spec:
     singular: rollout
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.projectRef
+      name: Project
+      type: string
+    - jsonPath: .status.currentStep
+      name: Step
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Rollout is the Schema for the rollouts API
@@ -39,25 +52,86 @@ spec:
           spec:
             description: spec defines the desired state of Rollout
             properties:
-              foo:
-                description: foo is an example field of Rollout. Edit rollout_types.go
-                  to remove/update
+              projectRef:
+                description: ProjectRef is a reference to the project this rollout
+                  orchestrates
                 type: string
+              strategy:
+                description: Strategy defines the rollout execution plan
+                properties:
+                  steps:
+                    description: Steps defines the sequential stages of the rollout
+                    items:
+                      description: RolloutStep defines a single step in a rollout
+                        strategy
+                      properties:
+                        name:
+                          description: Name of the step
+                          type: string
+                        selector:
+                          description: Selector to match workspaces for this step
+                          properties:
+                            matchExpressions:
+                              description: matchExpressions is a list of label selector
+                                requirements. The requirements are ANDed.
+                              items:
+                                description: |-
+                                  A label selector requirement is a selector that contains values, a key, and an operator that
+                                  relates the key and values.
+                                properties:
+                                  key:
+                                    description: key is the label key that the selector
+                                      applies to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      operator represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists and DoesNotExist.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      values is an array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. This array is replaced during a strategic
+                                      merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                operator is "In", and the values array contains only "value". The requirements are ANDed.
+                              type: object
+                          type: object
+                          x-kubernetes-map-type: atomic
+                      required:
+                      - name
+                      - selector
+                      type: object
+                    type: array
+                required:
+                - steps
+                type: object
+            required:
+            - projectRef
+            - strategy
             type: object
           status:
             description: status defines the observed state of Rollout
             properties:
               conditions:
-                description: |-
-                  conditions represent the current state of the Rollout resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                description: conditions represent the current state of the Rollout
+                  resource.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,10 +190,43 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              currentStep:
+                description: CurrentStep is the index of the currently executing step
+                type: integer
+              lastReconcileTime:
+                description: LastReconcileTime is the timestamp of the last reconciliation
+                format: date-time
+                type: string
+              message:
+                description: Message is a human-readable explanation of the current
+                  phase
+                type: string
+              phase:
+                description: Phase represents the current phase of the Rollout
+                enum:
+                - Pending
+                - Reconciling
+                - Ready
+                - Idle
+                - Planning
+                - Planned
+                - Applying
+                - Applied
+                - Failed
+                - Deleting
+                type: string
+              reason:
+                description: Reason is a brief CamelCase string explaining the current
+                  phase
+                type: string
             type: object
         required:
         - spec
         type: object
+        x-kubernetes-validations:
+        - message: Rollout name must exactly match the projectRef it targets to ensure
+            1-to-1 mapping
+          rule: self.metadata.name == self.spec.projectRef
     served: true
     storage: true
     subresources:

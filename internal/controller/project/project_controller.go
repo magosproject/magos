@@ -23,10 +23,15 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	magosprojectiov1alpha1 "github.com/magosproject/magos/api/v1alpha1"
 )
@@ -40,6 +45,8 @@ type ProjectReconciler struct {
 // +kubebuilder:rbac:groups=magosproject.io,resources=projects,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=magosproject.io,resources=projects/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=magosproject.io,resources=projects/finalizers,verbs=update
+// +kubebuilder:rbac:groups=magosproject.io,resources=rollouts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=magosproject.io,resources=workspaces,verbs=get;list;watch;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -112,17 +119,72 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling project")
 
-	// A project is not an active executor, but rather a foundational grouping
-	// layer that your Rollouts and Workspaces reference. It holds structural
-	// metadata but delegates all active reconciliation to the downstream
-	// controllers.
-
-	// We can validate that the referenced VariableSets exist (optional layer of
-	// safety) but generally we mark the project as ready since it acts as a
-	// passive grouping mechanism.
-
 	// Fast track to ready
 	r.updateStatus(ctx, project, magosprojectiov1alpha1.PhaseReady, "ProjectReady", "Project grouping is available", metav1.ConditionTrue)
+
+	// 1. Check if a Rollout exists for this Project (1-to-1 mapping via name)
+	rollout := &magosprojectiov1alpha1.Rollout{}
+	err := r.Get(ctx, types.NamespacedName{Name: project.Name, Namespace: project.Namespace}, rollout)
+	hasRollout := true
+	if err != nil {
+		if errors.IsNotFound(err) {
+			hasRollout = false
+		} else {
+			logger.Error(err, "Failed to check for existing Rollout")
+			return err
+		}
+	}
+
+	// 2. If a Rollout exists, we defer all execution orchestration to it.
+	if hasRollout {
+		logger.Info("Project is managed by a Rollout. Deferring workspace orchestration.", "rollout", rollout.Name)
+		return nil
+	}
+
+	// 3. Default Parallel Execution: No Rollout exists.
+	// We act as the default orchestrator and grant execution permission to all workspaces that need to reconcile.
+	var workspaces magosprojectiov1alpha1.WorkspaceList
+	if err := r.List(ctx, &workspaces, client.InNamespace(project.Namespace)); err != nil {
+		logger.Error(err, "Failed to list workspaces")
+		return err
+	}
+
+	for i := range workspaces.Items {
+		ws := &workspaces.Items[i]
+		if ws.Spec.ProjectRef.Name != project.Name {
+			continue
+		}
+
+		isAllowed := false
+		if ws.Annotations != nil {
+			isAllowed = ws.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] == "true"
+		}
+
+		if isAllowed {
+			continue // Already has permission
+		}
+
+		needsPermission := false
+		if ws.Status.Phase == "" || ws.Status.Phase == magosprojectiov1alpha1.PhasePending {
+			needsPermission = true // New workspace or waiting for permission
+		} else if ws.Status.ObservedRevision != ws.Spec.Source.TargetRevision {
+			needsPermission = true // Target revision changed
+		} else if ws.Annotations != nil && ws.Annotations[magosprojectiov1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
+			needsPermission = true // Manual forced reconcile requested
+		}
+
+		if needsPermission {
+			logger.Info("No Rollout detected. Granting default parallel execution permission to Workspace.", "workspace", ws.Name)
+			if ws.Annotations == nil {
+				ws.Annotations = make(map[string]string)
+			}
+			ws.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] = "true"
+			if err := r.Update(ctx, ws); err != nil {
+				logger.Error(err, "Failed to grant execution permission to workspace", "workspace", ws.Name)
+				return err
+			}
+		}
+	}
 
 	return nil
 }
@@ -172,10 +234,51 @@ func (r *ProjectReconciler) updateStatus(ctx context.Context, project *magosproj
 	project.ResourceVersion = latest.ResourceVersion
 }
 
+func (r *ProjectReconciler) findProjectsForWorkspace(ctx context.Context, o client.Object) []reconcile.Request {
+	ws, ok := o.(*magosprojectiov1alpha1.Workspace)
+	if !ok {
+		return nil
+	}
+	return []reconcile.Request{
+		{
+			NamespacedName: types.NamespacedName{
+				Name:      ws.Spec.ProjectRef.Name,
+				Namespace: ws.Namespace,
+			},
+		},
+	}
+}
+
+func (r *ProjectReconciler) findProjectsForRollout(ctx context.Context, o client.Object) []reconcile.Request {
+	ro, ok := o.(*magosprojectiov1alpha1.Rollout)
+	if !ok {
+		return nil
+	}
+	// Rollout names strictly map 1-to-1 to Project names
+	return []reconcile.Request{
+		{
+			NamespacedName: types.NamespacedName{
+				Name:      ro.Name,
+				Namespace: ro.Namespace,
+			},
+		},
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *ProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&magosprojectiov1alpha1.Project{}).
+		Watches(
+			&magosprojectiov1alpha1.Workspace{},
+			handler.EnqueueRequestsFromMapFunc(r.findProjectsForWorkspace),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
+		Watches(
+			&magosprojectiov1alpha1.Rollout{},
+			handler.EnqueueRequestsFromMapFunc(r.findProjectsForRollout),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
 		Named("project").
 		Complete(r)
 }

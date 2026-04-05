@@ -88,6 +88,7 @@ type RolloutStatus struct {
 // +kubebuilder:printcolumn:name="Step",type=integer,JSONPath=`.status.currentStep`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
+// +kubebuilder:validation:XValidation:rule="self.metadata.name == self.spec.projectRef",message="Rollout name must exactly match the projectRef it targets to ensure 1-to-1 mapping"
 // Rollout is the Schema for the rollouts API
 type Rollout struct {
 	metav1.TypeMeta `json:",inline"`
