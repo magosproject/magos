@@ -153,7 +153,7 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 				if !isFullyApplied || hasReconcileRequest || ws.Status.Phase == "" || ws.Status.Phase == magosprojectiov1alpha1.PhasePending {
 					hasPermission := false
 					if ws.Annotations != nil {
-						hasPermission = ws.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] == "true"
+						hasPermission = ws.Annotations[magosprojectiov1alpha1.WorkspaceExecutionAllowedAnnotation] == "true"
 					}
 
 					if !hasPermission {
@@ -164,7 +164,7 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 							if latestWS.Annotations == nil {
 								latestWS.Annotations = make(map[string]string)
 							}
-							latestWS.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] = "true"
+							latestWS.Annotations[magosprojectiov1alpha1.WorkspaceExecutionAllowedAnnotation] = "true"
 							if err := r.Update(ctx, latestWS); err != nil {
 								logger.Error(err, "Failed to update workspace with execution permission", "workspace", ws.Name)
 							}

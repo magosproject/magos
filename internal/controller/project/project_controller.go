@@ -158,7 +158,7 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 
 		isAllowed := false
 		if ws.Annotations != nil {
-			isAllowed = ws.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] == "true"
+			isAllowed = ws.Annotations[magosprojectiov1alpha1.WorkspaceExecutionAllowedAnnotation] == "true"
 		}
 
 		if isAllowed {
@@ -187,7 +187,7 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 				if latestWS.Annotations == nil {
 					latestWS.Annotations = make(map[string]string)
 				}
-				latestWS.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] = "true"
+				latestWS.Annotations[magosprojectiov1alpha1.WorkspaceExecutionAllowedAnnotation] = "true"
 				if err := r.Update(ctx, latestWS); err != nil {
 					logger.Error(err, "Failed to grant execution permission to workspace", "workspace", ws.Name)
 				}
