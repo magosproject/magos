@@ -1,0 +1,55 @@
+name: Proposal
+description: Suggest a new feature or improvement to Magos.
+labels: ["proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Proposals suggest new features or improvements to Mago. This can include changes to CRDs (Projects, Variable Sets, Workspaces, Rollouts), orchestration logic, job behavior, security model, or any other aspect of the operator.
+        ## Please search before submitting a proposal
+        Before creating a new proposal, take a moment to search the issue tracker. Use a descriptive title that would help others find it easily in search results.
+        
+        It's helpful to have a Magos core team member support and champion your proposal. You're encouraged to share your idea in a community space, like the Magos Discord, to gather feedback and gauge interest. Engaging with the community can help refine your proposal and may lead to a core team member taking interest in it.
+  
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Magos does this proposal relate to?
+      options:
+        - Projects
+        - Variable Sets
+        - Workspaces
+        - Rollouts
+        - Runner / Execution
+        - Security / RBAC
+        - VCS Integration (GitHub, GitLab, Bitbucket)
+        - Helm Chart / Installation
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the new feature or improvement you are proposing.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: List any alternative solutions or approaches you considered.
+    validations:
+      required: false
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Link to any relevant discussions, specs, or documentation.
+    validations:
+      required: false
