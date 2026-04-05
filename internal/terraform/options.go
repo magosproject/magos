@@ -2,7 +2,7 @@ package terraform
 
 import (
 	"io"
-	// "github.je-labs.com/mobius/mobius/internal/view"
+	// "github.com/mobius/mobius/internal/view"
 )
 
 // Option configures a TerraformClient.

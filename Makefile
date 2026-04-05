@@ -3,6 +3,7 @@ TAG ?= local
 IMG ?= controller:$(TAG)
 JOB_IMG ?= magos-job:$(TAG)
 UI_IMG ?= ui:$(TAG)
+API_IMG ?= magos-api:$(TAG)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -120,16 +121,18 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
-docker-build: ## Build docker image with the manager.
+docker-build: ## Build docker images for all components.
 	$(CONTAINER_TOOL) build -t ${IMG} .
 	$(CONTAINER_TOOL) build -t ${UI_IMG} -f ui/Dockerfile ui/
 	$(CONTAINER_TOOL) build -t ${JOB_IMG} -f cmd/job/Dockerfile cmd/job/
+	$(CONTAINER_TOOL) build -t ${API_IMG} -f api/Dockerfile api/
 
 .PHONY: docker-push
-docker-push: ## Push docker image with the manager.
+docker-push: ## Push docker images for all components.
 	$(CONTAINER_TOOL) push ${IMG}
 	$(CONTAINER_TOOL) push ${UI_IMG}
 	$(CONTAINER_TOOL) push ${JOB_IMG}
+	$(CONTAINER_TOOL) push ${API_IMG}
 
 .PHONY: kind-load
 kind-load: ## load locally built docker image(s) into kind cluster.
