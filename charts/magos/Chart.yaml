@@ -1,0 +1,11 @@
+apiVersion: v2
+name: magos
+description: Magos
+type: application
+version: 0.1.0 # This placeholder value is overridden by the release process; do not modify directly
+appVersion: v0.1.0 # This placeholder value is overridden by the release process; do not modify directly
+sources:
+- https://github.com/magosproject/magos
+maintainers:
+- name: Bruno Schaatsbergen
+  email: b@bschaatsbergen.com

@@ -1,0 +1,17 @@
+apiVersion: magosproject.io/v1alpha1
+kind: Workspace
+metadata:
+  name: demo-dev
+  namespace: default
+  labels:
+    env: dev
+spec:
+  projectRef:
+    name: demo-project
+  source:
+    repoURL: https://github.com/magosproject/demo.git
+    targetRevision: main
+    path: .
+  terraform:
+    version: "1.13.0"
+    tfvarsPath: env/staging/vars.tfvars

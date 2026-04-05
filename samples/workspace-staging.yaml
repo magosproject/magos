@@ -1,17 +1,17 @@
 apiVersion: magosproject.io/v1alpha1
 kind: Workspace
 metadata:
+  name: demo-staging
+  namespace: default
   labels:
-    app.kubernetes.io/name: magos
-    app.kubernetes.io/managed-by: kustomize
-  name: workspace-sample
+    env: dev
 spec:
+  projectRef:
+    name: demo-project
   source:
     repoURL: https://github.com/magosproject/demo.git
     targetRevision: main
     path: .
   terraform:
-    version: "1.14.0"
+    version: "1.13.0"
     tfvarsPath: env/staging/vars.tfvars
-  projectRef:
-    name: data-platform

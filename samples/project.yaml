@@ -1,0 +1,6 @@
+apiVersion: magosproject.io/v1alpha1
+kind: Project
+metadata:
+  name: demo-project
+  namespace: default
+spec: {}

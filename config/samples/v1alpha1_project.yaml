@@ -1,9 +1,0 @@
-apiVersion: magosproject.io/v1alpha1
-kind: Project
-metadata:
-  labels:
-    app.kubernetes.io/name: magos
-    app.kubernetes.io/managed-by: kustomize
-  name: project-sample
-spec:
-  description: "Data Platform project grouping Workspaces"
