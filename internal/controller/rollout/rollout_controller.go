@@ -80,11 +80,6 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 		return nil
 	}
 
-	if rollout.Status.Phase == magosprojectiov1alpha1.PhaseFailed {
-		// Rollout is failed, halt execution.
-		return nil
-	}
-
 	// We iterate through steps sequentially to find the *first* step that has pending work.
 	// This makes the Rollout a continuous orchestrator instead of a one-shot script.
 	currentActiveStep := -1
