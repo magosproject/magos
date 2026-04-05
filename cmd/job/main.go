@@ -214,7 +214,9 @@ func run() error {
 		return fmt.Errorf("failed to create temporary workspace directory: %w", err)
 	}
 	defer func() {
-		_ = os.RemoveAll(tmpDir)
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.Printf("Warning: failed to remove temporary workspace %q: %v", tmpDir, err)
+		}
 	}()
 
 	ctx := context.Background()
