@@ -1,0 +1,34 @@
+name: Bug Report
+description: File a bug report
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A bug is when something behaves unexpectedly, such as a crash, error, or unusual behavior.
+        ## Please search before submitting a bug report
+        Before creating a new bug report, take a moment to search the issue tracker. Use a descriptive title for your report that would help others find it easily in search results related to your issue.
+ 
+  - type: input
+    id: version
+    attributes:
+      label: Magos Version
+      description: "The version of Magos that you are using."
+    validations:
+      required: false
+ 
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to Reproduce
+      description: What exactly can someone else do, in order to observe the problem that you observed? Include the output and all error messages.
+    validations:
+      required: true
+ 
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What kind of behavior do you expect to see?
+    validations:
+      required: true
