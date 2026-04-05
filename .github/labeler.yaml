@@ -44,3 +44,29 @@ controllers:
   - changed-files:
       - any-glob-to-any-file:
           - "internal/controller/**"
+
+controller/manager:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "cmd/main.go"
+
+controller/project:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "internal/controller/project/**"
+
+controller/rollout:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "internal/controller/rollout/**"
+
+controller/workspace:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "internal/controller/workspace/**"
+
+controller/variableset:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "internal/controller/variableset/**"
+
