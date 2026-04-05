@@ -175,13 +175,21 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 
 		if needsPermission {
 			logger.Info("No Rollout detected. Granting default parallel execution permission to Workspace.", "workspace", ws.Name)
-			if ws.Annotations == nil {
-				ws.Annotations = make(map[string]string)
-			}
-			ws.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] = "true"
-			if err := r.Update(ctx, ws); err != nil {
-				logger.Error(err, "Failed to grant execution permission to workspace", "workspace", ws.Name)
-				return err
+
+			// We need to fetch a fresh copy of the Workspace right before applying the annotation.
+			// Since the Workspace controller is constantly updating its status (which bumps the
+			// ResourceVersion), the version we grabbed from our initial List call is probably
+			// stale. If we try to update the cached copy, we'll hit an Optimistic Concurrency
+			// Control (OCC) conflict and trigger a requeue storm.
+			latestWS := &magosprojectiov1alpha1.Workspace{}
+			if err := r.Get(ctx, client.ObjectKeyFromObject(ws), latestWS); err == nil {
+				if latestWS.Annotations == nil {
+					latestWS.Annotations = make(map[string]string)
+				}
+				latestWS.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] = "true"
+				if err := r.Update(ctx, latestWS); err != nil {
+					logger.Error(err, "Failed to grant execution permission to workspace", "workspace", ws.Name)
+				}
 			}
 		}
 	}

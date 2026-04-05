@@ -298,11 +298,12 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			}
 
 			// Consume the approval annotation FIRST so it doesn't accidentally
-			// auto-apply future runs
-			if workspace.Annotations != nil {
+			// auto-apply future runs. Use Patch to avoid OCC conflicts.
+			if workspace.Annotations != nil && workspace.Annotations[magosprojectiov1alpha1.WorkspaceApprovedAnnotation] != "" {
+				patch := client.MergeFrom(workspace.DeepCopy())
 				delete(workspace.Annotations, magosprojectiov1alpha1.WorkspaceApprovedAnnotation)
-				if err := r.Update(ctx, workspace); err != nil {
-					logger.Error(err, "Failed to consume approval annotation")
+				if err := r.Patch(ctx, workspace, patch); err != nil {
+					logger.Error(err, "Failed to consume approval annotation via Patch")
 					return err
 				}
 			}
@@ -334,20 +335,23 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 
 	// 5. Apply Succeeded
 	logger.Info("Apply Job completed successfully", "job", applyJobName)
-	workspace.Status.ObservedRevision = workspace.Spec.Source.TargetRevision
 
-	// Consume the allowed annotation upon successful completion
-	if workspace.Annotations != nil {
-		if _, ok := workspace.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation]; ok {
-			delete(workspace.Annotations, magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation)
-			if err := r.Update(ctx, workspace); err != nil {
-				logger.Error(err, "Failed to consume allowed annotation")
-				return err
-			}
+	// Set the observed revision BEFORE r.updateStatus so it is included in the status update
+	workspace.Status.ObservedRevision = workspace.Spec.Source.TargetRevision
+	r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhaseApplied, "ApplySucceeded", "Terraform Apply completed successfully", metav1.ConditionTrue)
+
+	// Clean up the allowed annotation now that the apply succeeded.
+	// We use Patch instead of Update to avoid Optimistic Concurrency Control (OCC)
+	// conflicts, since other controllers or the status update might have modified
+	// the resource recently.
+	if workspace.Annotations != nil && workspace.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] != "" {
+		patch := client.MergeFrom(workspace.DeepCopy())
+		delete(workspace.Annotations, magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation)
+		if err := r.Patch(ctx, workspace, patch); err != nil {
+			logger.Error(err, "Failed to consume execution annotations via Patch")
+			return err
 		}
 	}
-
-	r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhaseApplied, "ApplySucceeded", "Terraform Apply completed successfully", metav1.ConditionTrue)
 
 	return nil
 }

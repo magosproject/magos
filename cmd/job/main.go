@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -156,6 +157,28 @@ func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 
 	case "apply":
 		log.Printf("Running 'terraform apply' using plan %s...", cfg.PlanFile)
+
+		// Hack to handle local kind (Kubernetes-in-Docker) filesystem lag. My
+		// (@bschaatsbergen) container runtime (using sshfs or virtiofs under
+		// the hood) aggressively caches directory metadata. The 'plan' pod
+		// writes the plan file and dies, but the 'apply' pod spins up so fast
+		// it gets a cache miss and thinks the file is missing. We just poll for
+		// a few seconds to let the VFS catch up. Real cloud block storage
+		// usually doesn't have this problem.
+		var planExists bool
+		for range 10 {
+			if _, err := os.Stat(cfg.PlanFile); err == nil {
+				planExists = true
+				break
+			}
+			log.Printf("Waiting for plan file %s to become available...", cfg.PlanFile)
+			time.Sleep(1 * time.Second)
+		}
+
+		if !planExists {
+			return fmt.Errorf("terraform apply failed: plan file %s does not exist after waiting. The plan job may not have successfully transferred the state via the PVC", cfg.PlanFile)
+		}
+
 		if err := tfClient.Apply(ctx, cfg.PlanFile); err != nil {
 			return fmt.Errorf("terraform apply failed: %w", err)
 		}
