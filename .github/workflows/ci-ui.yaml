@@ -4,16 +4,16 @@ on:
   push:
     branches: [main]
     paths:
-      - '.github_workflows/ci-ui.yaml'
+      - '.github/workflows/ci-ui.yaml'
       - 'ui/**'
   pull_request:
     branches: [main]
     paths:
-      - '.github_workflows/ci-ui.yaml'
+      - '.github/workflows/ci-ui.yaml'
       - 'ui/**'
 
 jobs:
-  ci:
+  ci-ui:
     runs-on: ubuntu-latest
 
     steps:
@@ -25,7 +25,11 @@ jobs:
         with:
           node-version: 23
           cache: npm
+          cache-dependency-path: ui/package-lock.json
 
       - run: make install
+        working-directory: ui
       - run: make lint
+        working-directory: ui
       - run: make build
+        working-directory: ui

@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui-server-service
+  namespace: system
+  labels:
+    control-plane: ui-server
+    app.kubernetes.io/name: ui-server
+    app.kubernetes.io/component: ui-server
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    control-plane: ui-server
+    app.kubernetes.io/name: ui-server
+
