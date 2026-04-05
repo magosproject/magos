@@ -52,6 +52,11 @@ spec:
           spec:
             description: spec defines the desired state of Workspace
             properties:
+              autoApply:
+                default: true
+                description: AutoApply dictates whether the workspace should automatically
+                  apply after a successful plan
+                type: boolean
               projectRef:
                 description: ProjectRef is a reference to the project this workspace
                   belongs to

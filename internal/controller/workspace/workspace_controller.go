@@ -286,9 +286,9 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// Apply job doesn't exist yet, check if we have approval to proceed
-			isApproved := false
-			if workspace.Annotations != nil {
-				isApproved = workspace.Annotations[magosprojectiov1alpha1.WorkspaceApprovedAnnotation] == "true"
+			isApproved := workspace.Spec.AutoApply
+			if workspace.Annotations != nil && workspace.Annotations[magosprojectiov1alpha1.WorkspaceApprovedAnnotation] == "true" {
+				isApproved = true
 			}
 
 			if !isApproved {

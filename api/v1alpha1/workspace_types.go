@@ -75,6 +75,11 @@ type WorkspaceSpec struct {
 	// +required
 	ProjectRef ProjectReference `json:"projectRef"`
 
+	// AutoApply dictates whether the workspace should automatically apply after a successful plan
+	// +optional
+	// +kubebuilder:default=true
+	AutoApply bool `json:"autoApply"`
+
 	// Source defines the Git repository configuration
 	// +required
 	Source SourceSpec `json:"source"`
