@@ -815,6 +815,14 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 	return job, nil
 }
 
+// updateStatus writes the phase, reason, message, and Ready condition to the
+// Workspace's status subresource. To prevent conflicts from concurrent updates,
+// it always fetches the latest version of the Workspace before writing.
+//
+// After a successful update, the Workspace object passed into updateStatus is
+// updated in-place with the new resourceVersion and status. This guarantees
+// that any subsequent logic in the same reconcile loop sees the latest state
+// and avoids operating on stale data.
 func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *magosprojectiov1alpha1.Workspace, phase magosprojectiov1alpha1.Phase, reason, message string, status metav1.ConditionStatus) {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Fetch the latest version to avoid conflict errors
