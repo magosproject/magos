@@ -1,6 +1,7 @@
 # Image URL to use all building/pushing image targets
 TAG ?= local
 IMG ?= controller:$(TAG)
+JOB_IMG ?= magos-job:$(TAG)
 UI_IMG ?= ui:$(TAG)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
@@ -122,16 +123,19 @@ run: manifests generate fmt vet ## Run a controller from your host.
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -t ${IMG} .
 	$(CONTAINER_TOOL) build -t ${UI_IMG} -f ui/Dockerfile ui/
+	$(CONTAINER_TOOL) build -t ${JOB_IMG} -f cmd/job/Dockerfile cmd/job/
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
-	$(CONTAINER_TOOL) build -t ${UI_IMG} -f ui/Dockerfile ui/
+	$(CONTAINER_TOOL) push ${UI_IMG}
+	$(CONTAINER_TOOL) push ${JOB_IMG}
 
 .PHONY: kind-load
 kind-load: ## load locally built docker image(s) into kind cluster.
 	$(KIND) load docker-image ${IMG} --name kind
 	$(KIND) load docker-image ${UI_IMG} --name kind
+	$(KIND) load docker-image ${JOB_IMG} --name kind
 
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
 # - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/

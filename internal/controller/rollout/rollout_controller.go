@@ -80,105 +80,110 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 		return nil
 	}
 
-	if rollout.Status.Phase == magosprojectiov1alpha1.PhaseApplied || rollout.Status.Phase == magosprojectiov1alpha1.PhaseReady {
-		// Rollout completed.
-		// For a more advanced implementation, we would detect if the Rollout needs to run again
-		// (e.g. if a workspace falls out of sync or a new commit is detected).
-		// For now, we consider it done.
-		return nil
-	}
-
 	if rollout.Status.Phase == magosprojectiov1alpha1.PhaseFailed {
 		// Rollout is failed, halt execution.
 		return nil
 	}
 
-	currentStepIndex := rollout.Status.CurrentStep
-	if currentStepIndex >= len(rollout.Spec.Strategy.Steps) {
+	// We iterate through steps sequentially to find the *first* step that has pending work.
+	// This makes the Rollout a continuous orchestrator instead of a one-shot script.
+	currentActiveStep := -1
+	var activeStepName string
+
+	for i, step := range rollout.Spec.Strategy.Steps {
+		selector, err := metav1.LabelSelectorAsSelector(&step.Selector)
+		if err != nil {
+			logger.Error(err, "Invalid label selector in step", "step", step.Name)
+			return err
+		}
+
+		var workspaces magosprojectiov1alpha1.WorkspaceList
+		if err := r.List(ctx, &workspaces, client.InNamespace(rollout.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
+			logger.Error(err, "Failed to list workspaces for step")
+			return err
+		}
+
+		// Filter workspaces by project reference
+		var targetWorkspaces []magosprojectiov1alpha1.Workspace
+		for _, ws := range workspaces.Items {
+			if ws.Spec.ProjectRef.Name == rollout.Spec.ProjectRef {
+				targetWorkspaces = append(targetWorkspaces, ws)
+			}
+		}
+
+		// Evaluate the workspaces in this step
+		stepNeedsWork := false
+		anyFailed := false
+
+		for _, ws := range targetWorkspaces {
+			if ws.Status.Phase == magosprojectiov1alpha1.PhaseFailed {
+				anyFailed = true
+				logger.Info("Workspace failed, halting rollout", "workspace", ws.Name)
+				break
+			}
+
+			// Work needs to be done if it hasn't applied successfully, or if its target revision has changed,
+			// or if a manual reconcile was requested.
+			isFullyApplied := ws.Status.Phase == magosprojectiov1alpha1.PhaseApplied && ws.Status.ObservedRevision == ws.Spec.Source.TargetRevision
+			hasReconcileRequest := ws.Annotations != nil && ws.Annotations[magosprojectiov1alpha1.WorkspaceReconcileRequestAnnotation] != ""
+
+			if !isFullyApplied || hasReconcileRequest || ws.Status.Phase == "" || ws.Status.Phase == magosprojectiov1alpha1.PhasePending {
+				stepNeedsWork = true
+			}
+		}
+
+		if anyFailed {
+			rollout.Status.CurrentStep = i
+			r.updateStatus(ctx, rollout, magosprojectiov1alpha1.PhaseFailed, "StepFailed", "One or more workspaces failed in step "+step.Name, metav1.ConditionFalse)
+			return nil
+		}
+
+		if stepNeedsWork {
+			// This is our current active step!
+			currentActiveStep = i
+			activeStepName = step.Name
+
+			// Grant execution permissions to pending workspaces in this step
+			for _, ws := range targetWorkspaces {
+				isFullyApplied := ws.Status.Phase == magosprojectiov1alpha1.PhaseApplied && ws.Status.ObservedRevision == ws.Spec.Source.TargetRevision
+				hasReconcileRequest := ws.Annotations != nil && ws.Annotations[magosprojectiov1alpha1.WorkspaceReconcileRequestAnnotation] != ""
+
+				if !isFullyApplied || hasReconcileRequest || ws.Status.Phase == "" || ws.Status.Phase == magosprojectiov1alpha1.PhasePending {
+					hasPermission := false
+					if ws.Annotations != nil {
+						hasPermission = ws.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] == "true"
+					}
+
+					if !hasPermission {
+						logger.Info("Granting execution permission to workspace", "workspace", ws.Name, "step", step.Name)
+						// Fetch latest to avoid OCC
+						latestWS := &magosprojectiov1alpha1.Workspace{}
+						if err := r.Get(ctx, client.ObjectKeyFromObject(&ws), latestWS); err == nil {
+							if latestWS.Annotations == nil {
+								latestWS.Annotations = make(map[string]string)
+							}
+							latestWS.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] = "true"
+							if err := r.Update(ctx, latestWS); err != nil {
+								logger.Error(err, "Failed to update workspace with execution permission", "workspace", ws.Name)
+							}
+						}
+					}
+				}
+			}
+
+			break // Stop evaluating further steps since this one blocks the pipeline
+		}
+	}
+
+	if currentActiveStep == -1 {
+		// All steps evaluated and none need work!
+		rollout.Status.CurrentStep = len(rollout.Spec.Strategy.Steps)
 		r.updateStatus(ctx, rollout, magosprojectiov1alpha1.PhaseApplied, "RolloutCompleted", "All steps completed successfully", metav1.ConditionTrue)
 		return nil
 	}
 
-	step := rollout.Spec.Strategy.Steps[currentStepIndex]
-	logger.Info("Processing step", "step", step.Name, "index", currentStepIndex)
-
-	selector, err := metav1.LabelSelectorAsSelector(&step.Selector)
-	if err != nil {
-		logger.Error(err, "Invalid label selector in step")
-		return err
-	}
-
-	var workspaces magosprojectiov1alpha1.WorkspaceList
-	if err := r.List(ctx, &workspaces, client.InNamespace(rollout.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
-		logger.Error(err, "Failed to list workspaces for step")
-		return err
-	}
-
-	// Filter workspaces by project reference
-	var targetWorkspaces []magosprojectiov1alpha1.Workspace
-	for _, ws := range workspaces.Items {
-		if ws.Spec.ProjectRef.Name == rollout.Spec.ProjectRef {
-			targetWorkspaces = append(targetWorkspaces, ws)
-		}
-	}
-
-	if len(targetWorkspaces) == 0 {
-		logger.Info("No workspaces found for step, advancing to next", "step", step.Name)
-		rollout.Status.CurrentStep++
-		if err := r.Status().Update(ctx, rollout); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	allApplied := true
-	anyFailed := false
-
-	for i := range targetWorkspaces {
-		ws := &targetWorkspaces[i]
-
-		if ws.Status.Phase == magosprojectiov1alpha1.PhaseFailed {
-			anyFailed = true
-			logger.Info("Workspace failed, halting rollout", "workspace", ws.Name)
-			break
-		}
-
-		if ws.Status.Phase != magosprojectiov1alpha1.PhaseApplied {
-			allApplied = false
-
-			// Grant execution permission if it doesn't have it yet
-			hasPermission := false
-			if ws.Annotations != nil {
-				hasPermission = ws.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] == "true"
-			}
-
-			if !hasPermission {
-				logger.Info("Granting execution permission to workspace", "workspace", ws.Name)
-				if ws.Annotations == nil {
-					ws.Annotations = make(map[string]string)
-				}
-				ws.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] = "true"
-				if err := r.Update(ctx, ws); err != nil {
-					logger.Error(err, "Failed to update workspace with execution permission", "workspace", ws.Name)
-					return err
-				}
-			}
-		}
-	}
-
-	if anyFailed {
-		r.updateStatus(ctx, rollout, magosprojectiov1alpha1.PhaseFailed, "StepFailed", "One or more workspaces failed in step "+step.Name, metav1.ConditionFalse)
-		return nil
-	}
-
-	if allApplied {
-		logger.Info("All workspaces in step completed successfully. Advancing step.", "step", step.Name)
-		rollout.Status.CurrentStep++
-		r.updateStatus(ctx, rollout, magosprojectiov1alpha1.PhaseReconciling, "StepAdvanced", "Advancing to next step", metav1.ConditionUnknown)
-		return nil
-	}
-
-	r.updateStatus(ctx, rollout, magosprojectiov1alpha1.PhaseReconciling, "StepProgressing", "Executing step "+step.Name, metav1.ConditionUnknown)
+	rollout.Status.CurrentStep = currentActiveStep
+	r.updateStatus(ctx, rollout, magosprojectiov1alpha1.PhaseReconciling, "StepProgressing", "Executing step "+activeStepName, metav1.ConditionUnknown)
 	return nil
 }
 

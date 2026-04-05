@@ -17,6 +17,7 @@ package project
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -119,9 +120,6 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling project")
 
-	// Fast track to ready
-	r.updateStatus(ctx, project, magosprojectiov1alpha1.PhaseReady, "ProjectReady", "Project grouping is available", metav1.ConditionTrue)
-
 	// 1. Check if a Rollout exists for this Project (1-to-1 mapping via name)
 	rollout := &magosprojectiov1alpha1.Rollout{}
 	err := r.Get(ctx, types.NamespacedName{Name: project.Name, Namespace: project.Namespace}, rollout)
@@ -137,9 +135,12 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 
 	// 2. If a Rollout exists, we defer all execution orchestration to it.
 	if hasRollout {
-		logger.Info("Project is managed by a Rollout. Deferring workspace orchestration.", "rollout", rollout.Name)
+		logger.V(1).Info("Project is managed by a Rollout. Deferring workspace orchestration.", "rollout", rollout.Name)
+		r.updateStatus(ctx, project, magosprojectiov1alpha1.PhaseReady, "ManagedByRollout", fmt.Sprintf("Project orchestration is deferred to Rollout %s", rollout.Name), metav1.ConditionTrue)
 		return nil
 	}
+
+	r.updateStatus(ctx, project, magosprojectiov1alpha1.PhaseReady, "DefaultParallel", "Project is orchestrating workspaces in parallel", metav1.ConditionTrue)
 
 	// 3. Default Parallel Execution: No Rollout exists.
 	// We act as the default orchestrator and grant execution permission to all workspaces that need to reconcile.

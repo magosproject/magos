@@ -32,6 +32,9 @@ const (
 
 	// WorkspaceReconcileRequestAnnotation is used to force a reconciliation (e.g., drift correction)
 	WorkspaceReconcileRequestAnnotation = "magosproject.io/reconcile-request"
+
+	// WorkspaceReconcileIntervalAnnotation overrides the default drift detection interval
+	WorkspaceReconcileIntervalAnnotation = "magosproject.io/reconcile-interval"
 )
 
 // ProjectReference references a Project resource

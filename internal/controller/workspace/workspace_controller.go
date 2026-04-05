@@ -162,13 +162,17 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
-	err := r.reconcileWorkspace(ctx, workspace)
+	res, err := r.reconcileWorkspace(ctx, workspace)
 	if err != nil {
 		r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhaseFailed, "ReconcileError", err.Error(), metav1.ConditionFalse)
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	// Always requeue after the sync interval to check for drift and run sync loop
+	if res.RequeueAfter == 0 {
+		res.RequeueAfter = r.getSyncInterval(workspace)
+	}
+	return res, nil
 }
 
 func (r *WorkspaceReconciler) handleDeletion(ctx context.Context, workspace *magosprojectiov1alpha1.Workspace) (bool, error) {
@@ -207,7 +211,19 @@ func (r *WorkspaceReconciler) getRunID(ws *magosprojectiov1alpha1.Workspace) str
 	return hex.EncodeToString(hash[:])[:8] // Short 8-character hash
 }
 
-func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace *magosprojectiov1alpha1.Workspace) error {
+// getSyncInterval determines the drift detection sync interval for the workspace
+func (r *WorkspaceReconciler) getSyncInterval(ws *magosprojectiov1alpha1.Workspace) time.Duration {
+	if ws.Annotations != nil {
+		if val, ok := ws.Annotations[magosprojectiov1alpha1.WorkspaceReconcileIntervalAnnotation]; ok {
+			if d, err := time.ParseDuration(val); err == nil {
+				return d
+			}
+		}
+	}
+	return 3 * time.Minute // Default sync interval
+}
+
+func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace *magosprojectiov1alpha1.Workspace) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Workspace", "name", workspace.Name, "namespace", workspace.Namespace)
 
@@ -225,14 +241,14 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		if workspace.Status.Phase == "" {
 			r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhasePending, "PendingPermission", "Waiting for execution permission from Rollout orchestrator", metav1.ConditionUnknown)
 		}
-		return nil
+		return ctrl.Result{}, nil
 	}
 
 	// 1. Ensure PVC exists to transfer plan to apply securely
 	pvcName := fmt.Sprintf("%s-data", workspace.Name)
 	if err := r.ensurePVC(ctx, workspace, pvcName); err != nil {
 		logger.Error(err, "Failed to ensure PVC exists")
-		return err
+		return ctrl.Result{}, err
 	}
 
 	// The run ID ensures that a plan is reused when only the Approved flag
@@ -256,26 +272,43 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			logger.Info("Creating a new Plan Job", "job", planJobName)
 			newJob, err := r.constructJobForWorkspace(ctx, workspace, planJobName, "plan", planFile, pvcName)
 			if err != nil {
-				return err
+				return ctrl.Result{}, err
 			}
 			if err := r.Create(ctx, newJob); err != nil {
-				return err
+				return ctrl.Result{}, err
 			}
 			r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhasePlanning, "PlanJobCreated", "Terraform Plan job created", metav1.ConditionUnknown)
-			return nil
+			return ctrl.Result{}, nil
 		}
-		return err
+		return ctrl.Result{}, err
 	}
 
 	// Check Plan Job Status
 	if planJob.Status.Failed > 0 {
+		syncInterval := r.getSyncInterval(workspace)
+		var failedTime time.Time
+		for _, cond := range planJob.Status.Conditions {
+			if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
+				failedTime = cond.LastTransitionTime.Time
+				break
+			}
+		}
+
+		if !failedTime.IsZero() && time.Since(failedTime) > syncInterval {
+			logger.Info("Sync interval reached for failed plan. Cleaning up to retry.", "interval", syncInterval.String())
+			_ = r.Delete(ctx, &planJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
+
+			r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhasePending, "RetryPlan", "Retrying failed plan", metav1.ConditionUnknown)
+			return ctrl.Result{}, nil
+		}
+
 		logger.Info("Plan Job failed", "job", planJobName)
 		r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhaseFailed, "PlanFailed", "Terraform Plan execution failed", metav1.ConditionFalse)
-		return nil
+		return ctrl.Result{}, nil
 	} else if planJob.Status.Succeeded == 0 {
 		logger.Info("Plan Job is currently running", "job", planJobName)
 		r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhasePlanning, "Planning", "Terraform Plan execution is running", metav1.ConditionUnknown)
-		return nil
+		return ctrl.Result{}, nil
 	}
 
 	// 3. Evaluate Apply Job
@@ -294,7 +327,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			if !isApproved {
 				logger.Info("Workspace has planned successfully, but is pending approval to apply", "workspace", workspace.Name)
 				r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhasePlanned, "PlanSucceeded", "Terraform Plan succeeded. Waiting for manual approval to Apply.", metav1.ConditionTrue)
-				return nil
+				return ctrl.Result{}, nil
 			}
 
 			// Consume the approval annotation FIRST so it doesn't accidentally
@@ -304,36 +337,67 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 				delete(workspace.Annotations, magosprojectiov1alpha1.WorkspaceApprovedAnnotation)
 				if err := r.Patch(ctx, workspace, patch); err != nil {
 					logger.Error(err, "Failed to consume approval annotation via Patch")
-					return err
+					return ctrl.Result{}, err
 				}
 			}
 
 			logger.Info("Creating a new Apply Job", "job", applyJobName)
 			newJob, err := r.constructJobForWorkspace(ctx, workspace, applyJobName, "apply", planFile, pvcName)
 			if err != nil {
-				return err
+				return ctrl.Result{}, err
 			}
 			if err := r.Create(ctx, newJob); err != nil {
-				return err
+				return ctrl.Result{}, err
 			}
 			r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhaseApplying, "ApplyJobCreated", "Terraform Apply job created", metav1.ConditionUnknown)
-			return nil
+			return ctrl.Result{}, nil
 		}
-		return err
+		return ctrl.Result{}, err
 	}
 
 	// 4. Check Apply Job Status
 	if applyJob.Status.Failed > 0 {
+		syncInterval := r.getSyncInterval(workspace)
+		var failedTime time.Time
+		for _, cond := range applyJob.Status.Conditions {
+			if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
+				failedTime = cond.LastTransitionTime.Time
+				break
+			}
+		}
+
+		if !failedTime.IsZero() && time.Since(failedTime) > syncInterval {
+			logger.Info("Sync interval reached for failed apply. Cleaning up jobs to retry from plan.", "interval", syncInterval.String())
+			_ = r.Delete(ctx, &planJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
+			_ = r.Delete(ctx, &applyJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
+
+			r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhasePending, "RetryApply", "Retrying failed apply starting from new plan", metav1.ConditionUnknown)
+			return ctrl.Result{}, nil
+		}
+
 		logger.Info("Apply Job failed", "job", applyJobName)
 		r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhaseFailed, "ApplyFailed", "Terraform Apply execution failed", metav1.ConditionFalse)
-		return nil
+		return ctrl.Result{}, nil
 	} else if applyJob.Status.Succeeded == 0 {
 		logger.Info("Apply Job is currently running", "job", applyJobName)
 		r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhaseApplying, "Applying", "Terraform Apply execution is running", metav1.ConditionUnknown)
-		return nil
+		return ctrl.Result{}, nil
 	}
 
 	// 5. Apply Succeeded
+	// Clean up old jobs and re-run drift detection if the apply happened a while ago.
+	syncInterval := r.getSyncInterval(workspace)
+	if applyJob.Status.CompletionTime != nil && time.Since(applyJob.Status.CompletionTime.Time) > syncInterval {
+		logger.Info("Sync interval reached. Cleaning up old jobs to trigger a new drift detection run.", "interval", syncInterval.String())
+		// Background propagation ensures pods are deleted too
+		_ = r.Delete(ctx, &planJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
+		_ = r.Delete(ctx, &applyJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
+
+		// Reset status to Pending to re-enter the rollout orchestrator queue
+		r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhasePending, "DriftSync", "Starting scheduled drift detection", metav1.ConditionUnknown)
+		return ctrl.Result{}, nil
+	}
+
 	logger.Info("Apply Job completed successfully", "job", applyJobName)
 
 	// Set the observed revision BEFORE r.updateStatus so it is included in the status update
@@ -349,11 +413,11 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		delete(workspace.Annotations, magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation)
 		if err := r.Patch(ctx, workspace, patch); err != nil {
 			logger.Error(err, "Failed to consume execution annotations via Patch")
-			return err
+			return ctrl.Result{}, err
 		}
 	}
 
-	return nil
+	return ctrl.Result{}, nil
 }
 
 func (r *WorkspaceReconciler) ensurePVC(ctx context.Context, ws *magosprojectiov1alpha1.Workspace, pvcName string) error {
@@ -447,8 +511,7 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 		}
 	}
 
-	var backoffLimit int32 = 0                // Don't retry blindly, especially if terraform fails
-	var ttlSecondsAfterFinished int32 = 86400 // 24 hours
+	var backoffLimit int32 = 0 // Don't retry blindly, especially if terraform fails
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -456,8 +519,7 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 			Namespace: ws.Namespace,
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit:            &backoffLimit,
-			TTLSecondsAfterFinished: &ttlSecondsAfterFinished,
+			BackoffLimit: &backoffLimit,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
