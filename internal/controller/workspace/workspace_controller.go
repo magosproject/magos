@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -281,11 +282,28 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	var exactRequeue time.Duration
 
 	// Evaluate if the Apply Job is completely finished (Success or Failed)
-	if errApply == nil && applyJob.Status.CompletionTime != nil {
-		elapsed := time.Since(applyJob.Status.CompletionTime.Time)
+	var applyFinishedTime time.Time
+	var applySucceeded bool
+	if errApply == nil {
+		if applyJob.Status.CompletionTime != nil {
+			applyFinishedTime = applyJob.Status.CompletionTime.Time
+			applySucceeded = true
+		} else if applyJob.Status.Failed > 0 {
+			for _, cond := range applyJob.Status.Conditions {
+				if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
+					applyFinishedTime = cond.LastTransitionTime.Time
+					applySucceeded = false
+					break
+				}
+			}
+		}
+	}
+
+	if !applyFinishedTime.IsZero() {
+		elapsed := time.Since(applyFinishedTime)
 		if elapsed >= syncInterval {
 			needsReset = true
-			if applyJob.Status.Succeeded > 0 {
+			if applySucceeded {
 				resetReason = "DriftSync"
 				resetMessage = "Starting scheduled drift detection"
 			} else {
@@ -382,6 +400,17 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	if planJob.Status.Failed > 0 {
 		logger.Info("Plan Job failed", "job", planJobName)
 		r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhaseFailed, "PlanFailed", "Terraform Plan execution failed", metav1.ConditionFalse)
+
+		// Ensure we consume the execution lock on Plan failure as well
+		if workspace.Annotations != nil && workspace.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] != "" {
+			patch := client.MergeFrom(workspace.DeepCopy())
+			delete(workspace.Annotations, magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation)
+			if err := r.Patch(ctx, workspace, patch); err != nil {
+				logger.Error(err, "Failed to consume execution annotations via Patch on plan failure")
+				return ctrl.Result{}, err
+			}
+		}
+
 		return ctrl.Result{}, nil
 	} else if planJob.Status.Succeeded == 0 {
 		logger.Info("Plan Job is currently running", "job", planJobName)
@@ -436,6 +465,19 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	if applyJob.Status.Failed > 0 {
 		logger.Info("Apply Job failed", "job", applyJobName)
 		r.updateStatus(ctx, workspace, magosprojectiov1alpha1.PhaseFailed, "ApplyFailed", "Terraform Apply execution failed", metav1.ConditionFalse)
+
+		// Ensure we consume the execution lock even on failure!
+		// If we don't, the Rollout orchestrator thinks this workspace is still "Allowed"
+		// to execute, even though it's permanently failed, which can mess up state tracking.
+		if workspace.Annotations != nil && workspace.Annotations[magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation] != "" {
+			patch := client.MergeFrom(workspace.DeepCopy())
+			delete(workspace.Annotations, magosprojectiov1alpha1.WorkspaceAllowedReconcileAnnotation)
+			if err := r.Patch(ctx, workspace, patch); err != nil {
+				logger.Error(err, "Failed to consume execution annotations via Patch on failure")
+				return ctrl.Result{}, err
+			}
+		}
+
 		return ctrl.Result{}, nil
 	} else if applyJob.Status.Succeeded == 0 {
 		logger.Info("Apply Job is currently running", "job", applyJobName)
@@ -443,7 +485,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		return ctrl.Result{}, nil
 	}
 
-	// Step 8: Finalize execution and clean up state.
+	// Step 8: Finalize execution state and relinquish locks.
 	// Upon successful completion of the Apply Job, we update the workspace status and
 	// record the observed revision. Crucially, we revoke the execution permission by
 	// removing the AllowedReconcileAnnotation via a Patch operation, signaling to the
@@ -609,55 +651,60 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 }
 
 func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *magosprojectiov1alpha1.Workspace, phase magosprojectiov1alpha1.Phase, reason, message string, status metav1.ConditionStatus) {
-	// Fetch the latest version to avoid conflict errors
-	latest := &magosprojectiov1alpha1.Workspace{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(workspace), latest); err != nil {
-		log.FromContext(ctx).Error(err, "Failed to get latest workspace for status update")
-		return
-	}
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Fetch the latest version to avoid conflict errors
+		latest := &magosprojectiov1alpha1.Workspace{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(workspace), latest); err != nil {
+			return err
+		}
 
-	needsUpdate := false
+		needsUpdate := false
 
-	if latest.Status.Phase != phase || latest.Status.Reason != reason || latest.Status.Message != message {
-		latest.Status.Phase = phase
-		latest.Status.Reason = reason
-		latest.Status.Message = message
-		needsUpdate = true
-	}
+		if latest.Status.Phase != phase || latest.Status.Reason != reason || latest.Status.Message != message {
+			latest.Status.Phase = phase
+			latest.Status.Reason = reason
+			latest.Status.Message = message
+			needsUpdate = true
+		}
 
-	// Preserve observed revision if it was set
-	if workspace.Status.ObservedRevision != "" && latest.Status.ObservedRevision != workspace.Status.ObservedRevision {
-		latest.Status.ObservedRevision = workspace.Status.ObservedRevision
-		needsUpdate = true
-	}
+		// Preserve observed revision if it was set
+		if workspace.Status.ObservedRevision != "" && latest.Status.ObservedRevision != workspace.Status.ObservedRevision {
+			latest.Status.ObservedRevision = workspace.Status.ObservedRevision
+			needsUpdate = true
+		}
 
-	now := metav1.Now()
-	condition := metav1.Condition{
-		Type:               magosprojectiov1alpha1.ConditionTypeReady,
-		Status:             status,
-		Reason:             reason,
-		Message:            message,
-		LastTransitionTime: now,
-	}
+		now := metav1.Now()
+		condition := metav1.Condition{
+			Type:               magosprojectiov1alpha1.ConditionTypeReady,
+			Status:             status,
+			Reason:             reason,
+			Message:            message,
+			LastTransitionTime: now,
+		}
 
-	if meta.SetStatusCondition(&latest.Status.Conditions, condition) {
-		needsUpdate = true
-	}
+		if meta.SetStatusCondition(&latest.Status.Conditions, condition) {
+			needsUpdate = true
+		}
 
-	if !needsUpdate {
-		return
-	}
+		if !needsUpdate {
+			return nil
+		}
 
-	latest.Status.LastReconcileTime = &now
+		latest.Status.LastReconcileTime = &now
 
-	if err := r.Status().Update(ctx, latest); err != nil {
+		if err := r.Status().Update(ctx, latest); err != nil {
+			return err
+		}
+
+		// Update the original object so the caller has the latest state
+		workspace.Status = latest.Status
+		workspace.ResourceVersion = latest.ResourceVersion
+		return nil
+	})
+
+	if err != nil {
 		log.FromContext(ctx).Error(err, "Failed to update workspace status")
-		return
 	}
-
-	// Update the original object so the caller has the latest state
-	workspace.Status = latest.Status
-	workspace.ResourceVersion = latest.ResourceVersion
 }
 
 // SetupWithManager sets up the controller with the Manager.
