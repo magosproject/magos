@@ -176,7 +176,11 @@ func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 		}
 
 		if !planExists {
-			return fmt.Errorf("terraform apply failed: plan file %s does not exist after waiting. The plan job may not have successfully transferred the state via the PVC", cfg.PlanFile)
+			return fmt.Errorf(
+				"terraform apply failed: plan file %s does not exist after waiting. "+
+					"The plan job may not have successfully written or shared the plan file via the PVC",
+				cfg.PlanFile,
+			)
 		}
 
 		if err := tfClient.Apply(ctx, cfg.PlanFile); err != nil {
@@ -209,7 +213,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to create temporary workspace directory: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.Printf("Warning: failed to remove temporary workspace %q: %v", tmpDir, err)
+		}
+	}()
 
 	ctx := context.Background()
 
