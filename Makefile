@@ -106,8 +106,14 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
+# TODO: currently all logs go to 1 stdout stream, consider using a tmux set-up or other solution?
 .PHONY: run
-run: run-controller run-api run-ui
+run: manifests generate fmt vet ## Run all components in parallel.
+	@trap 'kill 0' EXIT; \
+	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
+	$(MAKE) -s run-api & \
+	$(MAKE) -s run-ui & \
+	wait
 
 .PHONY: run-controller
 ARGS ?= --enable-workspace-controller --enable-project-controller --enable-variableset-controller --enable-rollout-controller
