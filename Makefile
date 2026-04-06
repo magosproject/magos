@@ -102,9 +102,15 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
+.PHONY: deps
+deps:
+	go mod tidy
+	cd api && go mod tidy
+	cd ui && npm install
+
 # TODO: currently all logs go to 1 stdout stream, consider using a tmux set-up or other solution?
 .PHONY: run
-run: manifests generate fmt vet ## Run all components in parallel.
+run: deps manifests generate fmt vet ## Run all components in parallel.
 	@trap 'kill 0' EXIT; \
 	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
 	$(MAKE) -s run-api & \
