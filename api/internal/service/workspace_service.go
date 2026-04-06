@@ -16,8 +16,8 @@ import (
 )
 
 type WorkspaceEvent struct {
-	Type   watch.EventType
-	Object *apiv1alpha1.Workspace
+	Type   watch.EventType        `json:"type"`
+	Object *apiv1alpha1.Workspace `json:"object"`
 }
 
 // WorkspaceService defines operations for Workspace resources.

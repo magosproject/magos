@@ -21,7 +21,14 @@ func NewWorkspaceHandler(logger *slog.Logger, svc service.WorkspaceService) *Wor
 	return &WorkspaceHandler{logger: logger, service: svc}
 }
 
-// List returns all Workspace resources across all namespaces.
+// List godoc
+//
+//	@Summary	List Workspace resources
+//	@Tags		Workspace
+//	@Produce	json
+//	@Success	200	{array}		Workspace
+//	@Failure	500	{object}	ErrorResponse
+//	@Router		/apis/magosproject.io/v1alpha1/workspaces [get]
 func (h *WorkspaceHandler) List(w http.ResponseWriter, r *http.Request) {
 	list, err := h.service.List(r.Context())
 	if err != nil {
@@ -33,7 +40,17 @@ func (h *WorkspaceHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
-// Get returns a single Workspace resource by namespace and name.
+// Get godoc
+//
+//	@Summary	Get Workspace resource
+//	@Tags		Workspace
+//	@Produce	json
+//	@Param		namespace	path		string	true	"Namespace"
+//	@Param		name		path		string	true	"Name"
+//	@Success	200			{object}	Workspace
+//	@Failure	400			{object}	ErrorResponse
+//	@Failure	404			{object}	ErrorResponse
+//	@Router		/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name} [get]
 func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
 	namespace := r.PathValue("namespace")
 	name := r.PathValue("name")
@@ -52,7 +69,14 @@ func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, workspace)
 }
 
-// Events streams Workspace resource changes as Server-Sent Events.
+// Events godoc
+//
+//	@Summary		Stream Workspace events
+//	@Description	Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent.
+//	@Tags			Workspace
+//	@Produce		text/event-stream
+//	@Success		200	{object}	service.WorkspaceEvent
+//	@Router			/apis/magosproject.io/v1alpha1/workspaces/events [get]
 func (h *WorkspaceHandler) Events(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {

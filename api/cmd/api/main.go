@@ -1,3 +1,13 @@
+// Package main is the entry point for the Magos API server.
+//
+//	@title			Magos API
+//	@version		v1alpha1
+//	@description	API for managing Magos resources (Projects, Workspaces, Rollouts, VariableSets)
+//	@host			localhost:8080
+//	@BasePath		/
+//
+//	@license.name	Apache 2.0
+//	@license.url	http://www.apache.org/licenses/LICENSE-2.0.html
 package main
 
 import (

@@ -112,6 +112,28 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 codegen: ## Generate typed clientset, informers, and listers via kube_codegen.sh.
 	hack/update-codegen.sh
 
+##@ Code Generation (OpenAPI)
+
+.PHONY: openapi
+openapi: manifests swag ## Generate OpenAPI spec from handler annotations. Re-run after adding or changing routes.
+	cd api && $(SWAG) fmt -g cmd/api/main.go -d ./cmd/api/,./internal/
+	cd api && $(SWAG) init \
+		-g cmd/api/main.go \
+		--output internal/api/docs \
+		--outputTypes json \
+		--parseDependency \
+		--parseInternal
+
+.PHONY: openapi-check
+openapi-check: swag ## CI check: fail if swagger.json is out of sync with current annotations.
+	cd api && $(SWAG) init \
+		-g cmd/api/main.go \
+		--output internal/api/docs \
+		--outputTypes json \
+		--parseDependency \
+		--parseInternal
+	git diff --exit-code
+
 ##@ Build
 
 .PHONY: build
@@ -211,6 +233,7 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+SWAG ?= $(LOCALBIN)/swag
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.7.1
@@ -220,6 +243,7 @@ ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v2.4.0
+SWAG_VERSION ?= v1.16.4
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -248,6 +272,11 @@ $(ENVTEST): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+
+.PHONY: swag
+swag: $(SWAG) ## Download swag locally if necessary.
+$(SWAG): $(LOCALBIN)
+	$(call go-install-tool,$(SWAG),github.com/swaggo/swag/cmd/swag,$(SWAG_VERSION))
 
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist

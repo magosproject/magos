@@ -1,6 +1,7 @@
 package api
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -15,6 +16,12 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+//go:embed docs/swagger.json
+var openapiSpec []byte
+
+//go:embed docs/swagger-ui.html
+var swaggerUI []byte
 
 // Server represents the HTTP API server.
 type Server struct {
@@ -74,6 +81,18 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /healthz", s.healthCheck)
 	mux.HandleFunc("GET /readyz", s.healthCheck)
 
+	// OpenAPI spec and docs UI
+	mux.HandleFunc("GET /openapi.json", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(openapiSpec)
+	})
+	mux.HandleFunc("GET /docs", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(swaggerUI)
+	})
+
 	// Projects
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/projects", s.projectHandler.List)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/projects/events", s.projectHandler.Events)
@@ -101,7 +120,14 @@ func (s *Server) Router() http.Handler {
 	return handler
 }
 
-// healthCheck returns a simple health check response.
+// healthCheck godoc
+//
+//	@Summary	Health check
+//	@Tags		Health
+//	@Produce	json
+//	@Success	200	{object}	map[string]string
+//	@Router		/healthz [get]
+//	@Router		/readyz [get]
 func (s *Server) healthCheck(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
