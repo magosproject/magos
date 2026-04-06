@@ -12,6 +12,7 @@ MODULE="github.com/magosproject/magos"
 CODEGEN_PKG="$(cd "${REPO_ROOT}" && go list -m -f '{{.Dir}}' k8s.io/code-generator)"
 
 # shellcheck source=/dev/null
+# https://github.com/kubernetes/code-generator/blob/master/kube_codegen.sh
 source "${CODEGEN_PKG}/kube_codegen.sh"
 
 kube::codegen::gen_client \
