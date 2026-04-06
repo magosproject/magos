@@ -96,6 +96,7 @@ func (s *Server) Router() http.Handler {
 	var handler http.Handler = mux
 	handler = s.loggingMiddleware(handler)
 	handler = s.recoveryMiddleware(handler)
+	handler = s.corsMiddleware(handler)
 
 	return handler
 }
@@ -126,6 +127,21 @@ func (s *Server) recoveryMiddleware(next http.Handler) http.Handler {
 				writeError(w, http.StatusInternalServerError, "internal server error")
 			}
 		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// corsMiddleware currently allows
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// TODO(anyone) dive into security concerns - currently handy for local development
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }

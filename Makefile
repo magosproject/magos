@@ -160,8 +160,8 @@ run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go $(ARGS)
 
 .PHONY: run-api
-run-api: manifests generate fmt vet ## Run the API server from your host.
-	go run ./api/cmd/main.go
+run-api: ## Run the API server from your host.
+	cd ./api/cmd && go run ./api/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
