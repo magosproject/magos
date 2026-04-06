@@ -49,10 +49,6 @@ help: ## Display this help.
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./types/..." output:crd:artifacts:config=charts/magos/resources/crds
 
-.PHONY: generate
-generate: controller-gen codegen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./types/..."
-
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -106,19 +102,27 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
-##@ Code Generation (Typed Clientset, Informers & Listers)
+##@ Code Generation
+##
+## Full pipeline:  CRD types ──► manifests + deepcopy   (controller-gen)
+##                 CRD types ──► clientset / informers   (kube_codegen)
+##                 Go handlers ──► OpenAPI spec           (swag)
+##                 OpenAPI spec ──► TypeScript types       (openapi-typescript)
+
+.PHONY: generate
+generate: controller-gen codegen generate-ui-types ## Run full code generation pipeline (deepcopy, clients, OpenAPI, TS types).
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./types/..."
 
 .PHONY: codegen
-codegen: ## Generate typed clientset, informers, and listers via kube_codegen.sh.
+codegen: ## Generate typed Kubernetes clientset, informers and listers.
 	hack/update-codegen.sh
 
-##@ Code Generation (OpenAPI)
-
 .PHONY: openapi
-openapi: manifests swag ## Generate OpenAPI spec from handler annotations. Re-run after adding or changing routes.
+openapi: manifests swag ## Generate OpenAPI spec (swagger.json) from handler annotations.
 	cd api && $(SWAG) fmt -g cmd/api/main.go -d ./cmd/api/,./internal/
 	cd api && $(SWAG) init \
-		-g cmd/api/main.go \
+		-g main.go \
+		--dir ./cmd/api/,./internal/api/,./internal/service/ \
 		--output internal/api/docs \
 		--outputTypes json \
 		--v3.1 \
@@ -126,13 +130,11 @@ openapi: manifests swag ## Generate OpenAPI spec from handler annotations. Re-ru
 		--parseInternal
 
 .PHONY: openapi-check
-openapi-check: swag openapi ## CI check: fail if swagger.json is out of sync with current annotations OR formatting is incorrect.
+openapi-check: swag openapi ## CI: fail if swagger.json is out of date or docstrings are wrongly formatted.
 	git diff --exit-code
 
-##@ Code Generation (UI API Types)
-
 .PHONY: generate-ui-types
-generate-ui-types: openapi ## Regenerate TypeScript API types for the UI from swagger.json.
+generate-ui-types: openapi ## Generate TypeScript API types from swagger.json (OpenAPI spec).
 	cd ui && npm run generate
 
 ##@ Build

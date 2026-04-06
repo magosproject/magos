@@ -27,7 +27,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.Project"][];
+                        "application/json": components["schemas"]["handlers.Project"][];
                     };
                 };
                 /** @description Internal Server Error */
@@ -36,7 +36,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.ErrorResponse"];
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
                     };
                 };
             };
@@ -75,7 +75,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/event-stream": components["schemas"]["github_com_magosproject_magos_api_internal_service.ProjectEvent"];
+                        "text/event-stream": components["schemas"]["service.ProjectEvent"];
                     };
                 };
             };
@@ -116,7 +116,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.Project"];
+                        "application/json": components["schemas"]["handlers.Project"];
                     };
                 };
                 /** @description Bad Request */
@@ -125,7 +125,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.ErrorResponse"];
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
                     };
                 };
                 /** @description Not Found */
@@ -134,7 +134,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.ErrorResponse"];
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
                     };
                 };
             };
@@ -170,7 +170,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.Rollout"][];
+                        "application/json": components["schemas"]["handlers.Rollout"][];
                     };
                 };
                 /** @description Internal Server Error */
@@ -179,7 +179,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.ErrorResponse"];
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
                     };
                 };
             };
@@ -220,7 +220,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.Rollout"];
+                        "application/json": components["schemas"]["handlers.Rollout"];
                     };
                 };
                 /** @description Bad Request */
@@ -229,7 +229,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.ErrorResponse"];
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
                     };
                 };
                 /** @description Not Found */
@@ -238,7 +238,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.ErrorResponse"];
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
                     };
                 };
             };
@@ -274,7 +274,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.VariableSet"][];
+                        "application/json": components["schemas"]["handlers.VariableSet"][];
                     };
                 };
                 /** @description Internal Server Error */
@@ -283,7 +283,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.ErrorResponse"];
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
                     };
                 };
             };
@@ -324,7 +324,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.VariableSet"];
+                        "application/json": components["schemas"]["handlers.VariableSet"];
                     };
                 };
                 /** @description Bad Request */
@@ -333,7 +333,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.ErrorResponse"];
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
                     };
                 };
                 /** @description Not Found */
@@ -342,7 +342,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.ErrorResponse"];
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
                     };
                 };
             };
@@ -378,7 +378,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.Workspace"][];
+                        "application/json": components["schemas"]["handlers.Workspace"][];
                     };
                 };
                 /** @description Internal Server Error */
@@ -387,7 +387,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.ErrorResponse"];
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
                     };
                 };
             };
@@ -426,7 +426,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/event-stream": components["schemas"]["github_com_magosproject_magos_api_internal_service.WorkspaceEvent"];
+                        "text/event-stream": components["schemas"]["service.WorkspaceEvent"];
                     };
                 };
             };
@@ -467,7 +467,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.Workspace"];
+                        "application/json": components["schemas"]["handlers.Workspace"];
                     };
                 };
                 /** @description Bad Request */
@@ -476,7 +476,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.ErrorResponse"];
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
                     };
                 };
                 /** @description Not Found */
@@ -485,7 +485,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["internal_api_handlers.ErrorResponse"];
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
                     };
                 };
             };
@@ -578,33 +578,25 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        "github_com_magosproject_magos_api_internal_service.ProjectEvent": {
-            object?: components["schemas"]["v1alpha1.Project"];
-            type?: components["schemas"]["watch.EventType"];
-        };
-        "github_com_magosproject_magos_api_internal_service.WorkspaceEvent": {
-            object?: components["schemas"]["v1alpha1.Workspace"];
-            type?: components["schemas"]["watch.EventType"];
-        };
-        "internal_api_handlers.ErrorResponse": {
+        "handlers.ErrorResponse": {
             error?: string;
         };
-        "internal_api_handlers.Project": {
+        "handlers.Project": {
             metadata?: components["schemas"]["v1.ObjectMeta"];
             spec?: components["schemas"]["v1alpha1.ProjectSpec"];
             status?: components["schemas"]["v1alpha1.ProjectStatus"];
         };
-        "internal_api_handlers.Rollout": {
+        "handlers.Rollout": {
             metadata?: components["schemas"]["v1.ObjectMeta"];
             spec?: components["schemas"]["v1alpha1.RolloutSpec"];
             status?: components["schemas"]["v1alpha1.RolloutStatus"];
         };
-        "internal_api_handlers.VariableSet": {
+        "handlers.VariableSet": {
             metadata?: components["schemas"]["v1.ObjectMeta"];
             spec?: components["schemas"]["v1alpha1.VariableSetSpec"];
             status?: components["schemas"]["v1alpha1.VariableSetStatus"];
         };
-        "internal_api_handlers.Workspace": {
+        "handlers.Workspace": {
             metadata?: components["schemas"]["v1.ObjectMeta"];
             spec?: components["schemas"]["v1alpha1.WorkspaceSpec"];
             status?: components["schemas"]["v1alpha1.WorkspaceStatus"];
@@ -617,6 +609,14 @@ export interface components {
          * @enum {string}
          */
         "k8s_io_apimachinery_pkg_apis_meta_v1.ConditionStatus": "True" | "False" | "Unknown";
+        "service.ProjectEvent": {
+            object?: components["schemas"]["v1alpha1.Project"];
+            type?: components["schemas"]["watch.EventType"];
+        };
+        "service.WorkspaceEvent": {
+            object?: components["schemas"]["v1alpha1.Workspace"];
+            type?: components["schemas"]["watch.EventType"];
+        };
         "v1.Condition": {
             /**
              * @description lastTransitionTime is the last time the condition transitioned from one status to another.

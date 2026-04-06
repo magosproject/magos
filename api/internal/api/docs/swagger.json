@@ -1,29 +1,7 @@
 {
     "components": {
         "schemas": {
-            "github_com_magosproject_magos_api_internal_service.ProjectEvent": {
-                "properties": {
-                    "object": {
-                        "$ref": "#/components/schemas/v1alpha1.Project"
-                    },
-                    "type": {
-                        "$ref": "#/components/schemas/watch.EventType"
-                    }
-                },
-                "type": "object"
-            },
-            "github_com_magosproject_magos_api_internal_service.WorkspaceEvent": {
-                "properties": {
-                    "object": {
-                        "$ref": "#/components/schemas/v1alpha1.Workspace"
-                    },
-                    "type": {
-                        "$ref": "#/components/schemas/watch.EventType"
-                    }
-                },
-                "type": "object"
-            },
-            "internal_api_handlers.ErrorResponse": {
+            "handlers.ErrorResponse": {
                 "properties": {
                     "error": {
                         "type": "string"
@@ -31,7 +9,7 @@
                 },
                 "type": "object"
             },
-            "internal_api_handlers.Project": {
+            "handlers.Project": {
                 "properties": {
                     "metadata": {
                         "$ref": "#/components/schemas/v1.ObjectMeta"
@@ -45,7 +23,7 @@
                 },
                 "type": "object"
             },
-            "internal_api_handlers.Rollout": {
+            "handlers.Rollout": {
                 "properties": {
                     "metadata": {
                         "$ref": "#/components/schemas/v1.ObjectMeta"
@@ -59,7 +37,7 @@
                 },
                 "type": "object"
             },
-            "internal_api_handlers.VariableSet": {
+            "handlers.VariableSet": {
                 "properties": {
                     "metadata": {
                         "$ref": "#/components/schemas/v1.ObjectMeta"
@@ -73,7 +51,7 @@
                 },
                 "type": "object"
             },
-            "internal_api_handlers.Workspace": {
+            "handlers.Workspace": {
                 "properties": {
                     "metadata": {
                         "$ref": "#/components/schemas/v1.ObjectMeta"
@@ -100,6 +78,28 @@
                     "ConditionFalse",
                     "ConditionUnknown"
                 ]
+            },
+            "service.ProjectEvent": {
+                "properties": {
+                    "object": {
+                        "$ref": "#/components/schemas/v1alpha1.Project"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/watch.EventType"
+                    }
+                },
+                "type": "object"
+            },
+            "service.WorkspaceEvent": {
+                "properties": {
+                    "object": {
+                        "$ref": "#/components/schemas/v1alpha1.Workspace"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/watch.EventType"
+                    }
+                },
+                "type": "object"
             },
             "v1.Condition": {
                 "properties": {
@@ -689,7 +689,7 @@
                             "application/json": {
                                 "schema": {
                                     "items": {
-                                        "$ref": "#/components/schemas/internal_api_handlers.Project"
+                                        "$ref": "#/components/schemas/handlers.Project"
                                     },
                                     "type": "array"
                                 }
@@ -701,7 +701,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.ErrorResponse"
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
                                 }
                             }
                         },
@@ -722,7 +722,7 @@
                         "content": {
                             "text/event-stream": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/github_com_magosproject_magos_api_internal_service.ProjectEvent"
+                                    "$ref": "#/components/schemas/service.ProjectEvent"
                                 }
                             }
                         },
@@ -762,7 +762,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.Project"
+                                    "$ref": "#/components/schemas/handlers.Project"
                                 }
                             }
                         },
@@ -772,7 +772,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.ErrorResponse"
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
                                 }
                             }
                         },
@@ -782,7 +782,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.ErrorResponse"
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
                                 }
                             }
                         },
@@ -803,7 +803,7 @@
                             "application/json": {
                                 "schema": {
                                     "items": {
-                                        "$ref": "#/components/schemas/internal_api_handlers.Rollout"
+                                        "$ref": "#/components/schemas/handlers.Rollout"
                                     },
                                     "type": "array"
                                 }
@@ -815,7 +815,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.ErrorResponse"
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
                                 }
                             }
                         },
@@ -855,7 +855,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.Rollout"
+                                    "$ref": "#/components/schemas/handlers.Rollout"
                                 }
                             }
                         },
@@ -865,7 +865,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.ErrorResponse"
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
                                 }
                             }
                         },
@@ -875,7 +875,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.ErrorResponse"
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
                                 }
                             }
                         },
@@ -896,7 +896,7 @@
                             "application/json": {
                                 "schema": {
                                     "items": {
-                                        "$ref": "#/components/schemas/internal_api_handlers.VariableSet"
+                                        "$ref": "#/components/schemas/handlers.VariableSet"
                                     },
                                     "type": "array"
                                 }
@@ -908,7 +908,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.ErrorResponse"
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
                                 }
                             }
                         },
@@ -948,7 +948,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.VariableSet"
+                                    "$ref": "#/components/schemas/handlers.VariableSet"
                                 }
                             }
                         },
@@ -958,7 +958,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.ErrorResponse"
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
                                 }
                             }
                         },
@@ -968,7 +968,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.ErrorResponse"
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
                                 }
                             }
                         },
@@ -989,7 +989,7 @@
                             "application/json": {
                                 "schema": {
                                     "items": {
-                                        "$ref": "#/components/schemas/internal_api_handlers.Workspace"
+                                        "$ref": "#/components/schemas/handlers.Workspace"
                                     },
                                     "type": "array"
                                 }
@@ -1001,7 +1001,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.ErrorResponse"
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
                                 }
                             }
                         },
@@ -1022,7 +1022,7 @@
                         "content": {
                             "text/event-stream": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/github_com_magosproject_magos_api_internal_service.WorkspaceEvent"
+                                    "$ref": "#/components/schemas/service.WorkspaceEvent"
                                 }
                             }
                         },
@@ -1062,7 +1062,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.Workspace"
+                                    "$ref": "#/components/schemas/handlers.Workspace"
                                 }
                             }
                         },
@@ -1072,7 +1072,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.ErrorResponse"
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
                                 }
                             }
                         },
@@ -1082,7 +1082,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/internal_api_handlers.ErrorResponse"
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
                                 }
                             }
                         },
