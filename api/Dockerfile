@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26.1-alpine AS builder
 
 ARG github_token
 
@@ -36,7 +36,8 @@ RUN apk add --no-cache ca-certificates tzdata curl && \
 
 # Copy binary and docs from builder with correct ownership
 COPY --from=builder --chown=apiuser:apiuser /build/api .
-COPY --from=builder --chown=apiuser:apiuser /build/docs ./docs
+# TODO: set-up API docs, build/docs doesn't exist yet
+# COPY --from=builder --chown=apiuser:apiuser /build/docs ./docs
 
 # Use non-root user for security
 USER apiuser

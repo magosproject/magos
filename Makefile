@@ -4,7 +4,6 @@ IMG ?= controller:$(TAG)
 JOB_IMG ?= magos-job:$(TAG)
 UI_IMG ?= ui:$(TAG)
 API_IMG ?= magos-api:$(TAG)
-
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -124,7 +123,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 docker-build: ## Build docker images for all components.
 	$(CONTAINER_TOOL) build -t ${IMG} .
 	$(CONTAINER_TOOL) build -t ${UI_IMG} -f ui/Dockerfile ui/
-	$(CONTAINER_TOOL) build -t ${JOB_IMG} -f cmd/job/Dockerfile cmd/job/
+	$(CONTAINER_TOOL) build -t ${JOB_IMG} -f cmd/job/Dockerfile .
 	$(CONTAINER_TOOL) build -t ${API_IMG} -f api/Dockerfile api/
 
 .PHONY: docker-push
