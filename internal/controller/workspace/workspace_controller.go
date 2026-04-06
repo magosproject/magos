@@ -766,6 +766,34 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 
 	var backoffLimit int32 = 0
 
+	// Merge shared annotations with per-phase overrides (phase wins on conflict).
+	var podAnnotations map[string]string
+	if len(ws.Spec.Annotations) > 0 {
+		podAnnotations = make(map[string]string, len(ws.Spec.Annotations))
+		for k, v := range ws.Spec.Annotations {
+			podAnnotations[k] = v
+		}
+	}
+	var overrides map[string]string
+	switch jobType {
+	case "plan":
+		if ws.Spec.Plan != nil {
+			overrides = ws.Spec.Plan.Annotations
+		}
+	case "apply":
+		if ws.Spec.Apply != nil {
+			overrides = ws.Spec.Apply.Annotations
+		}
+	}
+	if len(overrides) > 0 {
+		if podAnnotations == nil {
+			podAnnotations = make(map[string]string, len(overrides))
+		}
+		for k, v := range overrides {
+			podAnnotations[k] = v
+		}
+	}
+
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
@@ -774,6 +802,9 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 		Spec: batchv1.JobSpec{
 			BackoffLimit: &backoffLimit,
 			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: podAnnotations,
+				},
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 					Volumes: []corev1.Volume{

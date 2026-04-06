@@ -8,6 +8,8 @@ metadata:
   annotations:
     magosproject.io/reconcile-interval: "30s"
 spec:
+  annotations:
+    iam.gke.io/gcp-service-account: "test@test.iam.gserviceaccount.com"
   projectRef:
     name: demo-project
   source:
