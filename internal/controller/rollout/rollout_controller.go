@@ -18,6 +18,7 @@ package rollout
 import (
 	"context"
 
+	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,8 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	magosprojectiov1alpha1 "github.com/magosproject/magos/api/v1alpha1"
 )
 
 // RolloutReconciler reconciles a Rollout object
@@ -51,7 +50,7 @@ func (r *RolloutReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	logger := log.FromContext(ctx)
 
 	// Fetch the Rollout instance
-	rollout := &magosprojectiov1alpha1.Rollout{}
+	rollout := &v1alpha1.Rollout{}
 	if err := r.Get(ctx, req.NamespacedName, rollout); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -70,21 +69,21 @@ func (r *RolloutReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	err := r.reconcileRollout(ctx, rollout)
 	if err != nil {
-		r.updateStatus(ctx, rollout, magosprojectiov1alpha1.PhaseFailed, "ReconcileError", err.Error(), metav1.ConditionFalse)
+		r.updateStatus(ctx, rollout, v1alpha1.PhaseFailed, "ReconcileError", err.Error(), metav1.ConditionFalse)
 		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magosprojectiov1alpha1.Rollout) error {
+func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alpha1.Rollout) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Rollout", "name", rollout.Name)
 
 	// If no steps are defined, there is nothing to orchestrate. Mark the
 	// Rollout as Ready so the Project controller knows it is active but idle.
 	if len(rollout.Spec.Strategy.Steps) == 0 {
-		r.updateStatus(ctx, rollout, magosprojectiov1alpha1.PhaseReady, "NoSteps", "No steps defined in strategy", metav1.ConditionTrue)
+		r.updateStatus(ctx, rollout, v1alpha1.PhaseReady, "NoSteps", "No steps defined in strategy", metav1.ConditionTrue)
 		return nil
 	}
 
@@ -105,7 +104,7 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 
 		// List all Workspaces in the same namespace that match the step's label
 		// selector. This is a broad query; we filter by project below.
-		var workspaces magosprojectiov1alpha1.WorkspaceList
+		var workspaces v1alpha1.WorkspaceList
 		if err := r.List(ctx, &workspaces, client.InNamespace(rollout.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
 			logger.Error(err, "Failed to list workspaces for step")
 			return err
@@ -114,7 +113,7 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 		// Filter Workspaces to only those belonging to this Rollout's Project.
 		// The label selector alone might match Workspaces from other Projects
 		// that happen to share the same labels.
-		var targetWorkspaces []magosprojectiov1alpha1.Workspace
+		var targetWorkspaces []v1alpha1.Workspace
 		for _, ws := range workspaces.Items {
 			if ws.Spec.ProjectRef.Name == rollout.Spec.ProjectRef {
 				targetWorkspaces = append(targetWorkspaces, ws)
@@ -128,7 +127,7 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 		// to trigger re-evaluation.
 		if len(targetWorkspaces) == 0 {
 			rollout.Status.CurrentStep = i
-			r.updateStatus(ctx, rollout, magosprojectiov1alpha1.PhasePending, "WaitingForWorkspaces", "No workspaces found matching selector for step "+step.Name, metav1.ConditionUnknown)
+			r.updateStatus(ctx, rollout, v1alpha1.PhasePending, "WaitingForWorkspaces", "No workspaces found matching selector for step "+step.Name, metav1.ConditionUnknown)
 			return nil
 		}
 
@@ -142,7 +141,7 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 			// deliberate safety mechanism: applying later steps on top of a
 			// broken earlier step could compound failures, and probably
 			// conflicts with what
-			if ws.Status.Phase == magosprojectiov1alpha1.PhaseFailed {
+			if ws.Status.Phase == v1alpha1.PhaseFailed {
 				anyFailed = true
 				logger.Info("Workspace failed, halting rollout", "workspace", ws.Name)
 				break
@@ -151,17 +150,17 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 			// A Workspace needs work if it hasn't applied successfully, if its
 			// target revision has changed (meaning there's new infrastructure
 			// to plan), or if a manual reconcile was requested via annotation.
-			isFullyApplied := ws.Status.Phase == magosprojectiov1alpha1.PhaseApplied && ws.Status.ObservedRevision == ws.Spec.Source.TargetRevision
-			hasReconcileRequest := ws.Annotations != nil && ws.Annotations[magosprojectiov1alpha1.WorkspaceReconcileRequestAnnotation] != ""
+			isFullyApplied := ws.Status.Phase == v1alpha1.PhaseApplied && ws.Status.ObservedRevision == ws.Spec.Source.TargetRevision
+			hasReconcileRequest := ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != ""
 
-			if !isFullyApplied || hasReconcileRequest || ws.Status.Phase == "" || ws.Status.Phase == magosprojectiov1alpha1.PhasePending {
+			if !isFullyApplied || hasReconcileRequest || ws.Status.Phase == "" || ws.Status.Phase == v1alpha1.PhasePending {
 				stepNeedsWork = true
 			}
 		}
 
 		if anyFailed {
 			rollout.Status.CurrentStep = i
-			r.updateStatus(ctx, rollout, magosprojectiov1alpha1.PhaseFailed, "StepFailed", "One or more workspaces failed in step "+step.Name, metav1.ConditionFalse)
+			r.updateStatus(ctx, rollout, v1alpha1.PhaseFailed, "StepFailed", "One or more workspaces failed in step "+step.Name, metav1.ConditionFalse)
 			return nil
 		}
 
@@ -176,13 +175,13 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 			// (WorkspaceExecutionAllowedAnnotation) before starting a
 			// plan/apply cycle. Without it, the Workspace stays in Pending.
 			for _, ws := range targetWorkspaces {
-				isFullyApplied := ws.Status.Phase == magosprojectiov1alpha1.PhaseApplied && ws.Status.ObservedRevision == ws.Spec.Source.TargetRevision
-				hasReconcileRequest := ws.Annotations != nil && ws.Annotations[magosprojectiov1alpha1.WorkspaceReconcileRequestAnnotation] != ""
+				isFullyApplied := ws.Status.Phase == v1alpha1.PhaseApplied && ws.Status.ObservedRevision == ws.Spec.Source.TargetRevision
+				hasReconcileRequest := ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != ""
 
-				if !isFullyApplied || hasReconcileRequest || ws.Status.Phase == "" || ws.Status.Phase == magosprojectiov1alpha1.PhasePending {
+				if !isFullyApplied || hasReconcileRequest || ws.Status.Phase == "" || ws.Status.Phase == v1alpha1.PhasePending {
 					hasPermission := false
 					if ws.Annotations != nil {
-						hasPermission = ws.Annotations[magosprojectiov1alpha1.WorkspaceExecutionAllowedAnnotation] == "true"
+						hasPermission = ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == "true"
 					}
 
 					if !hasPermission {
@@ -193,12 +192,12 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 						// frequently update their own status, which increments
 						// the ResourceVersion rapidly. Using a stale version
 						// would cause the Update to fail with a conflict error.
-						latestWS := &magosprojectiov1alpha1.Workspace{}
+						latestWS := &v1alpha1.Workspace{}
 						if err := r.Get(ctx, client.ObjectKeyFromObject(&ws), latestWS); err == nil {
 							if latestWS.Annotations == nil {
 								latestWS.Annotations = make(map[string]string)
 							}
-							latestWS.Annotations[magosprojectiov1alpha1.WorkspaceExecutionAllowedAnnotation] = "true"
+							latestWS.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] = "true"
 							if err := r.Update(ctx, latestWS); err != nil {
 								logger.Error(err, "Failed to update workspace with execution permission", "workspace", ws.Name)
 							}
@@ -215,12 +214,12 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 		// All steps evaluated and none need work. The entire pipeline has
 		// completed successfully.
 		rollout.Status.CurrentStep = len(rollout.Spec.Strategy.Steps)
-		r.updateStatus(ctx, rollout, magosprojectiov1alpha1.PhaseApplied, "RolloutCompleted", "All steps completed successfully", metav1.ConditionTrue)
+		r.updateStatus(ctx, rollout, v1alpha1.PhaseApplied, "RolloutCompleted", "All steps completed successfully", metav1.ConditionTrue)
 		return nil
 	}
 
 	rollout.Status.CurrentStep = currentActiveStep
-	r.updateStatus(ctx, rollout, magosprojectiov1alpha1.PhaseReconciling, "StepProgressing", "Executing step "+activeStepName, metav1.ConditionUnknown)
+	r.updateStatus(ctx, rollout, v1alpha1.PhaseReconciling, "StepProgressing", "Executing step "+activeStepName, metav1.ConditionUnknown)
 	return nil
 }
 
@@ -230,9 +229,9 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *magos
 // updates. After a successful write, the caller's rollout object is updated
 // in-place so subsequent logic in the same reconcile pass sees the fresh
 // resourceVersion and status.
-func (r *RolloutReconciler) updateStatus(ctx context.Context, rollout *magosprojectiov1alpha1.Rollout, phase magosprojectiov1alpha1.Phase, reason, message string, status metav1.ConditionStatus) {
+func (r *RolloutReconciler) updateStatus(ctx context.Context, rollout *v1alpha1.Rollout, phase v1alpha1.Phase, reason, message string, status metav1.ConditionStatus) {
 	// Fetch the latest version of the rollout to avoid conflict errors
-	latest := &magosprojectiov1alpha1.Rollout{}
+	latest := &v1alpha1.Rollout{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(rollout), latest); err != nil {
 		log.FromContext(ctx).Error(err, "Failed to get latest rollout for status update")
 		return
@@ -256,7 +255,7 @@ func (r *RolloutReconciler) updateStatus(ctx context.Context, rollout *magosproj
 
 	now := metav1.Now()
 	condition := metav1.Condition{
-		Type:               magosprojectiov1alpha1.ConditionTypeReady,
+		Type:               v1alpha1.ConditionTypeReady,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
@@ -293,12 +292,12 @@ func (r *RolloutReconciler) updateStatus(ctx context.Context, rollout *magosproj
 // all Rollouts in the same namespace whose projectRef matches the Workspace's
 // projectRef, and enqueues them for reconciliation.
 func (r *RolloutReconciler) findRolloutsForWorkspace(ctx context.Context, o client.Object) []reconcile.Request {
-	ws, ok := o.(*magosprojectiov1alpha1.Workspace)
+	ws, ok := o.(*v1alpha1.Workspace)
 	if !ok {
 		return nil
 	}
 
-	var rollouts magosprojectiov1alpha1.RolloutList
+	var rollouts v1alpha1.RolloutList
 	if err := r.List(ctx, &rollouts, client.InNamespace(ws.Namespace)); err != nil {
 		log.FromContext(ctx).Error(err, "Failed to list rollouts for workspace change")
 		return nil
@@ -324,9 +323,9 @@ func (r *RolloutReconciler) findRolloutsForWorkspace(ctx context.Context, o clie
 // configures the watches that trigger reconciliation.
 func (r *RolloutReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&magosprojectiov1alpha1.Rollout{}).
+		For(&v1alpha1.Rollout{}).
 		Watches( // Watch for changes to Workspaces so we can re-evaluate step completion
-			&magosprojectiov1alpha1.Workspace{},
+			&v1alpha1.Workspace{},
 			handler.EnqueueRequestsFromMapFunc(r.findRolloutsForWorkspace),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).

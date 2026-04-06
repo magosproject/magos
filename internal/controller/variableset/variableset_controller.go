@@ -19,12 +19,11 @@ package variableset
 import (
 	"context"
 
+	magosprojectiov1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-
-	magosprojectiov1alpha1 "github.com/magosproject/magos/api/v1alpha1"
 )
 
 // VariableSetReconciler reconciles a VariableSet object

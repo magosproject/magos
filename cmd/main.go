@@ -21,6 +21,7 @@ import (
 	"flag"
 	"os"
 
+	magosprojectiov1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -35,7 +36,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	magosprojectiov1alpha1 "github.com/magosproject/magos/api/v1alpha1"
 	projectcontroller "github.com/magosproject/magos/internal/controller/project"
 	rolloutcontroller "github.com/magosproject/magos/internal/controller/rollout"
 	variablesetcontroller "github.com/magosproject/magos/internal/controller/variableset"

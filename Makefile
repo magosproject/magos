@@ -4,6 +4,7 @@ IMG ?= controller:$(TAG)
 JOB_IMG ?= magos-job:$(TAG)
 UI_IMG ?= ui:$(TAG)
 API_IMG ?= magos-api:$(TAG)
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -46,11 +47,11 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./api/..." output:crd:artifacts:config=charts/magos/resources/crds
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./types/..." output:crd:artifacts:config=charts/magos/resources/crds
 
 .PHONY: generate
-generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/..."
+generate: controller-gen codegen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./types/..."
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -105,6 +106,12 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
+##@ Code Generation (Typed Clientset, Informers & Listers)
+
+.PHONY: codegen
+codegen: ## Generate typed clientset, informers, and listers via kube_codegen.sh.
+	hack/update-codegen.sh
+
 ##@ Build
 
 .PHONY: build
@@ -115,6 +122,10 @@ build: manifests generate fmt vet ## Build manager binary.
 ARGS ?= --enable-workspace-controller --enable-project-controller --enable-variableset-controller --enable-rollout-controller
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go $(ARGS)
+
+.PHONY: run-api
+run-api: ## Run the API server from your host.
+	cd ./api/cmd && go run ./api/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
@@ -237,6 +248,7 @@ $(ENVTEST): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary

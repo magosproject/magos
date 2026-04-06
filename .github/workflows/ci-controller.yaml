@@ -29,6 +29,7 @@ jobs:
         with:
           path: bin
           key: ${{ runner.os }}-tools-${{ hashFiles('Makefile', 'go.mod', 'go.sum') }}
+      - run: go mod download
       - run: make lint
       - run: make build
       - run: make test

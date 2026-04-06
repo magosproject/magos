@@ -5,26 +5,20 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-
-	"github.com/magosproject/magos/api/internal/api/handlers"
-	"github.com/magosproject/magos/api/internal/service"
-	v1alpha1 "github.com/magosproject/magos/api/v1alpha1"
-
 	"os"
 	"path/filepath"
 
-	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"github.com/magosproject/magos/api/internal/api/handlers"
+	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
+	"github.com/magosproject/magos/api/internal/service"
+
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Server represents the HTTP API server.
 type Server struct {
 	logger             *slog.Logger
-	client             client.Client
 	projectHandler     *handlers.ProjectHandler
 	workspaceHandler   *handlers.WorkspaceHandler
 	rolloutHandler     *handlers.RolloutHandler
@@ -32,14 +26,13 @@ type Server struct {
 }
 
 // NewServer creates a new API server with the given Kubernetes client.
-func NewServer(logger *slog.Logger, c client.Client) *Server {
-	projectSvc := service.NewProjectService(logger, c)
-	workspaceSvc := service.NewWorkspaceService(logger, c)
-	rolloutSvc := service.NewRolloutService(logger, c)
-	variableSetSvc := service.NewVariableSetService(logger, c)
+func NewServer(logger *slog.Logger, vc versioned.Interface) *Server {
+	projectSvc := service.NewProjectService(logger, vc)
+	workspaceSvc := service.NewWorkspaceService(logger, vc)
+	rolloutSvc := service.NewRolloutService(logger, vc)
+	variableSetSvc := service.NewVariableSetService(logger, vc)
 	return &Server{
 		logger:             logger,
-		client:             c,
 		projectHandler:     handlers.NewProjectHandler(logger, projectSvc),
 		workspaceHandler:   handlers.NewWorkspaceHandler(logger, workspaceSvc),
 		rolloutHandler:     handlers.NewRolloutHandler(logger, rolloutSvc),
@@ -48,16 +41,10 @@ func NewServer(logger *slog.Logger, c client.Client) *Server {
 }
 
 // NewServerWithDefaults creates a new server using in-cluster or kubeconfig-based client.
+// It starts the project informer and waits for the cache to sync before returning.
 func NewServerWithDefaults(logger *slog.Logger) (*Server, error) {
-	scheme := runtime.NewScheme()
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(v1alpha1.AddToScheme(scheme))
-
-	var cfg *rest.Config
-	var err error
-	cfg, err = rest.InClusterConfig()
+	cfg, err := rest.InClusterConfig()
 	if err != nil {
-		// Fallback to kubeconfig if not in-cluster
 		kubeconfig := ""
 		home, _ := os.LookupEnv("HOME")
 		if kcEnv, ok := os.LookupEnv("KUBECONFIG"); ok && kcEnv != "" {
@@ -71,12 +58,12 @@ func NewServerWithDefaults(logger *slog.Logger) (*Server, error) {
 		}
 	}
 
-	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	vc, err := versioned.NewForConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
+		return nil, fmt.Errorf("failed to create versioned clientset: %w", err)
 	}
 
-	return NewServer(logger, c), nil
+	return NewServer(logger, vc), nil
 }
 
 // Router returns the HTTP handler with all routes configured.
@@ -89,10 +76,12 @@ func (s *Server) Router() http.Handler {
 
 	// Projects
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/projects", s.projectHandler.List)
+	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/projects/events", s.projectHandler.Events)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/projects/{namespace}/{name}", s.projectHandler.Get)
 
 	// Workspaces
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces", s.workspaceHandler.List)
+	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/events", s.workspaceHandler.Events)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}", s.workspaceHandler.Get)
 
 	// Rollouts
@@ -107,6 +96,7 @@ func (s *Server) Router() http.Handler {
 	var handler http.Handler = mux
 	handler = s.loggingMiddleware(handler)
 	handler = s.recoveryMiddleware(handler)
+	handler = s.corsMiddleware(handler)
 
 	return handler
 }
@@ -137,6 +127,21 @@ func (s *Server) recoveryMiddleware(next http.Handler) http.Handler {
 				writeError(w, http.StatusInternalServerError, "internal server error")
 			}
 		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// corsMiddleware currently allows
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// TODO(anyone) dive into security concerns - currently handy for local development
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }

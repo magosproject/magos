@@ -10,6 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
+
 	"github.com/magosproject/magos/api/internal/api"
 )
 
@@ -30,7 +33,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:         ":" + port,
-		Handler:      server.Router(),
+		Handler:      h2c.NewHandler(server.Router(), &http2.Server{}),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

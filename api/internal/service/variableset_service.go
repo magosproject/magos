@@ -2,44 +2,65 @@ package service
 
 import (
 	"context"
-	"github.com/magosproject/magos/api/v1alpha1"
 	"log/slog"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"time"
+
+	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
+	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
+	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/magosproject/v1alpha1"
+	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/tools/cache"
 )
 
 // VariableSetService defines operations for VariableSet resources.
 type VariableSetService interface {
-	List(ctx context.Context) (*v1alpha1.VariableSetList, error)
-	Get(ctx context.Context, namespace, name string) (*v1alpha1.VariableSet, error)
+	List(ctx context.Context) ([]*apiv1alpha1.VariableSet, error)
+	Get(ctx context.Context, namespace, name string) (*apiv1alpha1.VariableSet, error)
 }
 
 type variableSetService struct {
-	logger *slog.Logger
-	client client.Client
+	logger   *slog.Logger
+	factory  externalversions.SharedInformerFactory
+	informer cache.SharedIndexInformer
+	lister   listerv1alpha1.VariableSetLister
 }
 
-func NewVariableSetService(logger *slog.Logger, client client.Client) VariableSetService {
-	return &variableSetService{logger: logger, client: client}
+func NewVariableSetService(logger *slog.Logger, client versioned.Interface) VariableSetService {
+	factory := externalversions.NewSharedInformerFactory(client, 5*time.Minute)
+	variableSetInformer := factory.Magosproject().V1alpha1().VariableSets()
+
+	svc := &variableSetService{
+		logger:   logger,
+		factory:  factory,
+		informer: variableSetInformer.Informer(),
+		lister:   variableSetInformer.Lister(),
+	}
+
+	svc.factory.Start(context.Background().Done())
+
+	return svc
 }
 
-func (s *variableSetService) List(ctx context.Context) (*v1alpha1.VariableSetList, error) {
-	s.logger.Info("listing VariableSets")
-	var list v1alpha1.VariableSetList
-	if err := s.client.List(ctx, &list); err != nil {
+func (s *variableSetService) HasSynced() bool {
+	return s.informer.HasSynced()
+}
+
+func (s *variableSetService) List(_ context.Context) ([]*apiv1alpha1.VariableSet, error) {
+	variableSets, err := s.lister.List(labels.Everything())
+	if err != nil {
 		s.logger.Error("failed to list VariableSets", "error", err)
 		return nil, err
 	}
-	s.logger.Info("VariableSets listed", "count", len(list.Items))
-	return &list, nil
+	s.logger.Info("VariableSets listed", "count", len(variableSets))
+	return variableSets, nil
 }
 
-func (s *variableSetService) Get(ctx context.Context, namespace, name string) (*v1alpha1.VariableSet, error) {
-	s.logger.Info("getting VariableSet", "namespace", namespace, "name", name)
-	var obj v1alpha1.VariableSet
-	if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &obj); err != nil {
+func (s *variableSetService) Get(_ context.Context, namespace, name string) (*apiv1alpha1.VariableSet, error) {
+	variableSet, err := s.lister.VariableSets(namespace).Get(name)
+	if err != nil {
 		s.logger.Error("failed to get VariableSet", "error", err, "namespace", namespace, "name", name)
 		return nil, err
 	}
-	s.logger.Info("VariableSet retrieved", "namespace", namespace, "name", name)
-	return &obj, nil
+	return variableSet, nil
 }
