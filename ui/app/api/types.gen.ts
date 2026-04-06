@@ -982,6 +982,20 @@ export interface components {
             uid?: string;
         };
         /**
+         * @description Apply holds overrides applied only to apply Jobs.
+         *     +optional
+         */
+        "v1alpha1.JobOverrides": {
+            /**
+             * @description Annotations to add to the Job's pod template. Merged on top of
+             *     spec.annotations; values here win on conflict.
+             *     +optional
+             */
+            annotations?: {
+                [key: string]: string;
+            };
+        };
+        /**
          * @description Phase represents the current phase of the Workspace
          *     +optional
          * @enum {string}
@@ -1211,11 +1225,21 @@ export interface components {
          */
         "v1alpha1.WorkspaceSpec": {
             /**
+             * @description Annotations to propagate to both plan and apply Job pod templates.
+             *     Per-phase annotations in spec.plan or spec.apply take precedence on conflict.
+             *     +optional
+             */
+            annotations?: {
+                [key: string]: string;
+            };
+            apply?: components["schemas"]["v1alpha1.JobOverrides"];
+            /**
              * @description AutoApply dictates whether the workspace should automatically apply after a successful plan
              *     +optional
              *     +kubebuilder:default=true
              */
             autoApply?: boolean;
+            plan?: components["schemas"]["v1alpha1.JobOverrides"];
             projectRef?: components["schemas"]["v1alpha1.ProjectReference"];
             source?: components["schemas"]["v1alpha1.SourceSpec"];
             terraform?: components["schemas"]["v1alpha1.TerraformSpec"];
