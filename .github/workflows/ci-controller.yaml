@@ -31,6 +31,8 @@ jobs:
           key: ${{ runner.os }}-tools-${{ hashFiles('Makefile', 'go.mod', 'go.sum') }}
       - run: go mod download
       - run: make lint
-      - run: make openapi-check
+      - run: make generate
+      - name: Exit if codegen generated diff
+        run: git diff --exit-code
       - run: make build
       - run: make test
