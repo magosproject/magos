@@ -1,7 +1,8 @@
 # Build stage
 FROM golang:1.26.1-alpine AS builder
 
-ARG github_token
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /build
 
@@ -18,7 +19,7 @@ RUN go mod download && go mod verify
 COPY . .
 
 # Build the application with optimizations
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
     -a \
     -installsuffix cgo \
     -ldflags="-w -s" \
