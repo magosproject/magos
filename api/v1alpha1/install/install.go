@@ -13,3 +13,18 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
+package install
+
+import (
+	"github.com/magosproject/magos/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/runtime"
+)
+
+// Install registers the v1alpha1 API group types into the given scheme.
+func Install(scheme *runtime.Scheme) {
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
+		panic(err)
+	}
+}
+
