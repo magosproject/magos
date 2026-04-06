@@ -1,14 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import type { WatchEvent } from "../api/types";
 
-type WatchEvent = {
-  type?: string;
-  object?: unknown;
-};
-
-export function useSSEList<TRow extends { id: string }>(
+export function useSSEList<TApi, TRow extends { id: string }>(
   url: string,
   initial: TRow[],
-  toRow: (item: unknown) => TRow,
+  toRow: (item: TApi) => TRow,
   fetchItems?: () => Promise<TRow[]>
 ): TRow[] {
   const [items, setItems] = useState<TRow[]>(initial);
@@ -29,7 +25,7 @@ export function useSSEList<TRow extends { id: string }>(
     };
 
     source.onmessage = (ev: MessageEvent<string>) => {
-      const event: WatchEvent = JSON.parse(ev.data);
+      const event: WatchEvent<TApi> = JSON.parse(ev.data);
       if (!event.type || !event.object) return;
       if (event.type === "BOOKMARK" || event.type === "ERROR") return;
 
@@ -54,4 +50,3 @@ export function useSSEList<TRow extends { id: string }>(
 
   return items;
 }
-

@@ -9,6 +9,7 @@ import KubeBadge from "../components/KubeBadge";
 import { repoIcon } from "../utils/repoIcon";
 import { statusColor } from "../utils/colors";
 import apiClient from "../api/client";
+import type { Workspace } from "../api/types";
 import { useSSEList } from "../hooks/useSSEList";
 
 export function meta() {
@@ -30,20 +31,15 @@ export async function clientLoader() {
   return (data ?? []).map(toWorkspaceRow);
 }
 
-function toWorkspaceRow(ws: unknown): WorkspaceRow {
-  const w = ws as {
-    metadata?: { uid?: string; name?: string; namespace?: string };
-    spec?: { projectRef?: { name?: string }; source?: { repoURL?: string; path?: string } };
-    status?: { phase?: string };
-  };
+function toWorkspaceRow(ws: Workspace): WorkspaceRow {
   return {
-    id: w.metadata?.uid ?? `${w.metadata?.namespace}/${w.metadata?.name}`,
-    name: w.metadata?.name ?? "",
-    namespace: w.metadata?.namespace ?? "",
-    phase: w.status?.phase ?? "",
-    projectRef: w.spec?.projectRef?.name ?? "",
-    repoURL: w.spec?.source?.repoURL ?? "",
-    path: w.spec?.source?.path ?? "",
+    id: ws.metadata?.uid ?? `${ws.metadata?.namespace}/${ws.metadata?.name}`,
+    name: ws.metadata?.name ?? "",
+    namespace: ws.metadata?.namespace ?? "",
+    phase: ws.status?.phase ?? "",
+    projectRef: ws.spec?.projectRef?.name ?? "",
+    repoURL: ws.spec?.source?.repoURL ?? "",
+    path: ws.spec?.source?.path ?? "",
   };
 }
 
@@ -123,7 +119,7 @@ function toCard(ws: WorkspaceRow): ResourceCardProps {
 
 export default function Workspaces() {
   const initial = useLoaderData<typeof clientLoader>();
-  const workspaces = useSSEList(
+  const workspaces = useSSEList<Workspace, WorkspaceRow>(
     "/apis/magosproject.io/v1alpha1/workspaces/events",
     initial,
     toWorkspaceRow,

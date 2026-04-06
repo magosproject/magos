@@ -4,6 +4,7 @@ import Breadcrumbs from "../components/Breadcrumbs";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
 import KubeBadge from "../components/KubeBadge";
 import apiClient from "../api/client";
+import type { Project } from "../api/types";
 import { useSSEList } from "../hooks/useSSEList";
 
 export function meta() {
@@ -23,17 +24,13 @@ export async function clientLoader() {
   return (data ?? []).map(toProjectRow);
 }
 
-function toProjectRow(p: unknown): ProjectRow {
-  const project = p as {
-    metadata?: { uid?: string; name?: string; namespace?: string };
-    spec?: { description?: string; variableSetRef?: unknown[] };
-  };
+function toProjectRow(p: Project): ProjectRow {
   return {
-    id: project.metadata?.uid ?? `${project.metadata?.namespace}/${project.metadata?.name}`,
-    name: project.metadata?.name ?? "",
-    namespace: project.metadata?.namespace ?? "",
-    description: project.spec?.description ?? "",
-    variableSetCount: project.spec?.variableSetRef?.length ?? 0,
+    id: p.metadata?.uid ?? `${p.metadata?.namespace}/${p.metadata?.name}`,
+    name: p.metadata?.name ?? "",
+    namespace: p.metadata?.namespace ?? "",
+    description: p.spec?.description ?? "",
+    variableSetCount: p.spec?.variableSetRef?.length ?? 0,
   };
 }
 
@@ -81,7 +78,7 @@ const columns: ColumnDef<ProjectRow>[] = [
 
 export default function Projects() {
   const initial = useLoaderData<typeof clientLoader>();
-  const projects = useSSEList(
+  const projects = useSSEList<Project, ProjectRow>(
     "/apis/magosproject.io/v1alpha1/projects/events",
     initial,
     toProjectRow,
