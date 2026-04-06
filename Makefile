@@ -125,13 +125,7 @@ openapi: manifests swag ## Generate OpenAPI spec from handler annotations. Re-ru
 		--parseInternal
 
 .PHONY: openapi-check
-openapi-check: swag ## CI check: fail if swagger.json is out of sync with current annotations.
-	cd api && $(SWAG) init \
-		-g cmd/api/main.go \
-		--output internal/api/docs \
-		--outputTypes json \
-		--parseDependency \
-		--parseInternal
+openapi-check: swag openapi ## CI check: fail if swagger.json is out of sync with current annotations OR formatting is incorrect.
 	git diff --exit-code
 
 ##@ Build

@@ -41,10 +41,10 @@ func (h *RolloutHandler) List(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Get Rollout resource
 //	@Tags		Rollout
-//	@Produce        	json
+//	@Produce	json
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
-//	@Success	200		  	{object}	Rollout
+//	@Success	200			{object}	Rollout
 //	@Failure	400			{object}	ErrorResponse
 //	@Failure	404			{object}	ErrorResponse
 //	@Router		/apis/magosproject.io/v1alpha1/rollouts/{namespace}/{name} [get]
