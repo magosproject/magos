@@ -1,4 +1,5 @@
 import { Box, Group, Stack, Text, Tooltip } from "@mantine/core";
+import type { CSSProperties } from "react";
 import { useLoaderData } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
@@ -68,7 +69,7 @@ function StepPipeline({ rollout }: { rollout: RolloutRow }) {
                   {
                     backgroundColor: color,
                     "--pulse-color": isActive ? color : undefined,
-                  } as React.CSSProperties
+                  } as CSSProperties
                 }
               />
             </Tooltip>

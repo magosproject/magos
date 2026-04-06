@@ -10,7 +10,7 @@ import {
   Title,
 } from "@mantine/core";
 import { IconFolder, IconRefresh } from "@tabler/icons-react";
-import { Link, useLoaderData, useParams } from "react-router";
+import { useLoaderData, useParams } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
 import InfoCard from "../components/InfoCard";
 import StatusBadge from "../components/StatusBadge";

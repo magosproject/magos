@@ -9,9 +9,12 @@ export function useSSEList<TApi, TRow extends { id: string }>(
 ): TRow[] {
   const [items, setItems] = useState<TRow[]>(initial);
   const toRowRef = useRef(toRow);
-  toRowRef.current = toRow;
   const fetchItemsRef = useRef(fetchItems);
-  fetchItemsRef.current = fetchItems;
+
+  useEffect(() => {
+    toRowRef.current = toRow;
+    fetchItemsRef.current = fetchItems;
+  });
 
   useEffect(() => {
     const source = new EventSource(url);
