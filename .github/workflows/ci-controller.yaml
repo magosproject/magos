@@ -25,11 +25,17 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 23
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
       - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.4.0
         with:
           path: bin
           key: ${{ runner.os }}-tools-${{ hashFiles('Makefile', 'go.mod', 'go.sum') }}
       - run: go mod download
+      - run: npm ci --prefix ui
       - run: make lint
       - run: make generate
       - name: Exit if codegen generated diff
