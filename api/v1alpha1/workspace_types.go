@@ -74,6 +74,24 @@ type TerraformSpec struct {
 	TfvarsPath string `json:"tfvarsPath,omitempty"`
 }
 
+// WorkspaceAnnotations defines annotations to propagate to plan and/or apply Jobs.
+// Common annotations are applied to both job types. Plan- and Apply-specific
+// annotations are merged on top of common, with the specific annotations winning
+// on conflict.
+type WorkspaceAnnotations struct {
+	// Common annotations propagated to both plan and apply Jobs.
+	// +optional
+	Common map[string]string `json:"common,omitempty"`
+
+	// Plan-specific annotations, merged with common (plan wins on conflict).
+	// +optional
+	Plan map[string]string `json:"plan,omitempty"`
+
+	// Apply-specific annotations, merged with common (apply wins on conflict).
+	// +optional
+	Apply map[string]string `json:"apply,omitempty"`
+}
+
 // WorkspaceSpec defines the desired state of Workspace
 type WorkspaceSpec struct {
 	// ProjectRef is a reference to the project this workspace belongs to
@@ -84,6 +102,10 @@ type WorkspaceSpec struct {
 	// +optional
 	// +kubebuilder:default=true
 	AutoApply bool `json:"autoApply"`
+
+	// Annotations to propagate to the plan and/or apply Jobs.
+	// +optional
+	Annotations *WorkspaceAnnotations `json:"annotations,omitempty"`
 
 	// Source defines the Git repository configuration
 	// +required

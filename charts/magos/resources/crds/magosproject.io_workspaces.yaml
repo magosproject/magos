@@ -52,6 +52,28 @@ spec:
           spec:
             description: spec defines the desired state of Workspace
             properties:
+              annotations:
+                description: Annotations to propagate to the plan and/or apply Jobs.
+                properties:
+                  apply:
+                    additionalProperties:
+                      type: string
+                    description: Apply-specific annotations, merged with common (apply
+                      wins on conflict).
+                    type: object
+                  common:
+                    additionalProperties:
+                      type: string
+                    description: Common annotations propagated to both plan and apply
+                      Jobs.
+                    type: object
+                  plan:
+                    additionalProperties:
+                      type: string
+                    description: Plan-specific annotations, merged with common (plan
+                      wins on conflict).
+                    type: object
+                type: object
               autoApply:
                 default: true
                 description: AutoApply dictates whether the workspace should automatically

@@ -767,6 +767,29 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 
 	var backoffLimit int32 = 0
 
+	// Build pod annotations by merging common annotations with job-type-specific
+	// ones. Specific annotations win on conflict.
+	var podAnnotations map[string]string
+	if ws.Spec.Annotations != nil {
+		podAnnotations = make(map[string]string)
+		for k, v := range ws.Spec.Annotations.Common {
+			podAnnotations[k] = v
+		}
+		var specific map[string]string
+		switch jobType {
+		case "plan":
+			specific = ws.Spec.Annotations.Plan
+		case "apply":
+			specific = ws.Spec.Annotations.Apply
+		}
+		for k, v := range specific {
+			podAnnotations[k] = v
+		}
+		if len(podAnnotations) == 0 {
+			podAnnotations = nil
+		}
+	}
+
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
@@ -775,6 +798,9 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 		Spec: batchv1.JobSpec{
 			BackoffLimit: &backoffLimit,
 			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: podAnnotations,
+				},
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 					Volumes: []corev1.Volume{
