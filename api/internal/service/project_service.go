@@ -39,7 +39,7 @@ type projectService struct {
 
 // NewProjectService returns a new ProjectService.
 func NewProjectService(logger *slog.Logger, client versioned.Interface) ProjectService {
-	factory := externalversions.NewSharedInformerFactory(client, 30*time.Second)
+	factory := externalversions.NewSharedInformerFactory(client, 5*time.Minute)
 	projectInformer := factory.Types().V1alpha1().Projects()
 
 	svc := &projectService{

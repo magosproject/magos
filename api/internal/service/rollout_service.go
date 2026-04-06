@@ -27,7 +27,7 @@ type rolloutService struct {
 }
 
 func NewRolloutService(logger *slog.Logger, client versioned.Interface) RolloutService {
-	factory := externalversions.NewSharedInformerFactory(client, 30*time.Second)
+	factory := externalversions.NewSharedInformerFactory(client, 5*time.Minute)
 	rolloutInformer := factory.Types().V1alpha1().Rollouts()
 
 	svc := &rolloutService{

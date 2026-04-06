@@ -38,7 +38,7 @@ type workspaceService struct {
 }
 
 func NewWorkspaceService(logger *slog.Logger, client versioned.Interface) WorkspaceService {
-	factory := externalversions.NewSharedInformerFactory(client, 30*time.Second)
+	factory := externalversions.NewSharedInformerFactory(client, 5*time.Minute)
 	workspaceInformer := factory.Types().V1alpha1().Workspaces()
 
 	svc := &workspaceService{

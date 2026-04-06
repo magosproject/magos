@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/magosproject/magos/api/internal/service"
 )
@@ -63,13 +64,28 @@ func (h *ProjectHandler) Events(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	for event := range h.service.Watch(r.Context()) {
-		data, err := json.Marshal(event)
-		if err != nil {
-			continue
+	events := h.service.Watch(r.Context())
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(event)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+		case <-heartbeat.C:
+			fmt.Fprintf(w, ": ping\n\n")
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
 		}
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
 	}
 }
 

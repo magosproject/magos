@@ -27,7 +27,7 @@ type variableSetService struct {
 }
 
 func NewVariableSetService(logger *slog.Logger, client versioned.Interface) VariableSetService {
-	factory := externalversions.NewSharedInformerFactory(client, 30*time.Second)
+	factory := externalversions.NewSharedInformerFactory(client, 5*time.Minute)
 	variableSetInformer := factory.Types().V1alpha1().VariableSets()
 
 	svc := &variableSetService{
