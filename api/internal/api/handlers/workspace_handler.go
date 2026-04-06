@@ -78,10 +78,14 @@ func (h *WorkspaceHandler) Events(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			if _, err = fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+				return
+			}
 			flusher.Flush()
 		case <-heartbeat.C:
-			fmt.Fprintf(w, ": ping\n\n")
+			if _, err := fmt.Fprintf(w, ": ping\n\n"); err != nil {
+				return
+			}
 			flusher.Flush()
 		case <-r.Context().Done():
 			return
