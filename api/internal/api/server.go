@@ -26,6 +26,7 @@ var swaggerUI []byte
 // Server represents the HTTP API server.
 type Server struct {
 	logger             *slog.Logger
+	allowedOrigin      string
 	projectHandler     *handlers.ProjectHandler
 	workspaceHandler   *handlers.WorkspaceHandler
 	rolloutHandler     *handlers.RolloutHandler
@@ -33,13 +34,14 @@ type Server struct {
 }
 
 // NewServer creates a new API server with the given Kubernetes client.
-func NewServer(logger *slog.Logger, vc versioned.Interface) *Server {
+func NewServer(logger *slog.Logger, vc versioned.Interface, allowedOrigin string) *Server {
 	projectSvc := service.NewProjectService(logger, vc)
 	workspaceSvc := service.NewWorkspaceService(logger, vc)
 	rolloutSvc := service.NewRolloutService(logger, vc)
 	variableSetSvc := service.NewVariableSetService(logger, vc)
 	return &Server{
 		logger:             logger,
+		allowedOrigin:      allowedOrigin,
 		projectHandler:     handlers.NewProjectHandler(logger, projectSvc),
 		workspaceHandler:   handlers.NewWorkspaceHandler(logger, workspaceSvc),
 		rolloutHandler:     handlers.NewRolloutHandler(logger, rolloutSvc),
@@ -70,7 +72,7 @@ func NewServerWithDefaults(logger *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("failed to create versioned clientset: %w", err)
 	}
 
-	return NewServer(logger, vc), nil
+	return NewServer(logger, vc, os.Getenv("CORS_ALLOWED_ORIGIN")), nil
 }
 
 // Router returns the HTTP handler with all routes configured.
@@ -157,14 +159,16 @@ func (s *Server) recoveryMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// corsMiddleware currently allows
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// TODO(anyone) dive into security concerns - currently handy for local development
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		origin := r.Header.Get("Origin")
+		if origin != "" && origin == s.allowedOrigin {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
 		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -177,7 +181,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		// best-effort; headers already sent
 		_ = err
 	}
 }

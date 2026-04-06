@@ -129,6 +129,12 @@ openapi: manifests swag ## Generate OpenAPI spec from handler annotations. Re-ru
 openapi-check: swag openapi ## CI check: fail if swagger.json is out of sync with current annotations OR formatting is incorrect.
 	git diff --exit-code
 
+##@ Code Generation (UI API Types)
+
+.PHONY: generate-ui-types
+generate-ui-types: openapi ## Regenerate TypeScript API types for the UI from swagger.json.
+	cd ui && npm run generate
+
 ##@ Build
 
 .PHONY: build

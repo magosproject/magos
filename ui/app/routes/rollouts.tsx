@@ -1,18 +1,44 @@
 import { Box, Group, Stack, Text, Tooltip } from "@mantine/core";
+import { useLoaderData } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
-import { type Rollout, rollouts } from "../mock-data/rollouts";
-import { projects } from "../mock-data/projects";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
 import StatusBadge from "../components/StatusBadge";
 import KubeBadge from "../components/KubeBadge";
 import { statusColor } from "../utils/colors";
+import apiClient from "../api/client";
 
 export function meta() {
   return [{ title: "Rollouts – magos" }];
 }
 
-/** Small inline pipeline visualization showing step progress as colored dots. */
-function StepPipeline({ rollout }: { rollout: Rollout }) {
+type RolloutRow = {
+  id: string;
+  name: string;
+  namespace: string;
+  phase: string;
+  projectRef: string;
+  currentStep: number;
+  totalSteps: number;
+  steps: { name: string }[];
+};
+
+export async function clientLoader() {
+  const { data } = await apiClient.GET("/apis/magosproject.io/v1alpha1/rollouts");
+  return (data ?? []).map(
+    (ro): RolloutRow => ({
+      id: ro.metadata?.uid ?? `${ro.metadata?.namespace}/${ro.metadata?.name}`,
+      name: ro.metadata?.name ?? "",
+      namespace: ro.metadata?.namespace ?? "",
+      phase: ro.status?.phase ?? "",
+      projectRef: ro.spec?.projectRef ?? "",
+      currentStep: ro.status?.currentStep ?? 0,
+      totalSteps: ro.spec?.strategy?.steps?.length ?? 0,
+      steps: ro.spec?.strategy?.steps?.map((s) => ({ name: s.name ?? "" })) ?? [],
+    })
+  );
+}
+
+function StepPipeline({ rollout }: { rollout: RolloutRow }) {
   return (
     <Group gap={0} wrap="nowrap" align="center">
       {rollout.steps.map((step, i) => {
@@ -20,12 +46,11 @@ function StepPipeline({ rollout }: { rollout: Rollout }) {
         const isActive = rollout.phase === "Reconciling" && i === rollout.currentStep;
         const isFailed = rollout.phase === "Failed" && i === rollout.currentStep;
 
-        let color = "var(--mantine-color-dark-4)"; // pending
+        let color = "var(--mantine-color-dark-4)";
         if (isComplete) color = "var(--mantine-color-green-6)";
         if (isActive) color = `var(--mantine-color-${statusColor[rollout.phase]}-6)`;
         if (isFailed) color = "var(--mantine-color-red-6)";
 
-        // Connector color: solid if left node is complete, dim otherwise
         const connectorColor =
           i > 0 && (i <= rollout.currentStep || rollout.phase === "Applied")
             ? "var(--mantine-color-green-6)"
@@ -54,7 +79,7 @@ function StepPipeline({ rollout }: { rollout: Rollout }) {
   );
 }
 
-const columns: ColumnDef<Rollout>[] = [
+const columns: ColumnDef<RolloutRow>[] = [
   {
     key: "name",
     label: "Name",
@@ -73,14 +98,11 @@ const columns: ColumnDef<Rollout>[] = [
   {
     key: "project",
     label: "Project",
-    render: (ro) => {
-      const project = projects.find((p) => p.id === ro.projectRef);
-      return (
-        <Text size="sm" c="dimmed">
-          {project?.name ?? ro.projectRef}
-        </Text>
-      );
-    },
+    render: (ro) => (
+      <Text size="sm" c="dimmed">
+        {ro.projectRef || "—"}
+      </Text>
+    ),
   },
   {
     key: "pipeline",
@@ -89,7 +111,7 @@ const columns: ColumnDef<Rollout>[] = [
       <Group gap="sm" align="center" wrap="nowrap">
         <StepPipeline rollout={ro} />
         <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
-          {Math.min(ro.currentStep + 1, ro.steps.length)}/{ro.steps.length}
+          {Math.min(ro.currentStep + 1, ro.totalSteps)}/{ro.totalSteps}
         </Text>
       </Group>
     ),
@@ -103,6 +125,8 @@ const columns: ColumnDef<Rollout>[] = [
 ];
 
 export default function Rollouts() {
+  const rollouts = useLoaderData<typeof clientLoader>();
+
   return (
     <Stack gap="md">
       <Breadcrumbs crumbs={[{ label: "Rollouts" }]} />
@@ -130,7 +154,7 @@ export default function Rollouts() {
         items={rollouts}
         searchKey="name"
         columns={columns}
-        toHref={(ro) => `/rollouts/${ro.id}`}
+        toHref={(ro) => `/rollouts/${ro.namespace}/${ro.name}`}
         defaultView="row"
         hideViewToggle
       />

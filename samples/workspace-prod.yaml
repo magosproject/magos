@@ -5,6 +5,8 @@ metadata:
   namespace: default
   labels:
     env: prod
+  annotations:
+    magosproject.io/reconcile-interval: "30s"
 spec:
   projectRef:
     name: demo-project
