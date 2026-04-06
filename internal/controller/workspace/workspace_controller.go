@@ -293,21 +293,28 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// changes too, so the old Plan/Apply Jobs no longer match. We find any Jobs
 	// still owned by this Workspace that don't match the current specHash and
 	// delete them to avoid leaving stale resources in the cluster.
-	var childJobs batchv1.JobList
-	if err := r.List(ctx, &childJobs, client.InNamespace(workspace.Namespace)); err == nil {
-		for _, j := range childJobs.Items {
-			isOwned := false
-			for _, owner := range j.OwnerReferences {
-				if owner.UID == workspace.UID {
-					isOwned = true
-					break
+	//
+	// IMPORTANT: We only clean up orphaned Jobs when the Workspace is NOT
+	// actively planning or applying. Deleting a running Job mid-execution
+	// (especially during terraform apply) could corrupt Terraform state. We
+	// wait for the active operation to finish before cleaning up.
+	if workspace.Status.Phase != v1alpha1.PhasePlanning && workspace.Status.Phase != v1alpha1.PhaseApplying {
+		var childJobs batchv1.JobList
+		if err := r.List(ctx, &childJobs, client.InNamespace(workspace.Namespace)); err == nil {
+			for _, j := range childJobs.Items {
+				isOwned := false
+				for _, owner := range j.OwnerReferences {
+					if owner.UID == workspace.UID {
+						isOwned = true
+						break
+					}
 				}
-			}
-			// Delete Jobs that belong to this Workspace but were created for an
-			// older specHash.
-			if isOwned && j.Name != planJobName && j.Name != applyJobName {
-				logger.Info("Cleaning up orphaned job from previous run", "job", j.Name)
-				_ = r.Delete(ctx, &j, client.PropagationPolicy(metav1.DeletePropagationBackground))
+				// Delete Jobs that belong to this Workspace but were created for an
+				// older specHash.
+				if isOwned && j.Name != planJobName && j.Name != applyJobName {
+					logger.Info("Cleaning up orphaned job from previous run", "job", j.Name)
+					_ = r.Delete(ctx, &j, client.PropagationPolicy(metav1.DeletePropagationBackground))
+				}
 			}
 		}
 	}
@@ -346,11 +353,18 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	var exactRequeue time.Duration
 
 	// No Jobs exist for the current specHash, yet the Workspace thinks it's
-	// past Pending. Bit of an edge-case, but it happened before.
-	// This means the spec changed (new hash) or someone manually
+	// past Pending. This means the spec changed (new hash) or someone manually
 	// deleted the Jobs. Either way, go back to Pending to start fresh.
+	//
+	// We skip the reset when the phase is Planning or Applying. The Jobs for
+	// the *previous* specHash may still be running (their names no longer match
+	// the current hash, so the GETs above return NotFound). Resetting now would
+	// delete those running Jobs via the cleanup block below and could corrupt
+	// Terraform state. Instead we let the running Job finish; once it completes,
+	// the phase will move to a terminal state and the next reconcile will reset.
 	if planJobGetErr != nil && errors.IsNotFound(planJobGetErr) && applyJobGetErr != nil && errors.IsNotFound(applyJobGetErr) {
-		if workspace.Status.Phase != "" && workspace.Status.Phase != v1alpha1.PhasePending {
+		if workspace.Status.Phase != "" && workspace.Status.Phase != v1alpha1.PhasePending &&
+			workspace.Status.Phase != v1alpha1.PhasePlanning && workspace.Status.Phase != v1alpha1.PhaseApplying {
 			needsReset = true
 			resetReason = "ConfigurationChanged"
 			resetMessage = "Workspace spec was modified or jobs were deleted, triggering fresh execution"
