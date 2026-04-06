@@ -16,8 +16,8 @@ import (
 )
 
 type ProjectEvent struct {
-	Type   watch.EventType
-	Object *apiv1alpha1.Project
+	Type   watch.EventType       `json:"type"`
+	Object *apiv1alpha1.Project  `json:"object"`
 }
 
 // ProjectService defines operations for Project resources.

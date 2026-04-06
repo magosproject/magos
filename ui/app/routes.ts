@@ -4,13 +4,13 @@ export default [
   layout("components/AppShell.tsx", [
     index("routes/home.tsx"),
     route("workspaces", "routes/workspaces.tsx"),
-    route("workspaces/:id", "routes/workspace.tsx"),
+    route("workspaces/:namespace/:name", "routes/workspace.tsx"),
     route("projects", "routes/projects.tsx"),
-    route("projects/:id", "routes/project.tsx"),
+    route("projects/:namespace/:name", "routes/project.tsx"),
     route("rollouts", "routes/rollouts.tsx"),
-    route("rollouts/:id", "routes/rollout.tsx"),
+    route("rollouts/:namespace/:name", "routes/rollout.tsx"),
     route("variable-sets", "routes/variable-sets.tsx"),
-    route("variable-sets/:id", "routes/variable-set.tsx"),
+    route("variable-sets/:namespace/:name", "routes/variable-set.tsx"),
     route("settings", "routes/settings.tsx"),
     ...prefix("admin", [
       route("users", "routes/admin.users.tsx"),

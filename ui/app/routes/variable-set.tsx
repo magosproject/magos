@@ -1,133 +1,99 @@
-import {
-  Badge,
-  Code,
-  Group,
-  SimpleGrid,
-  Stack,
-  Table,
-  Text,
-  Title,
-  Anchor,
-  Button,
-} from "@mantine/core";
-import { IconBox, IconLock, IconRefresh } from "@tabler/icons-react";
-import { Link, useParams } from "react-router";
+import { Badge, Button, Group, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { IconRefresh } from "@tabler/icons-react";
+import { useLoaderData, useParams } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
 import InfoCard from "../components/InfoCard";
-import NotFound from "../components/NotFound";
 import KubeBadge from "../components/KubeBadge";
-import { variableSets } from "../mock-data/variable-sets";
-import { projects } from "../mock-data/projects";
+import apiClient from "../api/client";
 
-export function meta({ params }: { params: { id: string } }) {
-  const vs = variableSets.find((v) => v.id === params.id);
-  return [{ title: `${vs?.name ?? params.id} – magos` }];
+export function meta({ params }: { params: { namespace: string; name: string } }) {
+  return [{ title: `${params.name} – magos` }];
+}
+
+export async function clientLoader({
+  params,
+}: {
+  params: { namespace: string; name: string };
+}) {
+  const { data } = await apiClient.GET(
+    "/apis/magosproject.io/v1alpha1/variablesets/{namespace}/{name}",
+    { params: { path: { namespace: params.namespace, name: params.name } } }
+  );
+  if (!data) throw new Response("Not found", { status: 404 });
+  return data;
 }
 
 export default function VariableSetDetail() {
-  const { id } = useParams<{ id: string }>();
-  const vs = variableSets.find((v) => v.id === id);
-
-  if (!vs) {
-    return <NotFound message="Variable Set not found." />;
-  }
-
-  const project = projects.find((p) => p.id === vs.projectRef);
+  const { namespace, name } = useParams<{ namespace: string; name: string }>();
+  const vs = useLoaderData<typeof clientLoader>();
 
   return (
     <Stack gap="lg">
       <Breadcrumbs
-        crumbs={[{ label: "Variable Sets", to: "/variable-sets" }, { label: vs.name }]}
+        crumbs={[{ label: "Variable Sets", to: "/variable-sets" }, { label: name! }]}
       />
 
       <Group justify="space-between" align="flex-start">
-        <Stack gap={4}>
-          <Group gap="xs" align="center">
-            <Title order={2}>{vs.name}</Title>
-            <KubeBadge label={vs.namespace} />
-          </Group>
-        </Stack>
+        <Group gap="xs" align="center">
+          <Title order={2}>{name}</Title>
+          <KubeBadge label={namespace!} />
+        </Group>
         <Button leftSection={<IconRefresh size={16} />} variant="default" size="sm">
           Reconcile
         </Button>
       </Group>
 
-      <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
-        <InfoCard label="Project">
-          <Group gap={6} wrap="nowrap">
-            <IconBox size={14} />
-            {project ? (
-              <Anchor component={Link} to={`/projects/${project.id}`} size="sm" truncate>
-                {project.name}
-              </Anchor>
-            ) : (
-              <Text size="sm" c="dimmed" fs="italic">
-                {vs.projectRef || "None (Direct attachment)"}
-              </Text>
-            )}
-          </Group>
-        </InfoCard>
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
         <InfoCard label="Kubernetes Namespace">
-          <KubeBadge label={vs.namespace} />
+          <KubeBadge label={namespace!} />
         </InfoCard>
       </SimpleGrid>
 
-      <Stack gap="xs">
-        <Title order={4}>Variables</Title>
-        {vs.variables.length === 0 ? (
-          <Text size="sm" c="dimmed">
-            No variables defined in this set.
-          </Text>
-        ) : (
-          <Table highlightOnHover withTableBorder withColumnBorders={false}>
+      {vs.status?.conditions && vs.status.conditions.length > 0 && (
+        <Stack gap="xs">
+          <Title order={4}>Conditions</Title>
+          <Table withTableBorder withColumnBorders={false}>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Key</Table.Th>
-                <Table.Th>Value</Table.Th>
-                <Table.Th>Category</Table.Th>
+                <Table.Th>Type</Table.Th>
+                <Table.Th>Status</Table.Th>
+                <Table.Th>Reason</Table.Th>
+                <Table.Th>Message</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {vs.variables.map((variable, idx) => (
-                <Table.Tr key={`${variable.key}-${idx}`}>
+              {vs.status.conditions.map((c) => (
+                <Table.Tr key={c.type}>
                   <Table.Td>
-                    <Group gap="xs" wrap="nowrap">
-                      <Text size="sm" fw={600}>
-                        {variable.key}
-                      </Text>
-                      {variable.sensitive && (
-                        <IconLock size={14} style={{ color: "var(--mantine-color-dimmed)" }} />
-                      )}
-                    </Group>
-                  </Table.Td>
-                  <Table.Td>
-                    {variable.sensitive && variable.valueFrom ? (
-                      <KubeBadge label={`${vs.namespace}/${variable.valueFrom.secretRef.name}`} />
-                    ) : variable.sensitive ? (
-                      <Text size="sm" c="dimmed" fs="italic">
-                        Sensitive
-                      </Text>
-                    ) : (
-                      <Code style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-                        {variable.value}
-                      </Code>
-                    )}
+                    <Text size="sm" fw={500}>
+                      {c.type}
+                    </Text>
                   </Table.Td>
                   <Table.Td>
                     <Badge
                       variant="light"
-                      color={variable.category === "terraform" ? "blue" : "grape"}
+                      color={c.status === "True" ? "green" : c.status === "False" ? "red" : "gray"}
                       size="sm"
                     >
-                      {variable.category}
+                      {c.status}
                     </Badge>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm" c="dimmed">
+                      {c.reason}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm" c="dimmed">
+                      {c.message}
+                    </Text>
                   </Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>
           </Table>
-        )}
-      </Stack>
+        </Stack>
+      )}
     </Stack>
   );
 }

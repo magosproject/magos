@@ -1,15 +1,34 @@
 import { Badge, Group, Stack, Text } from "@mantine/core";
+import { useLoaderData } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
 import KubeBadge from "../components/KubeBadge";
-import { type VariableSet, variableSets } from "../mock-data/variable-sets";
-import { projects } from "../mock-data/projects";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
+import apiClient from "../api/client";
 
 export function meta() {
   return [{ title: "Variable Sets – magos" }];
 }
 
-const columns: ColumnDef<VariableSet>[] = [
+type VariableSetRow = {
+  id: string;
+  name: string;
+  namespace: string;
+  conditionCount: number;
+};
+
+export async function clientLoader() {
+  const { data } = await apiClient.GET("/apis/magosproject.io/v1alpha1/variablesets");
+  return (data ?? []).map(
+    (vs): VariableSetRow => ({
+      id: vs.metadata?.uid ?? `${vs.metadata?.namespace}/${vs.metadata?.name}`,
+      name: vs.metadata?.name ?? "",
+      namespace: vs.metadata?.namespace ?? "",
+      conditionCount: vs.status?.conditions?.length ?? 0,
+    })
+  );
+}
+
+const columns: ColumnDef<VariableSetRow>[] = [
   {
     key: "name",
     label: "Name",
@@ -21,32 +40,18 @@ const columns: ColumnDef<VariableSet>[] = [
     ),
   },
   {
-    key: "project",
-    label: "Project",
-    render: (vs) => {
-      if (!vs.projectRef) {
-        return (
-          <Text size="sm" c="dimmed" fs="italic">
-            None (Direct attachment)
-          </Text>
-        );
-      }
-      const project = projects.find((p) => p.id === vs.projectRef);
-      return (
+    key: "conditions",
+    label: "Conditions",
+    render: (vs) =>
+      vs.conditionCount === 0 ? (
         <Text size="sm" c="dimmed">
-          {project?.name ?? vs.projectRef}
+          —
         </Text>
-      );
-    },
-  },
-  {
-    key: "variables",
-    label: "Variables",
-    render: (vs) => (
-      <Badge variant="light" color="magos" size="sm">
-        {vs.variables.length}
-      </Badge>
-    ),
+      ) : (
+        <Badge variant="light" color="magos" size="sm">
+          {vs.conditionCount}
+        </Badge>
+      ),
   },
   {
     key: "namespace",
@@ -57,6 +62,8 @@ const columns: ColumnDef<VariableSet>[] = [
 ];
 
 export default function VariableSets() {
+  const variableSets = useLoaderData<typeof clientLoader>();
+
   return (
     <Stack gap="md">
       <Breadcrumbs crumbs={[{ label: "Variable Sets" }]} />
@@ -84,7 +91,7 @@ export default function VariableSets() {
         items={variableSets}
         searchKey="name"
         columns={columns}
-        toHref={(vs) => `/variable-sets/${vs.id}`}
+        toHref={(vs) => `/variable-sets/${vs.namespace}/${vs.name}`}
         defaultView="row"
         hideViewToggle
       />

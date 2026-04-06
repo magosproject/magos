@@ -1,14 +1,40 @@
 import { Badge, Group, Stack, Text } from "@mantine/core";
+import { useLoaderData } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
-import { type Project, projects } from "../mock-data/projects";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
 import KubeBadge from "../components/KubeBadge";
+import apiClient from "../api/client";
+import type { Project } from "../api/types";
+import { useSSEList } from "../hooks/useSSEList";
 
 export function meta() {
   return [{ title: "Projects – magos" }];
 }
 
-const columns: ColumnDef<Project>[] = [
+type ProjectRow = {
+  id: string;
+  name: string;
+  namespace: string;
+  description: string;
+  variableSetCount: number;
+};
+
+export async function clientLoader() {
+  const { data } = await apiClient.GET("/apis/magosproject.io/v1alpha1/projects");
+  return (data ?? []).map(toProjectRow);
+}
+
+function toProjectRow(p: Project): ProjectRow {
+  return {
+    id: p.metadata?.uid ?? `${p.metadata?.namespace}/${p.metadata?.name}`,
+    name: p.metadata?.name ?? "",
+    namespace: p.metadata?.namespace ?? "",
+    description: p.spec?.description ?? "",
+    variableSetCount: p.spec?.variableSetRef?.length ?? 0,
+  };
+}
+
+const columns: ColumnDef<ProjectRow>[] = [
   {
     key: "name",
     label: "Name",
@@ -24,21 +50,21 @@ const columns: ColumnDef<Project>[] = [
     label: "Description",
     render: (p) => (
       <Text size="sm" c="dimmed">
-        {p.description}
+        {p.description || "—"}
       </Text>
     ),
   },
   {
-    key: "workspaces",
-    label: "Workspaces",
+    key: "variableSets",
+    label: "Variable Sets",
     render: (p) =>
-      p.workspaceIds.length === 0 ? (
+      p.variableSetCount === 0 ? (
         <Text size="sm" c="dimmed">
           —
         </Text>
       ) : (
         <Badge variant="light" color="magos" size="sm">
-          {p.workspaceIds.length}
+          {p.variableSetCount}
         </Badge>
       ),
   },
@@ -51,6 +77,14 @@ const columns: ColumnDef<Project>[] = [
 ];
 
 export default function Projects() {
+  const initial = useLoaderData<typeof clientLoader>();
+  const projects = useSSEList<Project, ProjectRow>(
+    "/apis/magosproject.io/v1alpha1/projects/events",
+    initial,
+    toProjectRow,
+    clientLoader
+  );
+
   return (
     <Stack gap="md">
       <Breadcrumbs crumbs={[{ label: "Projects" }]} />
@@ -78,7 +112,7 @@ export default function Projects() {
         items={projects}
         searchKey="name"
         columns={columns}
-        toHref={(p) => `/projects/${p.id}`}
+        toHref={(p) => `/projects/${p.namespace}/${p.name}`}
         defaultView="row"
         hideViewToggle
       />

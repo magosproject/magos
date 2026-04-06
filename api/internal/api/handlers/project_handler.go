@@ -21,7 +21,14 @@ func NewProjectHandler(logger *slog.Logger, svc service.ProjectService) *Project
 	return &ProjectHandler{logger: logger, service: svc}
 }
 
-// List returns all Project resources across all namespaces.
+// List godoc
+//
+//	@Summary	List Project resources
+//	@Tags		Project
+//	@Produce	json
+//	@Success	200	{array}		Project
+//	@Failure	500	{object}	ErrorResponse
+//	@Router		/apis/magosproject.io/v1alpha1/projects [get]
 func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 	list, err := h.service.List(r.Context())
 	if err != nil {
@@ -33,7 +40,17 @@ func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
-// Get returns a single Project resource by namespace and name.
+// Get godoc
+//
+//	@Summary	Get Project resource
+//	@Tags		Project
+//	@Produce	json
+//	@Param		namespace	path		string	true	"Namespace"
+//	@Param		name		path		string	true	"Name"
+//	@Success	200			{object}	Project
+//	@Failure	400			{object}	ErrorResponse
+//	@Failure	404			{object}	ErrorResponse
+//	@Router		/apis/magosproject.io/v1alpha1/projects/{namespace}/{name} [get]
 func (h *ProjectHandler) Get(w http.ResponseWriter, r *http.Request) {
 	namespace := r.PathValue("namespace")
 	name := r.PathValue("name")
@@ -52,7 +69,14 @@ func (h *ProjectHandler) Get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, project)
 }
 
-// Events streams Project resource changes as Server-Sent Events.
+// Events godoc
+//
+//	@Summary		Stream Project events
+//	@Description	Server-Sent Events stream of Project changes. Each event is a JSON-encoded ProjectEvent.
+//	@Tags			Project
+//	@Produce		text/event-stream
+//	@Success		200	{object}	service.ProjectEvent
+//	@Router			/apis/magosproject.io/v1alpha1/projects/events [get]
 func (h *ProjectHandler) Events(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -60,9 +84,13 @@ func (h *ProjectHandler) Events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 
 	events := h.service.Watch(r.Context())
 	heartbeat := time.NewTicker(15 * time.Second)

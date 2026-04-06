@@ -1,174 +1,134 @@
 import {
   Anchor,
   Badge,
+  Button,
+  Group,
   SimpleGrid,
   Stack,
   Table,
-  Tabs,
   Text,
   Title,
-  Group,
-  Button,
 } from "@mantine/core";
-import { Link, useParams } from "react-router";
+import { Link, useLoaderData, useParams } from "react-router";
 import { IconRefresh } from "@tabler/icons-react";
 import Breadcrumbs from "~/components/Breadcrumbs";
 import InfoCard from "~/components/InfoCard";
 import StatusBadge from "~/components/StatusBadge";
-import NotFound from "~/components/NotFound";
 import KubeBadge from "~/components/KubeBadge";
-import ProjectLineageGraph from "~/components/ProjectLineageGraph";
-import { projects } from "~/mock-data/projects";
-import { workspaces } from "~/mock-data/workspaces";
-import { variableSets } from "~/mock-data/variable-sets";
+import apiClient from "~/api/client";
 
-export function meta({ params }: { params: { id: string } }) {
-  const project = projects.find((p) => p.id === params.id);
-  return [{ title: `${project?.name ?? params.id} – magos` }];
+export function meta({ params }: { params: { namespace: string; name: string } }) {
+  return [{ title: `${params.name} – magos` }];
+}
+
+export async function clientLoader({
+  params,
+}: {
+  params: { namespace: string; name: string };
+}) {
+  const [projectRes, workspacesRes] = await Promise.all([
+    apiClient.GET("/apis/magosproject.io/v1alpha1/projects/{namespace}/{name}", {
+      params: { path: { namespace: params.namespace, name: params.name } },
+    }),
+    apiClient.GET("/apis/magosproject.io/v1alpha1/workspaces"),
+  ]);
+
+  if (!projectRes.data) throw new Response("Not found", { status: 404 });
+
+  const projectWorkspaces = (workspacesRes.data ?? []).filter(
+    (ws) => ws.spec?.projectRef?.name === params.name
+  );
+
+  return { project: projectRes.data, workspaces: projectWorkspaces };
 }
 
 export default function Project() {
-  const { id } = useParams<{ id: string }>();
-  const project = projects.find((p) => p.id === id);
-
-  if (!project) {
-    return <NotFound message="Project not found." />;
-  }
-
-  const projectWorkspaces = workspaces.filter((ws) => project.workspaceIds.includes(ws.id));
-  const projectVariableSets = variableSets.filter((vs) => vs.projectRef === project.id);
+  const { namespace, name } = useParams<{ namespace: string; name: string }>();
+  const { project, workspaces } = useLoaderData<typeof clientLoader>();
 
   return (
     <Stack gap="lg">
-      <Breadcrumbs crumbs={[{ label: "Projects", to: "/projects" }, { label: project.name }]} />
+      <Breadcrumbs crumbs={[{ label: "Projects", to: "/projects" }, { label: name! }]} />
 
       <Group justify="space-between" align="flex-start">
         <Stack gap={4}>
           <Group gap="xs" align="center">
-            <Title order={2}>{project.name}</Title>
-            <KubeBadge label={project.namespace} />
+            <Title order={2}>{name}</Title>
+            <KubeBadge label={namespace!} />
           </Group>
-          <Text size="sm" c="dimmed">
-            {project.description}
-          </Text>
+          {project.spec?.description && (
+            <Text size="sm" c="dimmed">
+              {project.spec.description}
+            </Text>
+          )}
         </Stack>
         <Button leftSection={<IconRefresh size={16} />} variant="default" size="sm">
           Reconcile
         </Button>
       </Group>
 
-      <Tabs defaultValue="overview">
-        <Tabs.List>
-          <Tabs.Tab value="overview">Overview</Tabs.Tab>
-        </Tabs.List>
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        <InfoCard label="Status">
+          <StatusBadge status={project.status?.phase ?? ""} size="md" />
+        </InfoCard>
+        <InfoCard label="Workspaces">
+          <Text size="sm">{workspaces.length}</Text>
+        </InfoCard>
+      </SimpleGrid>
 
-        <Tabs.Panel value="overview" pt="md">
-          <Stack gap="md">
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-              <InfoCard label="Workspaces">
-                <Text size="sm">{projectWorkspaces.length}</Text>
-              </InfoCard>
-              <InfoCard label="Variable Sets">
-                <Text size="sm">{projectVariableSets.length}</Text>
-              </InfoCard>
-            </SimpleGrid>
+      <Stack gap="xs">
+        <Title order={4}>Workspaces</Title>
+        {workspaces.length === 0 ? (
+          <Text size="sm" c="dimmed">
+            No workspaces linked to this project.
+          </Text>
+        ) : (
+          <Table highlightOnHover withTableBorder withColumnBorders={false}>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Name</Table.Th>
+                <Table.Th>Status</Table.Th>
+                <Table.Th>Kubernetes Namespace</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {workspaces.map((ws) => (
+                <Table.Tr key={ws.metadata?.uid ?? ws.metadata?.name}>
+                  <Table.Td>
+                    <Anchor
+                      component={Link}
+                      to={`/workspaces/${ws.metadata?.namespace}/${ws.metadata?.name}`}
+                      size="sm"
+                      fw={500}
+                    >
+                      {ws.metadata?.name}
+                    </Anchor>
+                  </Table.Td>
+                  <Table.Td>
+                    <StatusBadge status={ws.status?.phase ?? ""} />
+                  </Table.Td>
+                  <Table.Td>
+                    <KubeBadge label={ws.metadata?.namespace ?? ""} />
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        )}
+      </Stack>
 
-            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
-              <Stack gap="xs" style={{ gridColumn: "1 / -1" }}>
-                <Title order={4}>Inheritance Lineage</Title>
-                <Text size="sm" c="dimmed">
-                  Visual representation of the variable sets applied to this project and inherited
-                  by its workspaces.
-                </Text>
-                <ProjectLineageGraph
-                  project={project}
-                  projectVariableSets={projectVariableSets}
-                  projectWorkspaces={projectWorkspaces}
-                />
-              </Stack>
-
-              <Stack gap="xs">
-                <Title order={4}>Workspaces</Title>
-                {projectWorkspaces.length === 0 ? (
-                  <Text size="sm" c="dimmed">
-                    No workspaces linked to this project.
-                  </Text>
-                ) : (
-                  <Table highlightOnHover withTableBorder withColumnBorders={false}>
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Name</Table.Th>
-                        <Table.Th>Status</Table.Th>
-                        <Table.Th>Kubernetes Namespace</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {projectWorkspaces.map((ws) => (
-                        <Table.Tr key={ws.id}>
-                          <Table.Td>
-                            <Anchor component={Link} to={`/workspaces/${ws.id}`} size="sm" fw={500}>
-                              {ws.name}
-                            </Anchor>
-                          </Table.Td>
-                          <Table.Td>
-                            <StatusBadge status={ws.status} />
-                          </Table.Td>
-                          <Table.Td>
-                            <KubeBadge label={ws.namespace} />
-                          </Table.Td>
-                        </Table.Tr>
-                      ))}
-                    </Table.Tbody>
-                  </Table>
-                )}
-              </Stack>
-
-              <Stack gap="xs">
-                <Title order={4}>Variable Sets</Title>
-                {projectVariableSets.length === 0 ? (
-                  <Text size="sm" c="dimmed">
-                    No variable sets linked to this project.
-                  </Text>
-                ) : (
-                  <Table highlightOnHover withTableBorder withColumnBorders={false}>
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Name</Table.Th>
-                        <Table.Th>Variables</Table.Th>
-                        <Table.Th>Kubernetes Namespace</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {projectVariableSets.map((vs) => (
-                        <Table.Tr key={vs.id}>
-                          <Table.Td>
-                            <Anchor
-                              component={Link}
-                              to={`/variable-sets/${vs.id}`}
-                              size="sm"
-                              fw={500}
-                            >
-                              {vs.name}
-                            </Anchor>
-                          </Table.Td>
-                          <Table.Td>
-                            <Badge variant="light" color="magos" size="sm">
-                              {vs.variables.length}
-                            </Badge>
-                          </Table.Td>
-                          <Table.Td>
-                            <KubeBadge label={vs.namespace} />
-                          </Table.Td>
-                        </Table.Tr>
-                      ))}
-                    </Table.Tbody>
-                  </Table>
-                )}
-              </Stack>
-            </SimpleGrid>
-          </Stack>
-        </Tabs.Panel>
-      </Tabs>
+      {project.spec?.variableSetRef && project.spec.variableSetRef.length > 0 && (
+        <Stack gap="xs">
+          <Title order={4}>Variable Sets</Title>
+          <Group gap="xs">
+            {project.spec.variableSetRef.map((ref) => (
+              <Badge key={ref.name} variant="light" color="magos" size="sm">
+                {ref.name}
+              </Badge>
+            ))}
+          </Group>
+        </Stack>
+      )}
     </Stack>
   );
 }

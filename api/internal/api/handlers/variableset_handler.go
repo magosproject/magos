@@ -18,7 +18,14 @@ func NewVariableSetHandler(logger *slog.Logger, svc service.VariableSetService) 
 	return &VariableSetHandler{logger: logger, service: svc}
 }
 
-// List returns all VariableSet resources across all namespaces.
+// List godoc
+//
+//	@Summary	List VariableSet resources
+//	@Tags		VariableSet
+//	@Produce	json
+//	@Success	200	{array}		VariableSet
+//	@Failure	500	{object}	ErrorResponse
+//	@Router		/apis/magosproject.io/v1alpha1/variablesets [get]
 func (h *VariableSetHandler) List(w http.ResponseWriter, r *http.Request) {
 	list, err := h.service.List(r.Context())
 	if err != nil {
@@ -30,7 +37,17 @@ func (h *VariableSetHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
-// Get returns a single VariableSet resource by namespace and name.
+// Get godoc
+//
+//	@Summary	Get VariableSet resource
+//	@Tags		VariableSet
+//	@Produce	json
+//	@Param		namespace	path		string	true	"Namespace"
+//	@Param		name		path		string	true	"Name"
+//	@Success	200			{object}	VariableSet
+//	@Failure	400			{object}	ErrorResponse
+//	@Failure	404			{object}	ErrorResponse
+//	@Router		/apis/magosproject.io/v1alpha1/variablesets/{namespace}/{name} [get]
 func (h *VariableSetHandler) Get(w http.ResponseWriter, r *http.Request) {
 	namespace := r.PathValue("namespace")
 	name := r.PathValue("name")

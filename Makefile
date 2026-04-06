@@ -49,10 +49,6 @@ help: ## Display this help.
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./types/..." output:crd:artifacts:config=charts/magos/resources/crds
 
-.PHONY: generate
-generate: controller-gen codegen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./types/..."
-
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -106,11 +102,40 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
-##@ Code Generation (Typed Clientset, Informers & Listers)
+##@ Code Generation
+##
+## Full pipeline:  CRD types ──► manifests + deepcopy   (controller-gen)
+##                 CRD types ──► clientset / informers   (kube_codegen)
+##                 Go handlers ──► OpenAPI spec           (swag)
+##                 OpenAPI spec ──► TypeScript types       (openapi-typescript)
+
+.PHONY: generate
+generate: controller-gen codegen generate-ui-types ## Run full code generation pipeline (deepcopy, clients, OpenAPI, TS types).
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./types/..."
 
 .PHONY: codegen
-codegen: ## Generate typed clientset, informers, and listers via kube_codegen.sh.
+codegen: ## Generate typed Kubernetes clientset, informers and listers.
 	hack/update-codegen.sh
+
+.PHONY: openapi
+openapi: manifests swag ## Generate OpenAPI spec (swagger.json) from handler annotations.
+	cd api && $(SWAG) fmt -g cmd/api/main.go -d ./cmd/api/,./internal/
+	cd api && $(SWAG) init \
+		-g main.go \
+		--dir ./cmd/api/,./internal/api/,./internal/service/ \
+		--output internal/api/docs \
+		--outputTypes json \
+		--v3.1 \
+		--parseDependency \
+		--parseInternal
+
+.PHONY: openapi-check
+openapi-check: swag openapi ## CI: fail if swagger.json is out of date or docstrings are wrongly formatted.
+	git diff --exit-code
+
+.PHONY: generate-ui-types
+generate-ui-types: openapi ## Generate TypeScript API types from swagger.json (OpenAPI spec).
+	cd ui && npm run generate
 
 ##@ Build
 
@@ -211,6 +236,7 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+SWAG ?= $(LOCALBIN)/swag
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.7.1
@@ -220,6 +246,10 @@ ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v2.4.0
+# see https://github.com/swaggo/swag/issues/1898
+# we are using the release-candidate version because otherwise openapi 3.0 and 3.1 are not supported
+# while for the client (react-fetch) we need openapi 3.1 support
+SWAG_VERSION ?= v2.0.0-rc5
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -248,6 +278,11 @@ $(ENVTEST): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+
+.PHONY: swag
+swag: $(SWAG) ## Download swag locally if necessary.
+$(SWAG): $(LOCALBIN)
+	$(call go-install-tool,$(SWAG),github.com/swaggo/swag/v2/cmd/swag,$(SWAG_VERSION))
 
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist

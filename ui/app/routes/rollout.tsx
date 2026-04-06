@@ -1,19 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
-  Anchor,
   Box,
+  Button,
+  Group,
   SimpleGrid,
   Stack,
-  Table,
-  Tabs,
   Text,
   Title,
-  Group,
-  Button,
   ThemeIcon,
   useMantineTheme,
 } from "@mantine/core";
-import { Link, useParams } from "react-router";
+import { useLoaderData, useParams } from "react-router";
 import { IconRefresh, IconCheck, IconX, IconClock, IconPlayerPlay } from "@tabler/icons-react";
 import {
   ReactFlow,
@@ -33,20 +30,26 @@ import "@xyflow/react/dist/style.css";
 import Breadcrumbs from "~/components/Breadcrumbs";
 import InfoCard from "~/components/InfoCard";
 import StatusBadge from "~/components/StatusBadge";
-import NotFound from "~/components/NotFound";
 import KubeBadge from "~/components/KubeBadge";
-import { rollouts, type RolloutStep } from "~/mock-data/rollouts";
-import { projects } from "~/mock-data/projects";
-import { workspaces } from "~/mock-data/workspaces";
+import { Tabs } from "@mantine/core";
+import apiClient from "~/api/client";
 
-export function meta({ params }: { params: { id: string } }) {
-  const rollout = rollouts.find((ro) => ro.id === params.id);
-  return [{ title: `${rollout?.name ?? params.id} – magos` }];
+export function meta({ params }: { params: { namespace: string; name: string } }) {
+  return [{ title: `${params.name} – magos` }];
 }
 
-// ---------------------------------------------------------------------------
-// Step status helpers
-// ---------------------------------------------------------------------------
+export async function clientLoader({
+  params,
+}: {
+  params: { namespace: string; name: string };
+}) {
+  const { data } = await apiClient.GET(
+    "/apis/magosproject.io/v1alpha1/rollouts/{namespace}/{name}",
+    { params: { path: { namespace: params.namespace, name: params.name } } }
+  );
+  if (!data) throw new Response("Not found", { status: 404 });
+  return data;
+}
 
 type StepStatus = "completed" | "active" | "failed" | "pending";
 
@@ -57,14 +60,11 @@ function stepStatus(index: number, currentStep: number, phase: string): StepStat
   return "pending";
 }
 
-// ---------------------------------------------------------------------------
-// Custom ReactFlow node for a pipeline step
-// ---------------------------------------------------------------------------
-
 interface StepNodeData {
-  step: RolloutStep;
+  name: string;
   index: number;
   status: StepStatus;
+  labels: Record<string, string>;
   [key: string]: unknown;
 }
 
@@ -102,8 +102,7 @@ const statusLabel: Record<StepStatus, string> = {
 };
 
 function StepPipelineNode({ data }: NodeProps<Node<StepNodeData>>) {
-  const { step, index, status } = data;
-
+  const { name, index, status, labels } = data;
   return (
     <>
       <Handle type="target" position={Position.Left} style={{ visibility: "hidden" }} />
@@ -113,7 +112,7 @@ function StepPipelineNode({ data }: NodeProps<Node<StepNodeData>>) {
             <StepStatusIcon status={status} />
             <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
               <Text size="xs" fw={600} truncate>
-                {step.name}
+                {name}
               </Text>
               <Text size="xs" c="dimmed">
                 Step {index + 1} &middot; {statusLabel[status]}
@@ -121,7 +120,7 @@ function StepPipelineNode({ data }: NodeProps<Node<StepNodeData>>) {
             </Stack>
           </Group>
           <Group gap={4} wrap="wrap">
-            {Object.entries(step.selector).map(([k, v]) => {
+            {Object.entries(labels).map(([k, v]) => {
               const shortKey = k.replace("magosproject.io/", "");
               return (
                 <span key={k} className="label-chip">
@@ -141,16 +140,12 @@ function StepPipelineNode({ data }: NodeProps<Node<StepNodeData>>) {
 
 const nodeTypes = { stepNode: StepPipelineNode };
 
-// ---------------------------------------------------------------------------
-// Pipeline graph (horizontal flow between step nodes)
-// ---------------------------------------------------------------------------
-
 function StepPipelineGraph({
   steps,
   currentStep,
   phase,
 }: {
-  steps: RolloutStep[];
+  steps: { name: string; labels: Record<string, string> }[];
   currentStep: number;
   phase: string;
 }) {
@@ -159,19 +154,14 @@ function StepPipelineGraph({
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const initialNodes = useMemo<Node<StepNodeData>[]>(() => {
-    const xSpacing = 320;
     return steps.map((step, i) => ({
       id: `step-${i}`,
       type: "stepNode",
-      position: { x: i * xSpacing, y: 0 },
+      position: { x: i * 320, y: 0 },
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
       draggable: false,
-      data: {
-        step,
-        index: i,
-        status: stepStatus(i, currentStep, phase),
-      },
+      data: { name: step.name, index: i, status: stepStatus(i, currentStep, phase), labels: step.labels },
     }));
   }, [steps, currentStep, phase]);
 
@@ -180,11 +170,9 @@ function StepPipelineGraph({
       const srcStatus = stepStatus(i, currentStep, phase);
       const isFlowing = srcStatus === "completed" || srcStatus === "active";
       const isFailed = stepStatus(i + 1, currentStep, phase) === "failed";
-
       let strokeColor = theme.colors.dark[4];
       if (isFailed) strokeColor = theme.colors.red[6];
       else if (isFlowing) strokeColor = theme.colors.green[6];
-
       return {
         id: `e-${i}-${i + 1}`,
         source: `step-${i}`,
@@ -200,20 +188,22 @@ function StepPipelineGraph({
   const [nodes, , onNodesChange] = useNodesState(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState(initialEdges);
 
+  const handleFit = useCallback(() => {
+    fitView({ padding: 0.3, minZoom: 0.5, maxZoom: 1.5, duration: 600 });
+  }, [fitView]);
+
   useEffect(() => {
     if (!wrapperRef.current) return;
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
-          window.requestAnimationFrame(() => {
-            fitView({ padding: 0.3, minZoom: 0.5, maxZoom: 1.5, duration: 600 });
-          });
+          window.requestAnimationFrame(handleFit);
         }
       }
     });
     observer.observe(wrapperRef.current);
     return () => observer.disconnect();
-  }, [fitView]);
+  }, [handleFit]);
 
   return (
     <Box
@@ -244,31 +234,26 @@ function StepPipelineGraph({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-
 export default function Rollout() {
-  const { id } = useParams<{ id: string }>();
-  const rollout = rollouts.find((ro) => ro.id === id);
+  const { namespace, name } = useParams<{ namespace: string; name: string }>();
+  const rollout = useLoaderData<typeof clientLoader>();
 
-  if (!rollout) {
-    return <NotFound message="Rollout not found." />;
-  }
-
-  const project = projects.find((p) => p.id === rollout.projectRef);
-  const projectWorkspaces = project
-    ? workspaces.filter((ws) => project.workspaceIds.includes(ws.id))
-    : [];
+  const steps = (rollout.spec?.strategy?.steps ?? []).map((s) => ({
+    name: s.name ?? "",
+    labels: s.selector?.matchLabels ?? {},
+  }));
+  const currentStep = rollout.status?.currentStep ?? 0;
+  const phase = rollout.status?.phase ?? "";
+  const totalSteps = steps.length;
 
   return (
     <Stack gap="lg">
-      <Breadcrumbs crumbs={[{ label: "Rollouts", to: "/rollouts" }, { label: rollout.name }]} />
+      <Breadcrumbs crumbs={[{ label: "Rollouts", to: "/rollouts" }, { label: name! }]} />
 
       <Group justify="space-between" align="center">
         <Group gap="xs" align="center">
-          <Title order={2}>{rollout.name}</Title>
-          <KubeBadge label={rollout.namespace} />
+          <Title order={2}>{name}</Title>
+          <KubeBadge label={namespace!} />
         </Group>
         <Button leftSection={<IconRefresh size={16} />} variant="default" size="sm">
           Reconcile
@@ -285,80 +270,37 @@ export default function Rollout() {
           <Stack gap="md">
             <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
               <InfoCard label="Phase">
-                <StatusBadge status={rollout.phase} size="md" />
+                <StatusBadge status={phase} size="md" />
               </InfoCard>
               <InfoCard label="Project">
-                {project ? (
-                  <Anchor component={Link} to={`/projects/${project.id}`} size="sm" c="dimmed">
-                    {project.name}
-                  </Anchor>
-                ) : (
-                  <Text size="sm" c="dimmed">
-                    {rollout.projectRef}
-                  </Text>
-                )}
+                <Text size="sm" c="dimmed">
+                  {rollout.spec?.projectRef ?? "—"}
+                </Text>
               </InfoCard>
               <InfoCard label="Progress">
                 <Text size="sm">
-                  Step {Math.min(rollout.currentStep + 1, rollout.steps.length)} of{" "}
-                  {rollout.steps.length}
+                  Step {Math.min(currentStep + 1, totalSteps)} of {totalSteps}
                 </Text>
               </InfoCard>
-              <InfoCard label="Reason">
-                <Text size="sm" c="dimmed">
-                  {rollout.reason}
-                </Text>
-              </InfoCard>
-              <InfoCard label="Kubernetes Namespace">
-                <KubeBadge label={rollout.namespace} />
-              </InfoCard>
-            </SimpleGrid>
-
-            <Stack gap="xs">
-              <Title order={4}>Workspaces</Title>
-              {projectWorkspaces.length === 0 ? (
-                <Text size="sm" c="dimmed">
-                  No workspaces linked to this rollout's project.
-                </Text>
-              ) : (
-                <Table highlightOnHover withTableBorder withColumnBorders={false}>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Name</Table.Th>
-                      <Table.Th>Status</Table.Th>
-                      <Table.Th>Kubernetes Namespace</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {projectWorkspaces.map((ws) => (
-                      <Table.Tr key={ws.id}>
-                        <Table.Td>
-                          <Anchor component={Link} to={`/workspaces/${ws.id}`} size="sm" fw={500}>
-                            {ws.name}
-                          </Anchor>
-                        </Table.Td>
-                        <Table.Td>
-                          <StatusBadge status={ws.status} />
-                        </Table.Td>
-                        <Table.Td>
-                          <KubeBadge label={ws.namespace} />
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
+              {rollout.status?.reason && (
+                <InfoCard label="Reason">
+                  <Text size="sm" c="dimmed">
+                    {rollout.status.reason}
+                  </Text>
+                </InfoCard>
               )}
-            </Stack>
+            </SimpleGrid>
+            {rollout.status?.message && (
+              <Text size="sm" c="dimmed" fs="italic">
+                {rollout.status.message}
+              </Text>
+            )}
           </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="steps" pt="md">
           <ReactFlowProvider>
-            <StepPipelineGraph
-              steps={rollout.steps}
-              currentStep={rollout.currentStep}
-              phase={rollout.phase}
-            />
+            <StepPipelineGraph steps={steps} currentStep={currentStep} phase={phase} />
           </ReactFlowProvider>
         </Tabs.Panel>
       </Tabs>

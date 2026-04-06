@@ -1,7 +1,6 @@
 import { Anchor, Group, Stack, Text } from "@mantine/core";
 import { IconBox, IconFolder, IconHexagon } from "@tabler/icons-react";
-import { type Workspace, workspaces } from "../mock-data/workspaces";
-import { projects } from "../mock-data/projects";
+import { useLoaderData } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
 import { type ResourceCardProps } from "../components/ResourceCard";
@@ -9,12 +8,42 @@ import StatusBadge from "../components/StatusBadge";
 import KubeBadge from "../components/KubeBadge";
 import { repoIcon } from "../utils/repoIcon";
 import { statusColor } from "../utils/colors";
+import apiClient from "../api/client";
+import type { Workspace } from "../api/types";
+import { useSSEList } from "../hooks/useSSEList";
 
 export function meta() {
   return [{ title: "Workspaces – magos" }];
 }
 
-const columns: ColumnDef<Workspace>[] = [
+type WorkspaceRow = {
+  id: string;
+  name: string;
+  namespace: string;
+  phase: string;
+  projectRef: string;
+  repoURL: string;
+  path: string;
+};
+
+export async function clientLoader() {
+  const { data } = await apiClient.GET("/apis/magosproject.io/v1alpha1/workspaces");
+  return (data ?? []).map(toWorkspaceRow);
+}
+
+function toWorkspaceRow(ws: Workspace): WorkspaceRow {
+  return {
+    id: ws.metadata?.uid ?? `${ws.metadata?.namespace}/${ws.metadata?.name}`,
+    name: ws.metadata?.name ?? "",
+    namespace: ws.metadata?.namespace ?? "",
+    phase: ws.status?.phase ?? "",
+    projectRef: ws.spec?.projectRef?.name ?? "",
+    repoURL: ws.spec?.source?.repoURL ?? "",
+    path: ws.spec?.source?.path ?? "",
+  };
+}
+
+const columns: ColumnDef<WorkspaceRow>[] = [
   {
     key: "name",
     label: "Name",
@@ -28,32 +57,24 @@ const columns: ColumnDef<Workspace>[] = [
   {
     key: "project",
     label: "Project",
-    render: (ws) => {
-      const project = projects.find((p) => p.workspaceIds.includes(ws.id));
-      return (
-        <Text size="sm" c="dimmed">
-          {project?.name ?? "—"}
-        </Text>
-      );
-    },
+    render: (ws) => (
+      <Text size="sm" c="dimmed">
+        {ws.projectRef || "—"}
+      </Text>
+    ),
   },
   {
-    key: "status",
+    key: "phase",
     label: "Status",
-    sortField: "status",
-    render: (ws) => <StatusBadge status={ws.status} />,
+    sortField: "phase",
+    render: (ws) => <StatusBadge status={ws.phase} />,
   },
   {
     key: "repo",
     label: "Repository",
     render: (ws) => (
-      <Anchor
-        href={`${ws.repoHost}/${ws.repoSlug}`}
-        target="_blank"
-        size="sm"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {ws.repoSlug}
+      <Anchor href={ws.repoURL} target="_blank" size="sm" onClick={(e) => e.stopPropagation()}>
+        {ws.repoURL.replace(/^https?:\/\//, "")}
       </Anchor>
     ),
   },
@@ -74,22 +95,18 @@ const columns: ColumnDef<Workspace>[] = [
   },
 ];
 
-function toCard(ws: Workspace): ResourceCardProps {
-  const project = projects.find((p) => p.workspaceIds.includes(ws.id));
-
+function toCard(ws: WorkspaceRow): ResourceCardProps {
   return {
-    to: `/workspaces/${ws.id}`,
+    to: `/workspaces/${ws.namespace}/${ws.name}`,
     title: ws.name,
-    statusColor: statusColor[ws.status] ?? "gray",
-    badges: [
-      { label: ws.status, color: statusColor[ws.status], spinning: ws.status === "provisioning" },
-    ],
+    statusColor: statusColor[ws.phase] ?? "gray",
+    badges: [{ label: ws.phase, color: statusColor[ws.phase] }],
     meta: [
-      { icon: <IconBox size={16} color="gray" />, label: project?.name ?? "No Project" },
+      { icon: <IconBox size={16} color="gray" />, label: ws.projectRef || "No Project" },
       {
-        icon: repoIcon(ws.repoHost),
-        label: ws.repoSlug,
-        href: `${ws.repoHost}/${ws.repoSlug}`,
+        icon: repoIcon(ws.repoURL),
+        label: ws.repoURL.replace(/^https?:\/\//, ""),
+        href: ws.repoURL,
       },
       { icon: <IconFolder size={16} color="gray" />, label: ws.path },
       {
@@ -101,6 +118,14 @@ function toCard(ws: Workspace): ResourceCardProps {
 }
 
 export default function Workspaces() {
+  const initial = useLoaderData<typeof clientLoader>();
+  const workspaces = useSSEList<Workspace, WorkspaceRow>(
+    "/apis/magosproject.io/v1alpha1/workspaces/events",
+    initial,
+    toWorkspaceRow,
+    clientLoader
+  );
+
   return (
     <Stack gap="md">
       <Breadcrumbs crumbs={[{ label: "Workspaces" }]} />
@@ -131,7 +156,7 @@ export default function Workspaces() {
         searchKey="name"
         columns={columns}
         toCard={toCard}
-        toHref={(ws) => `/workspaces/${ws.id}`}
+        toHref={(ws) => `/workspaces/${ws.namespace}/${ws.name}`}
       />
     </Stack>
   );
