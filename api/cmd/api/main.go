@@ -3,8 +3,8 @@
 //	@title			Magos API
 //	@version		v1alpha1
 //	@description	API for managing Magos resources (Projects, Workspaces, Rollouts, VariableSets)
-//	@host			localhost:8080
-//	@BasePath		/
+//
+//	@servers		http://localhost:8080	local
 //
 //	@license.name	Apache 2.0
 //	@license.url	http://www.apache.org/licenses/LICENSE-2.0.html

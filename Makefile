@@ -121,6 +121,7 @@ openapi: manifests swag ## Generate OpenAPI spec from handler annotations. Re-ru
 		-g cmd/api/main.go \
 		--output internal/api/docs \
 		--outputTypes json \
+		--v3.1 \
 		--parseDependency \
 		--parseInternal
 
@@ -237,7 +238,10 @@ ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v2.4.0
-SWAG_VERSION ?= v1.16.4
+# see https://github.com/swaggo/swag/issues/1898
+# we are using the release-candidate version because otherwise openapi 3.0 and 3.1 are not supported
+# while for the client (react-fetch) we need openapi 3.1 support
+SWAG_VERSION ?= v2.0.0-rc5
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -270,7 +274,7 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 .PHONY: swag
 swag: $(SWAG) ## Download swag locally if necessary.
 $(SWAG): $(LOCALBIN)
-	$(call go-install-tool,$(SWAG),github.com/swaggo/swag/cmd/swag,$(SWAG_VERSION))
+	$(call go-install-tool,$(SWAG),github.com/swaggo/swag/v2/cmd/swag,$(SWAG_VERSION))
 
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
