@@ -53,25 +53,21 @@ spec:
             description: spec defines the desired state of Workspace
             properties:
               annotations:
-                description: Annotations to propagate to the plan and/or apply Jobs.
+                additionalProperties:
+                  type: string
+                description: |-
+                  Annotations to propagate to both plan and apply Job pod templates.
+                  Per-phase annotations in spec.plan or spec.apply take precedence on conflict.
+                type: object
+              apply:
+                description: Apply holds overrides applied only to apply Jobs.
                 properties:
-                  apply:
+                  annotations:
                     additionalProperties:
                       type: string
-                    description: Apply-specific annotations, merged with common (apply
-                      wins on conflict).
-                    type: object
-                  common:
-                    additionalProperties:
-                      type: string
-                    description: Common annotations propagated to both plan and apply
-                      Jobs.
-                    type: object
-                  plan:
-                    additionalProperties:
-                      type: string
-                    description: Plan-specific annotations, merged with common (plan
-                      wins on conflict).
+                    description: |-
+                      Annotations to add to the Job's pod template. Merged on top of
+                      spec.annotations; values here win on conflict.
                     type: object
                 type: object
               autoApply:
@@ -79,6 +75,17 @@ spec:
                 description: AutoApply dictates whether the workspace should automatically
                   apply after a successful plan
                 type: boolean
+              plan:
+                description: Plan holds overrides applied only to plan Jobs.
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Annotations to add to the Job's pod template. Merged on top of
+                      spec.annotations; values here win on conflict.
+                    type: object
+                type: object
               projectRef:
                 description: ProjectRef is a reference to the project this workspace
                   belongs to

@@ -74,22 +74,14 @@ type TerraformSpec struct {
 	TfvarsPath string `json:"tfvarsPath,omitempty"`
 }
 
-// WorkspaceAnnotations defines annotations to propagate to plan and/or apply Jobs.
-// Common annotations are applied to both job types. Plan- and Apply-specific
-// annotations are merged on top of common, with the specific annotations winning
-// on conflict.
-type WorkspaceAnnotations struct {
-	// Common annotations propagated to both plan and apply Jobs.
+// JobOverrides holds per-phase configuration that is merged on top of the
+// shared spec-level settings. Fields set here take precedence over the
+// corresponding shared field.
+type JobOverrides struct {
+	// Annotations to add to the Job's pod template. Merged on top of
+	// spec.annotations; values here win on conflict.
 	// +optional
-	Common map[string]string `json:"common,omitempty"`
-
-	// Plan-specific annotations, merged with common (plan wins on conflict).
-	// +optional
-	Plan map[string]string `json:"plan,omitempty"`
-
-	// Apply-specific annotations, merged with common (apply wins on conflict).
-	// +optional
-	Apply map[string]string `json:"apply,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // WorkspaceSpec defines the desired state of Workspace
@@ -103,9 +95,18 @@ type WorkspaceSpec struct {
 	// +kubebuilder:default=true
 	AutoApply bool `json:"autoApply"`
 
-	// Annotations to propagate to the plan and/or apply Jobs.
+	// Annotations to propagate to both plan and apply Job pod templates.
+	// Per-phase annotations in spec.plan or spec.apply take precedence on conflict.
 	// +optional
-	Annotations *WorkspaceAnnotations `json:"annotations,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// Plan holds overrides applied only to plan Jobs.
+	// +optional
+	Plan *JobOverrides `json:"plan,omitempty"`
+
+	// Apply holds overrides applied only to apply Jobs.
+	// +optional
+	Apply *JobOverrides `json:"apply,omitempty"`
 
 	// Source defines the Git repository configuration
 	// +required

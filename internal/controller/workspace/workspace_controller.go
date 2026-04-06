@@ -767,26 +767,31 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 
 	var backoffLimit int32 = 0
 
-	// Build pod annotations by merging common annotations with job-type-specific
-	// ones. Specific annotations win on conflict.
+	// Merge shared annotations with per-phase overrides (phase wins on conflict).
 	var podAnnotations map[string]string
-	if ws.Spec.Annotations != nil {
-		podAnnotations = make(map[string]string)
-		for k, v := range ws.Spec.Annotations.Common {
+	if len(ws.Spec.Annotations) > 0 {
+		podAnnotations = make(map[string]string, len(ws.Spec.Annotations))
+		for k, v := range ws.Spec.Annotations {
 			podAnnotations[k] = v
 		}
-		var specific map[string]string
-		switch jobType {
-		case "plan":
-			specific = ws.Spec.Annotations.Plan
-		case "apply":
-			specific = ws.Spec.Annotations.Apply
+	}
+	var overrides map[string]string
+	switch jobType {
+	case "plan":
+		if ws.Spec.Plan != nil {
+			overrides = ws.Spec.Plan.Annotations
 		}
-		for k, v := range specific {
+	case "apply":
+		if ws.Spec.Apply != nil {
+			overrides = ws.Spec.Apply.Annotations
+		}
+	}
+	if len(overrides) > 0 {
+		if podAnnotations == nil {
+			podAnnotations = make(map[string]string, len(overrides))
+		}
+		for k, v := range overrides {
 			podAnnotations[k] = v
-		}
-		if len(podAnnotations) == 0 {
-			podAnnotations = nil
 		}
 	}
 
