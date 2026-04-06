@@ -13,7 +13,7 @@ LOCALBIN="${LOCALBIN:-${REPO_ROOT}/bin}"
 
 export PATH="${LOCALBIN}:${PATH}"
 
-CODEGEN_PKG="$(go env GOMODCACHE)/k8s.io/code-generator@${CODE_GENERATOR_VERSION}"
+CODEGEN_PKG="$(cd "${REPO_ROOT}/hack/tools" && go list -m -f '{{.Dir}}' k8s.io/code-generator)"
 
 # shellcheck source=/dev/null
 # https://github.com/kubernetes/code-generator/blob/master/kube_codegen.sh
@@ -25,4 +25,3 @@ kube::codegen::gen_client \
     --output-pkg "${MODULE}/api/internal/generated" \
     --boilerplate "${REPO_ROOT}/hack/boilerplate.go.txt" \
     "${REPO_ROOT}/types"
-
