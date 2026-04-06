@@ -7,7 +7,6 @@ require (
 	github.com/hashicorp/go-version v1.9.0
 	github.com/hashicorp/hc-install v0.9.3
 	github.com/hashicorp/terraform-exec v0.25.0
-	github.com/magosproject/magos/api v0.0.0-00010101000000-000000000000
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.0
 	golang.org/x/crypto v0.47.0
@@ -128,4 +127,3 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/magosproject/magos/api => ./api

@@ -18,7 +18,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	apiv1alpha1 "github.com/magosproject/magos/api/v1alpha1"
+	typesv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
 	labels "k8s.io/apimachinery/pkg/labels"
 	listers "k8s.io/client-go/listers"
 	cache "k8s.io/client-go/tools/cache"
@@ -29,7 +29,7 @@ import (
 type ProjectLister interface {
 	// List lists all Projects in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*apiv1alpha1.Project, err error)
+	List(selector labels.Selector) (ret []*typesv1alpha1.Project, err error)
 	// Projects returns an object that can list and get Projects.
 	Projects(namespace string) ProjectNamespaceLister
 	ProjectListerExpansion
@@ -37,17 +37,17 @@ type ProjectLister interface {
 
 // projectLister implements the ProjectLister interface.
 type projectLister struct {
-	listers.ResourceIndexer[*apiv1alpha1.Project]
+	listers.ResourceIndexer[*typesv1alpha1.Project]
 }
 
 // NewProjectLister returns a new ProjectLister.
 func NewProjectLister(indexer cache.Indexer) ProjectLister {
-	return &projectLister{listers.New[*apiv1alpha1.Project](indexer, apiv1alpha1.Resource("project"))}
+	return &projectLister{listers.New[*typesv1alpha1.Project](indexer, typesv1alpha1.Resource("project"))}
 }
 
 // Projects returns an object that can list and get Projects.
 func (s *projectLister) Projects(namespace string) ProjectNamespaceLister {
-	return projectNamespaceLister{listers.NewNamespaced[*apiv1alpha1.Project](s.ResourceIndexer, namespace)}
+	return projectNamespaceLister{listers.NewNamespaced[*typesv1alpha1.Project](s.ResourceIndexer, namespace)}
 }
 
 // ProjectNamespaceLister helps list and get Projects.
@@ -55,15 +55,15 @@ func (s *projectLister) Projects(namespace string) ProjectNamespaceLister {
 type ProjectNamespaceLister interface {
 	// List lists all Projects in the indexer for a given namespace.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*apiv1alpha1.Project, err error)
+	List(selector labels.Selector) (ret []*typesv1alpha1.Project, err error)
 	// Get retrieves the Project from the indexer for a given namespace and name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*apiv1alpha1.Project, error)
+	Get(name string) (*typesv1alpha1.Project, error)
 	ProjectNamespaceListerExpansion
 }
 
 // projectNamespaceLister implements the ProjectNamespaceLister
 // interface.
 type projectNamespaceLister struct {
-	listers.ResourceIndexer[*apiv1alpha1.Project]
+	listers.ResourceIndexer[*typesv1alpha1.Project]
 }

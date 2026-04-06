@@ -23,8 +23,8 @@ import (
 	time "time"
 
 	versioned "github.com/magosproject/magos/api/internal/generated/clientset/versioned"
-	api "github.com/magosproject/magos/api/internal/generated/informers/externalversions/api"
 	internalinterfaces "github.com/magosproject/magos/api/internal/generated/informers/externalversions/internalinterfaces"
+	types "github.com/magosproject/magos/api/internal/generated/informers/externalversions/types"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
@@ -254,9 +254,9 @@ type SharedInformerFactory interface {
 	// client.
 	InformerFor(obj runtime.Object, newFunc internalinterfaces.NewInformerFunc) cache.SharedIndexInformer
 
-	Api() api.Interface
+	Types() types.Interface
 }
 
-func (f *sharedInformerFactory) Api() api.Interface {
-	return api.New(f, f.namespace, f.tweakListOptions)
+func (f *sharedInformerFactory) Types() types.Interface {
+	return types.New(f, f.namespace, f.tweakListOptions)
 }

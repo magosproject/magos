@@ -23,8 +23,8 @@ import (
 
 	versioned "github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	internalinterfaces "github.com/magosproject/magos/api/internal/generated/informers/externalversions/internalinterfaces"
-	apiv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/api/v1alpha1"
-	magosapiv1alpha1 "github.com/magosproject/magos/api/v1alpha1"
+	typesv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/types/v1alpha1"
+	magostypesv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -35,7 +35,7 @@ import (
 // Rollouts.
 type RolloutInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() apiv1alpha1.RolloutLister
+	Lister() typesv1alpha1.RolloutLister
 }
 
 type rolloutInformer struct {
@@ -61,28 +61,28 @@ func NewFilteredRolloutInformer(client versioned.Interface, namespace string, re
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiV1alpha1().Rollouts(namespace).List(context.Background(), options)
+				return client.TypesV1alpha1().Rollouts(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiV1alpha1().Rollouts(namespace).Watch(context.Background(), options)
+				return client.TypesV1alpha1().Rollouts(namespace).Watch(context.Background(), options)
 			},
 			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiV1alpha1().Rollouts(namespace).List(ctx, options)
+				return client.TypesV1alpha1().Rollouts(namespace).List(ctx, options)
 			},
 			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiV1alpha1().Rollouts(namespace).Watch(ctx, options)
+				return client.TypesV1alpha1().Rollouts(namespace).Watch(ctx, options)
 			},
 		}, client),
-		&magosapiv1alpha1.Rollout{},
+		&magostypesv1alpha1.Rollout{},
 		resyncPeriod,
 		indexers,
 	)
@@ -93,9 +93,9 @@ func (f *rolloutInformer) defaultInformer(client versioned.Interface, resyncPeri
 }
 
 func (f *rolloutInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&magosapiv1alpha1.Rollout{}, f.defaultInformer)
+	return f.factory.InformerFor(&magostypesv1alpha1.Rollout{}, f.defaultInformer)
 }
 
-func (f *rolloutInformer) Lister() apiv1alpha1.RolloutLister {
-	return apiv1alpha1.NewRolloutLister(f.Informer().GetIndexer())
+func (f *rolloutInformer) Lister() typesv1alpha1.RolloutLister {
+	return typesv1alpha1.NewRolloutLister(f.Informer().GetIndexer())
 }

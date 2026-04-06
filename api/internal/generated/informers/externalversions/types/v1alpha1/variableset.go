@@ -23,79 +23,79 @@ import (
 
 	versioned "github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	internalinterfaces "github.com/magosproject/magos/api/internal/generated/informers/externalversions/internalinterfaces"
-	apiv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/api/v1alpha1"
-	magosapiv1alpha1 "github.com/magosproject/magos/api/v1alpha1"
+	typesv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/types/v1alpha1"
+	magostypesv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
 )
 
-// WorkspaceInformer provides access to a shared informer and lister for
-// Workspaces.
-type WorkspaceInformer interface {
+// VariableSetInformer provides access to a shared informer and lister for
+// VariableSets.
+type VariableSetInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() apiv1alpha1.WorkspaceLister
+	Lister() typesv1alpha1.VariableSetLister
 }
 
-type workspaceInformer struct {
+type variableSetInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
 	namespace        string
 }
 
-// NewWorkspaceInformer constructs a new informer for Workspace type.
+// NewVariableSetInformer constructs a new informer for VariableSet type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewWorkspaceInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredWorkspaceInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewVariableSetInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredVariableSetInformer(client, namespace, resyncPeriod, indexers, nil)
 }
 
-// NewFilteredWorkspaceInformer constructs a new informer for Workspace type.
+// NewFilteredVariableSetInformer constructs a new informer for VariableSet type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredWorkspaceInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredVariableSetInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiV1alpha1().Workspaces(namespace).List(context.Background(), options)
+				return client.TypesV1alpha1().VariableSets(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiV1alpha1().Workspaces(namespace).Watch(context.Background(), options)
+				return client.TypesV1alpha1().VariableSets(namespace).Watch(context.Background(), options)
 			},
 			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiV1alpha1().Workspaces(namespace).List(ctx, options)
+				return client.TypesV1alpha1().VariableSets(namespace).List(ctx, options)
 			},
 			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiV1alpha1().Workspaces(namespace).Watch(ctx, options)
+				return client.TypesV1alpha1().VariableSets(namespace).Watch(ctx, options)
 			},
 		}, client),
-		&magosapiv1alpha1.Workspace{},
+		&magostypesv1alpha1.VariableSet{},
 		resyncPeriod,
 		indexers,
 	)
 }
 
-func (f *workspaceInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredWorkspaceInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+func (f *variableSetInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	return NewFilteredVariableSetInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
-func (f *workspaceInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&magosapiv1alpha1.Workspace{}, f.defaultInformer)
+func (f *variableSetInformer) Informer() cache.SharedIndexInformer {
+	return f.factory.InformerFor(&magostypesv1alpha1.VariableSet{}, f.defaultInformer)
 }
 
-func (f *workspaceInformer) Lister() apiv1alpha1.WorkspaceLister {
-	return apiv1alpha1.NewWorkspaceLister(f.Informer().GetIndexer())
+func (f *variableSetInformer) Lister() typesv1alpha1.VariableSetLister {
+	return typesv1alpha1.NewVariableSetLister(f.Informer().GetIndexer())
 }

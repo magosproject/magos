@@ -3,10 +3,13 @@ module github.com/magosproject/magos/api
 go 1.26.1
 
 require (
+	github.com/magosproject/magos v0.0.0
 	k8s.io/apimachinery v0.35.3
 	k8s.io/client-go v0.35.3
 	sigs.k8s.io/controller-runtime v0.23.3
 )
+
+replace github.com/magosproject/magos => ../
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect

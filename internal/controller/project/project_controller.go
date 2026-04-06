@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/magosproject/magos/types/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,8 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	magosprojectiov1alpha1 "github.com/magosproject/magos/api/v1alpha1"
 )
 
 // ProjectReconciler reconciles a Project object
@@ -55,7 +54,7 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	logger := log.FromContext(ctx)
 
 	// Fetch the Project instance
-	project := &magosprojectiov1alpha1.Project{}
+	project := &v1alpha1.Project{}
 	if err := r.Get(ctx, req.NamespacedName, project); err != nil {
 		if errors.IsNotFound(err) {
 			logger.Info("Project resource not found, ignoring")
@@ -69,7 +68,7 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// we explicitly remove it. This guarantees the controller gets a chance to
 	// run handleDeletion before the object disappears, even if someone deletes
 	// the Project manually via kubectl.
-	if controllerutil.AddFinalizer(project, magosprojectiov1alpha1.ProjectFinalizerName) {
+	if controllerutil.AddFinalizer(project, v1alpha1.ProjectFinalizerName) {
 		if err := r.Update(ctx, project); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -91,7 +90,7 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	err := r.reconcileProject(ctx, project)
 	if err != nil {
-		r.updateStatus(ctx, project, magosprojectiov1alpha1.PhaseFailed, "ReconcileError", err.Error(), metav1.ConditionFalse)
+		r.updateStatus(ctx, project, v1alpha1.PhaseFailed, "ReconcileError", err.Error(), metav1.ConditionFalse)
 		return ctrl.Result{}, err
 	}
 
@@ -104,15 +103,15 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 // Workspaces via standard Kubernetes garbage collection and OwnerReferences, so
 // all we need to do here is remove our finalizer so that Kubernetes can proceed
 // with the actual deletion.
-func (r *ProjectReconciler) handleDeletion(ctx context.Context, project *magosprojectiov1alpha1.Project) (bool, error) {
+func (r *ProjectReconciler) handleDeletion(ctx context.Context, project *v1alpha1.Project) (bool, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Handling project deletion")
 
-	r.updateStatus(ctx, project, magosprojectiov1alpha1.PhaseDeleting, "Deleting", "Project is being deleted", metav1.ConditionFalse)
+	r.updateStatus(ctx, project, v1alpha1.PhaseDeleting, "Deleting", "Project is being deleted", metav1.ConditionFalse)
 
-	if controllerutil.ContainsFinalizer(project, magosprojectiov1alpha1.ProjectFinalizerName) {
+	if controllerutil.ContainsFinalizer(project, v1alpha1.ProjectFinalizerName) {
 		logger.Info("Removing finalizer")
-		controllerutil.RemoveFinalizer(project, magosprojectiov1alpha1.ProjectFinalizerName)
+		controllerutil.RemoveFinalizer(project, v1alpha1.ProjectFinalizerName)
 		if err := r.Update(ctx, project); err != nil {
 			return false, err
 		}
@@ -120,7 +119,7 @@ func (r *ProjectReconciler) handleDeletion(ctx context.Context, project *magospr
 	return true, nil
 }
 
-func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magosprojectiov1alpha1.Project) error {
+func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *v1alpha1.Project) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling project")
 
@@ -133,7 +132,7 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 	//
 	// The Rollout name is expected to match the Project name exactly (1-to-1
 	// mapping).
-	rollout := &magosprojectiov1alpha1.Rollout{}
+	rollout := &v1alpha1.Rollout{}
 	err := r.Get(ctx, types.NamespacedName{Name: project.Name, Namespace: project.Namespace}, rollout)
 	hasRollout := true
 	if err != nil {
@@ -153,7 +152,7 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 	// annotation on Workspaces according to its defined strategy.
 	if hasRollout {
 		logger.Info("Project is managed by a Rollout. Deferring workspace orchestration.", "rollout", rollout.Name)
-		r.updateStatus(ctx, project, magosprojectiov1alpha1.PhaseReady, "ManagedByRollout", fmt.Sprintf("Project orchestration is deferred to Rollout %s", rollout.Name), metav1.ConditionTrue)
+		r.updateStatus(ctx, project, v1alpha1.PhaseReady, "ManagedByRollout", fmt.Sprintf("Project orchestration is deferred to Rollout %s", rollout.Name), metav1.ConditionTrue)
 
 		// Since the Rollout controller is now responsible for granting
 		// execution permissions to Workspaces, we need to revoke any default
@@ -163,7 +162,7 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 		return nil
 	}
 
-	r.updateStatus(ctx, project, magosprojectiov1alpha1.PhaseReady, "DefaultParallel", "Project is orchestrating workspaces in parallel", metav1.ConditionTrue)
+	r.updateStatus(ctx, project, v1alpha1.PhaseReady, "DefaultParallel", "Project is orchestrating workspaces in parallel", metav1.ConditionTrue)
 
 	// Step 3: Enforce default parallel execution.
 	//
@@ -172,7 +171,7 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 	// reference this Project and universally grants them execution permission
 	// by setting the execution-allowed annotation, allowing Terraform
 	// operations to proceed concurrently.
-	var workspaces magosprojectiov1alpha1.WorkspaceList
+	var workspaces v1alpha1.WorkspaceList
 	if err := r.List(ctx, &workspaces, client.InNamespace(project.Namespace)); err != nil {
 		logger.Error(err, "Failed to list workspaces")
 		return err
@@ -189,7 +188,7 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 		// in an unnecessary API update and another reconcile of the Workspace.
 		isAllowed := false
 		if ws.Annotations != nil {
-			isAllowed = ws.Annotations[magosprojectiov1alpha1.WorkspaceExecutionAllowedAnnotation] == "true"
+			isAllowed = ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == "true"
 		}
 
 		if isAllowed {
@@ -202,11 +201,11 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 		// (meaning there's new infrastructure to plan), or when a manual
 		// reconcile was requested via annotation.
 		hasPendingWork := false
-		if ws.Status.Phase == "" || ws.Status.Phase == magosprojectiov1alpha1.PhasePending {
+		if ws.Status.Phase == "" || ws.Status.Phase == v1alpha1.PhasePending {
 			hasPendingWork = true
 		} else if ws.Status.ObservedRevision != ws.Spec.Source.TargetRevision {
 			hasPendingWork = true
-		} else if ws.Annotations != nil && ws.Annotations[magosprojectiov1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
+		} else if ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
 			hasPendingWork = true
 		}
 
@@ -217,12 +216,12 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 			// conflicts. Other controllers (e.g., Workspace controller) may have
 			// updated its status, which increments ResourceVersion, so using a
 			// stale object would cause the Update to fail.
-			latestWS := &magosprojectiov1alpha1.Workspace{}
+			latestWS := &v1alpha1.Workspace{}
 			if err := r.Get(ctx, client.ObjectKeyFromObject(ws), latestWS); err == nil {
 				if latestWS.Annotations == nil {
 					latestWS.Annotations = make(map[string]string)
 				}
-				latestWS.Annotations[magosprojectiov1alpha1.WorkspaceExecutionAllowedAnnotation] = "true"
+				latestWS.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] = "true"
 				if err := r.Update(ctx, latestWS); err != nil {
 					logger.Error(err, "Failed to grant execution permission to workspace", "workspace", ws.Name)
 				}
@@ -240,9 +239,9 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *magos
 // After a successful update, the Project object passed into updateStatus is
 // updated in-place with the new resourceVersion and status. This ensures that
 // any subsequent logic in the same reconcile loop operates on the latest state.
-func (r *ProjectReconciler) updateStatus(ctx context.Context, project *magosprojectiov1alpha1.Project, phase magosprojectiov1alpha1.Phase, reason, message string, status metav1.ConditionStatus) {
+func (r *ProjectReconciler) updateStatus(ctx context.Context, project *v1alpha1.Project, phase v1alpha1.Phase, reason, message string, status metav1.ConditionStatus) {
 	// Fetch the latest version of the project to avoid conflict errors
-	latest := &magosprojectiov1alpha1.Project{}
+	latest := &v1alpha1.Project{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(project), latest); err != nil {
 		log.FromContext(ctx).Error(err, "Failed to get latest project for status update")
 		return
@@ -259,7 +258,7 @@ func (r *ProjectReconciler) updateStatus(ctx context.Context, project *magosproj
 
 	now := metav1.Now()
 	condition := metav1.Condition{
-		Type:               magosprojectiov1alpha1.ConditionTypeReady,
+		Type:               v1alpha1.ConditionTypeReady,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
@@ -294,7 +293,7 @@ func (r *ProjectReconciler) updateStatus(ctx context.Context, project *magosproj
 // execution permission to other Workspaces. This mapper ensures that any
 // Workspace change triggers a reconcile of the Project it belongs to.
 func (r *ProjectReconciler) findProjectsForWorkspace(ctx context.Context, o client.Object) []reconcile.Request {
-	ws, ok := o.(*magosprojectiov1alpha1.Workspace)
+	ws, ok := o.(*v1alpha1.Workspace)
 	if !ok {
 		return nil
 	}
@@ -318,7 +317,7 @@ func (r *ProjectReconciler) findProjectsForWorkspace(ctx context.Context, o clie
 // created, the Project should stop granting execution permissions directly and
 // defer to the Rollout controller instead.
 func (r *ProjectReconciler) findProjectsForRollout(ctx context.Context, o client.Object) []reconcile.Request {
-	ro, ok := o.(*magosprojectiov1alpha1.Rollout)
+	ro, ok := o.(*v1alpha1.Rollout)
 	if !ok {
 		return nil
 	}
@@ -336,14 +335,14 @@ func (r *ProjectReconciler) findProjectsForRollout(ctx context.Context, o client
 // configures the watches that trigger reconciliation.
 func (r *ProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&magosprojectiov1alpha1.Project{}).
+		For(&v1alpha1.Project{}).
 		Watches( // Watch for changes to Workspaces that reference a Project
-			&magosprojectiov1alpha1.Workspace{},
+			&v1alpha1.Workspace{},
 			handler.EnqueueRequestsFromMapFunc(r.findProjectsForWorkspace),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Watches( // Watch for Rollout creation/deletion to toggle orchestration mode
-			&magosprojectiov1alpha1.Rollout{},
+			&v1alpha1.Rollout{},
 			handler.EnqueueRequestsFromMapFunc(r.findProjectsForRollout),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).

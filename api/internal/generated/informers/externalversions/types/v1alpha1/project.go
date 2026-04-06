@@ -23,8 +23,8 @@ import (
 
 	versioned "github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	internalinterfaces "github.com/magosproject/magos/api/internal/generated/informers/externalversions/internalinterfaces"
-	apiv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/api/v1alpha1"
-	magosapiv1alpha1 "github.com/magosproject/magos/api/v1alpha1"
+	typesv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/types/v1alpha1"
+	magostypesv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -35,7 +35,7 @@ import (
 // Projects.
 type ProjectInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() apiv1alpha1.ProjectLister
+	Lister() typesv1alpha1.ProjectLister
 }
 
 type projectInformer struct {
@@ -61,28 +61,28 @@ func NewFilteredProjectInformer(client versioned.Interface, namespace string, re
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiV1alpha1().Projects(namespace).List(context.Background(), options)
+				return client.TypesV1alpha1().Projects(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiV1alpha1().Projects(namespace).Watch(context.Background(), options)
+				return client.TypesV1alpha1().Projects(namespace).Watch(context.Background(), options)
 			},
 			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiV1alpha1().Projects(namespace).List(ctx, options)
+				return client.TypesV1alpha1().Projects(namespace).List(ctx, options)
 			},
 			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiV1alpha1().Projects(namespace).Watch(ctx, options)
+				return client.TypesV1alpha1().Projects(namespace).Watch(ctx, options)
 			},
 		}, client),
-		&magosapiv1alpha1.Project{},
+		&magostypesv1alpha1.Project{},
 		resyncPeriod,
 		indexers,
 	)
@@ -93,9 +93,9 @@ func (f *projectInformer) defaultInformer(client versioned.Interface, resyncPeri
 }
 
 func (f *projectInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&magosapiv1alpha1.Project{}, f.defaultInformer)
+	return f.factory.InformerFor(&magostypesv1alpha1.Project{}, f.defaultInformer)
 }
 
-func (f *projectInformer) Lister() apiv1alpha1.ProjectLister {
-	return apiv1alpha1.NewProjectLister(f.Informer().GetIndexer())
+func (f *projectInformer) Lister() typesv1alpha1.ProjectLister {
+	return typesv1alpha1.NewProjectLister(f.Informer().GetIndexer())
 }

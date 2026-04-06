@@ -18,18 +18,18 @@ limitations under the License.
 package fake
 
 import (
-	apiv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/api/v1alpha1"
-	v1alpha1 "github.com/magosproject/magos/api/v1alpha1"
+	typesv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/types/v1alpha1"
+	v1alpha1 "github.com/magosproject/magos/types/v1alpha1"
 	gentype "k8s.io/client-go/gentype"
 )
 
 // fakeProjects implements ProjectInterface
 type fakeProjects struct {
 	*gentype.FakeClientWithList[*v1alpha1.Project, *v1alpha1.ProjectList]
-	Fake *FakeApiV1alpha1
+	Fake *FakeTypesV1alpha1
 }
 
-func newFakeProjects(fake *FakeApiV1alpha1, namespace string) apiv1alpha1.ProjectInterface {
+func newFakeProjects(fake *FakeTypesV1alpha1, namespace string) typesv1alpha1.ProjectInterface {
 	return &fakeProjects{
 		gentype.NewFakeClientWithList[*v1alpha1.Project, *v1alpha1.ProjectList](
 			fake.Fake,

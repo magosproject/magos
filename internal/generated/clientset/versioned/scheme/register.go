@@ -18,7 +18,7 @@ limitations under the License.
 package scheme
 
 import (
-	v1alpha1 "github.com/magosproject/magos/api/v1alpha1/install"
+	v1alpha1 "github.com/magosproject/magos/types/v1alpha1/install"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"

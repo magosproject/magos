@@ -47,11 +47,11 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./api/..." output:crd:artifacts:config=charts/magos/resources/crds
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./types/..." output:crd:artifacts:config=charts/magos/resources/crds
 
 .PHONY: generate
 generate: controller-gen codegen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/..."
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./types/..."
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -112,7 +112,7 @@ MODULE_NAME := $(shell go list -m)
 GENERATED_DIR := api/internal/generated
 
 ### These are code generators for generating typed clientset, informers, and listers
-### based on the CRDs defined in api/v1alpha1. This is handy for the API to interact with the Kubernetes API server while
+### based on the CRDs defined in types/v1alpha1. This is handy for the API to interact with the Kubernetes API server while
 ### preserving type safety. The generated code will be placed in internal/generated and should not be modified manually.
 .PHONY: codegen
 codegen: codegen-clientset codegen-lister codegen-informer ## Generate typed clientset, informers, and listers.
@@ -122,8 +122,8 @@ codegen-clientset: client-gen ## Generate typed clientset.
 	@rm -rf $(GENERATED_DIR)/clientset
 	$(CLIENT_GEN) \
 		--clientset-name versioned \
-		--input-base "$(MODULE_NAME)/api" \
-		--input "v1alpha1" \
+		--input-base "$(MODULE_NAME)" \
+		--input "types/v1alpha1" \
 		--output-dir $(GENERATED_DIR)/clientset \
 		--output-pkg $(MODULE_NAME)/$(GENERATED_DIR)/clientset \
 		--go-header-file hack/boilerplate.go.txt
@@ -135,7 +135,7 @@ codegen-lister: lister-gen ## Generate typed listers.
 		--output-dir $(GENERATED_DIR)/listers \
 		--output-pkg $(MODULE_NAME)/$(GENERATED_DIR)/listers \
 		--go-header-file hack/boilerplate.go.txt \
-		$(MODULE_NAME)/api/v1alpha1
+		$(MODULE_NAME)/types/v1alpha1
 
 .PHONY: codegen-informer
 codegen-informer: informer-gen ## Generate typed informers.
@@ -146,7 +146,7 @@ codegen-informer: informer-gen ## Generate typed informers.
 		--versioned-clientset-package $(MODULE_NAME)/$(GENERATED_DIR)/clientset/versioned \
 		--listers-package $(MODULE_NAME)/$(GENERATED_DIR)/listers \
 		--go-header-file hack/boilerplate.go.txt \
-		$(MODULE_NAME)/api/v1alpha1
+		$(MODULE_NAME)/types/v1alpha1
 
 ##@ Build
 
@@ -158,6 +158,10 @@ build: manifests generate fmt vet ## Build manager binary.
 ARGS ?= --enable-workspace-controller --enable-project-controller --enable-variableset-controller --enable-rollout-controller
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go $(ARGS)
+
+.PHONY: run-api
+run-api: manifests generate fmt vet ## Run the API server from your host.
+	go run ./api/cmd/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.

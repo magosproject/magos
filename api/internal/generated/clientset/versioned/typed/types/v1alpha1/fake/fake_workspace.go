@@ -18,18 +18,18 @@ limitations under the License.
 package fake
 
 import (
-	apiv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/api/v1alpha1"
-	v1alpha1 "github.com/magosproject/magos/api/v1alpha1"
+	typesv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/types/v1alpha1"
+	v1alpha1 "github.com/magosproject/magos/types/v1alpha1"
 	gentype "k8s.io/client-go/gentype"
 )
 
 // fakeWorkspaces implements WorkspaceInterface
 type fakeWorkspaces struct {
 	*gentype.FakeClientWithList[*v1alpha1.Workspace, *v1alpha1.WorkspaceList]
-	Fake *FakeApiV1alpha1
+	Fake *FakeTypesV1alpha1
 }
 
-func newFakeWorkspaces(fake *FakeApiV1alpha1, namespace string) apiv1alpha1.WorkspaceInterface {
+func newFakeWorkspaces(fake *FakeTypesV1alpha1, namespace string) typesv1alpha1.WorkspaceInterface {
 	return &fakeWorkspaces{
 		gentype.NewFakeClientWithList[*v1alpha1.Workspace, *v1alpha1.WorkspaceList](
 			fake.Fake,

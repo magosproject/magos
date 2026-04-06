@@ -21,7 +21,7 @@ import (
 	context "context"
 
 	scheme "github.com/magosproject/magos/api/internal/generated/clientset/versioned/scheme"
-	apiv1alpha1 "github.com/magosproject/magos/api/v1alpha1"
+	typesv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -36,34 +36,34 @@ type VariableSetsGetter interface {
 
 // VariableSetInterface has methods to work with VariableSet resources.
 type VariableSetInterface interface {
-	Create(ctx context.Context, variableSet *apiv1alpha1.VariableSet, opts v1.CreateOptions) (*apiv1alpha1.VariableSet, error)
-	Update(ctx context.Context, variableSet *apiv1alpha1.VariableSet, opts v1.UpdateOptions) (*apiv1alpha1.VariableSet, error)
+	Create(ctx context.Context, variableSet *typesv1alpha1.VariableSet, opts v1.CreateOptions) (*typesv1alpha1.VariableSet, error)
+	Update(ctx context.Context, variableSet *typesv1alpha1.VariableSet, opts v1.UpdateOptions) (*typesv1alpha1.VariableSet, error)
 	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-	UpdateStatus(ctx context.Context, variableSet *apiv1alpha1.VariableSet, opts v1.UpdateOptions) (*apiv1alpha1.VariableSet, error)
+	UpdateStatus(ctx context.Context, variableSet *typesv1alpha1.VariableSet, opts v1.UpdateOptions) (*typesv1alpha1.VariableSet, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*apiv1alpha1.VariableSet, error)
-	List(ctx context.Context, opts v1.ListOptions) (*apiv1alpha1.VariableSetList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*typesv1alpha1.VariableSet, error)
+	List(ctx context.Context, opts v1.ListOptions) (*typesv1alpha1.VariableSetList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *apiv1alpha1.VariableSet, err error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *typesv1alpha1.VariableSet, err error)
 	VariableSetExpansion
 }
 
 // variableSets implements VariableSetInterface
 type variableSets struct {
-	*gentype.ClientWithList[*apiv1alpha1.VariableSet, *apiv1alpha1.VariableSetList]
+	*gentype.ClientWithList[*typesv1alpha1.VariableSet, *typesv1alpha1.VariableSetList]
 }
 
 // newVariableSets returns a VariableSets
-func newVariableSets(c *ApiV1alpha1Client, namespace string) *variableSets {
+func newVariableSets(c *TypesV1alpha1Client, namespace string) *variableSets {
 	return &variableSets{
-		gentype.NewClientWithList[*apiv1alpha1.VariableSet, *apiv1alpha1.VariableSetList](
+		gentype.NewClientWithList[*typesv1alpha1.VariableSet, *typesv1alpha1.VariableSetList](
 			"variablesets",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			namespace,
-			func() *apiv1alpha1.VariableSet { return &apiv1alpha1.VariableSet{} },
-			func() *apiv1alpha1.VariableSetList { return &apiv1alpha1.VariableSetList{} },
+			func() *typesv1alpha1.VariableSet { return &typesv1alpha1.VariableSet{} },
+			func() *typesv1alpha1.VariableSetList { return &typesv1alpha1.VariableSetList{} },
 		),
 	}
 }
