@@ -346,6 +346,19 @@
                 },
                 "type": "object"
             },
+            "v1alpha1.JobOverrides": {
+                "description": "Apply holds overrides applied only to apply Jobs.\n+optional",
+                "properties": {
+                    "annotations": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "description": "Annotations to add to the Job's pod template. Merged on top of\nspec.annotations; values here win on conflict.\n+optional",
+                        "type": "object"
+                    }
+                },
+                "type": "object"
+            },
             "v1alpha1.Phase": {
                 "description": "Phase represents the current phase of the Workspace\n+optional",
                 "enum": [
@@ -599,9 +612,22 @@
             "v1alpha1.WorkspaceSpec": {
                 "description": "spec defines the desired state of Workspace\n+required",
                 "properties": {
+                    "annotations": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "description": "Annotations to propagate to both plan and apply Job pod templates.\nPer-phase annotations in spec.plan or spec.apply take precedence on conflict.\n+optional",
+                        "type": "object"
+                    },
+                    "apply": {
+                        "$ref": "#/components/schemas/v1alpha1.JobOverrides"
+                    },
                     "autoApply": {
                         "description": "AutoApply dictates whether the workspace should automatically apply after a successful plan\n+optional\n+kubebuilder:default=true",
                         "type": "boolean"
+                    },
+                    "plan": {
+                        "$ref": "#/components/schemas/v1alpha1.JobOverrides"
                     },
                     "projectRef": {
                         "$ref": "#/components/schemas/v1alpha1.ProjectReference"

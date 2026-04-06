@@ -102,23 +102,47 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
+# TODO: currently all logs go to 1 stdout stream, consider using a tmux set-up or other solution?
+.PHONY: run
+run: manifests generate fmt vet ## Run all components in parallel.
+	@trap 'kill 0' EXIT; \
+	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
+	$(MAKE) -s run-api & \
+	$(MAKE) -s run-ui & \
+	wait
+
+.PHONY: run-controller
+ARGS ?= --enable-workspace-controller --enable-project-controller --enable-variableset-controller --enable-rollout-controller
+run-controller: manifests generate fmt vet ## Run a controller from your host.
+	go run ./cmd/main.go $(ARGS)
+
+.PHONY: run-api
+run-api: ## Run the API server from your host.
+	cd ./api/cmd && go run ./api/main.go
+
+.PHONY: run-ui
+run-ui: ## Run the react UI from your host, requires to have npm installed.
+	cd ./ui && npm run dev
+
 ##@ Code Generation
 ##
 ## Full pipeline:  CRD types ──► manifests + deepcopy   (controller-gen)
 ##                 CRD types ──► clientset / informers   (kube_codegen)
 ##                 Go handlers ──► OpenAPI spec           (swag)
 ##                 OpenAPI spec ──► TypeScript types       (openapi-typescript)
-
 .PHONY: generate
-generate: controller-gen codegen generate-ui-types ## Run full code generation pipeline (deepcopy, clients, OpenAPI, TS types).
+generate: generate-controller generate-api-client generate-swagger generate-ui-types ## Run full code generation pipeline (deepcopy, clients, OpenAPI, TS types).
+
+.PHONY: generate-controller
+generate-controller: controller-gen ## Generate deepcopy, conversion and defaulter functions.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./types/..."
 
-.PHONY: codegen
-codegen: ## Generate typed Kubernetes clientset, informers and listers.
-	hack/update-codegen.sh
+.PHONY: generate-api-client
+generate-api-client: client-gen lister-gen informer-gen ## Generate typed Kubernetes clientset, informers and listers.
+	CODE_GENERATOR_VERSION=$(CODE_GENERATOR_VERSION) LOCALBIN=$(LOCALBIN) hack/update-codegen.sh
 
-.PHONY: openapi
-openapi: manifests swag ## Generate OpenAPI spec (swagger.json) from handler annotations.
+.PHONY: generate-swagger
+generate-swagger: swag ## Generate OpenAPI spec (swagger.json) from handler annotations.
 	cd api && $(SWAG) fmt -g cmd/api/main.go -d ./cmd/api/,./internal/
 	cd api && $(SWAG) init \
 		-g main.go \
@@ -129,12 +153,8 @@ openapi: manifests swag ## Generate OpenAPI spec (swagger.json) from handler ann
 		--parseDependency \
 		--parseInternal
 
-.PHONY: openapi-check
-openapi-check: swag openapi ## CI: fail if swagger.json is out of date or docstrings are wrongly formatted.
-	git diff --exit-code
-
 .PHONY: generate-ui-types
-generate-ui-types: openapi ## Generate TypeScript API types from swagger.json (OpenAPI spec).
+generate-ui-types: ## Generate TypeScript API types from swagger.json (OpenAPI spec).
 	cd ui && npm run generate
 
 ##@ Build
@@ -142,15 +162,6 @@ generate-ui-types: openapi ## Generate TypeScript API types from swagger.json (O
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
-
-.PHONY: run
-ARGS ?= --enable-workspace-controller --enable-project-controller --enable-variableset-controller --enable-rollout-controller
-run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go $(ARGS)
-
-.PHONY: run-api
-run-api: ## Run the API server from your host.
-	cd ./api/cmd && go run ./api/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
@@ -174,6 +185,7 @@ kind-load: ## load locally built docker image(s) into kind cluster.
 	$(KIND) load docker-image ${IMG} --name kind
 	$(KIND) load docker-image ${UI_IMG} --name kind
 	$(KIND) load docker-image ${JOB_IMG} --name kind
+	$(KIND) load docker-image ${API_IMG} --name kind
 
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
 # - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
@@ -237,6 +249,9 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 SWAG ?= $(LOCALBIN)/swag
+CLIENT_GEN ?= $(LOCALBIN)/client-gen
+LISTER_GEN ?= $(LOCALBIN)/lister-gen
+INFORMER_GEN ?= $(LOCALBIN)/informer-gen
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.7.1
@@ -250,6 +265,7 @@ GOLANGCI_LINT_VERSION ?= v2.4.0
 # we are using the release-candidate version because otherwise openapi 3.0 and 3.1 are not supported
 # while for the client (react-fetch) we need openapi 3.1 support
 SWAG_VERSION ?= v2.0.0-rc5
+CODE_GENERATOR_VERSION ?= v0.35.3
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -283,6 +299,21 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 swag: $(SWAG) ## Download swag locally if necessary.
 $(SWAG): $(LOCALBIN)
 	$(call go-install-tool,$(SWAG),github.com/swaggo/swag/v2/cmd/swag,$(SWAG_VERSION))
+
+.PHONY: client-gen
+client-gen: $(CLIENT_GEN) ## Download client-gen locally if necessary.
+$(CLIENT_GEN): $(LOCALBIN)
+	$(call go-install-tool,$(CLIENT_GEN),k8s.io/code-generator/cmd/client-gen,$(CODE_GENERATOR_VERSION))
+
+.PHONY: lister-gen
+lister-gen: $(LISTER_GEN) ## Download lister-gen locally if necessary.
+$(LISTER_GEN): $(LOCALBIN)
+	$(call go-install-tool,$(LISTER_GEN),k8s.io/code-generator/cmd/lister-gen,$(CODE_GENERATOR_VERSION))
+
+.PHONY: informer-gen
+informer-gen: $(INFORMER_GEN) ## Download informer-gen locally if necessary.
+$(INFORMER_GEN): $(LOCALBIN)
+	$(call go-install-tool,$(INFORMER_GEN),k8s.io/code-generator/cmd/informer-gen,$(CODE_GENERATOR_VERSION))
 
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
