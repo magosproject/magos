@@ -18,18 +18,18 @@ limitations under the License.
 package fake
 
 import (
-	typesv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/types/v1alpha1"
-	v1alpha1 "github.com/magosproject/magos/types/v1alpha1"
+	magosprojectv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/magosproject/v1alpha1"
+	v1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	gentype "k8s.io/client-go/gentype"
 )
 
 // fakeVariableSets implements VariableSetInterface
 type fakeVariableSets struct {
 	*gentype.FakeClientWithList[*v1alpha1.VariableSet, *v1alpha1.VariableSetList]
-	Fake *FakeTypesV1alpha1
+	Fake *FakeMagosprojectV1alpha1
 }
 
-func newFakeVariableSets(fake *FakeTypesV1alpha1, namespace string) typesv1alpha1.VariableSetInterface {
+func newFakeVariableSets(fake *FakeMagosprojectV1alpha1, namespace string) magosprojectv1alpha1.VariableSetInterface {
 	return &fakeVariableSets{
 		gentype.NewFakeClientWithList[*v1alpha1.VariableSet, *v1alpha1.VariableSetList](
 			fake.Fake,

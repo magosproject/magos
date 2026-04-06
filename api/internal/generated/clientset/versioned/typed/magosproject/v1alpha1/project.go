@@ -21,7 +21,7 @@ import (
 	context "context"
 
 	scheme "github.com/magosproject/magos/api/internal/generated/clientset/versioned/scheme"
-	typesv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
+	magosprojectv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -36,34 +36,34 @@ type ProjectsGetter interface {
 
 // ProjectInterface has methods to work with Project resources.
 type ProjectInterface interface {
-	Create(ctx context.Context, project *typesv1alpha1.Project, opts v1.CreateOptions) (*typesv1alpha1.Project, error)
-	Update(ctx context.Context, project *typesv1alpha1.Project, opts v1.UpdateOptions) (*typesv1alpha1.Project, error)
+	Create(ctx context.Context, project *magosprojectv1alpha1.Project, opts v1.CreateOptions) (*magosprojectv1alpha1.Project, error)
+	Update(ctx context.Context, project *magosprojectv1alpha1.Project, opts v1.UpdateOptions) (*magosprojectv1alpha1.Project, error)
 	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-	UpdateStatus(ctx context.Context, project *typesv1alpha1.Project, opts v1.UpdateOptions) (*typesv1alpha1.Project, error)
+	UpdateStatus(ctx context.Context, project *magosprojectv1alpha1.Project, opts v1.UpdateOptions) (*magosprojectv1alpha1.Project, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*typesv1alpha1.Project, error)
-	List(ctx context.Context, opts v1.ListOptions) (*typesv1alpha1.ProjectList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*magosprojectv1alpha1.Project, error)
+	List(ctx context.Context, opts v1.ListOptions) (*magosprojectv1alpha1.ProjectList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *typesv1alpha1.Project, err error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *magosprojectv1alpha1.Project, err error)
 	ProjectExpansion
 }
 
 // projects implements ProjectInterface
 type projects struct {
-	*gentype.ClientWithList[*typesv1alpha1.Project, *typesv1alpha1.ProjectList]
+	*gentype.ClientWithList[*magosprojectv1alpha1.Project, *magosprojectv1alpha1.ProjectList]
 }
 
 // newProjects returns a Projects
-func newProjects(c *TypesV1alpha1Client, namespace string) *projects {
+func newProjects(c *MagosprojectV1alpha1Client, namespace string) *projects {
 	return &projects{
-		gentype.NewClientWithList[*typesv1alpha1.Project, *typesv1alpha1.ProjectList](
+		gentype.NewClientWithList[*magosprojectv1alpha1.Project, *magosprojectv1alpha1.ProjectList](
 			"projects",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			namespace,
-			func() *typesv1alpha1.Project { return &typesv1alpha1.Project{} },
-			func() *typesv1alpha1.ProjectList { return &typesv1alpha1.ProjectList{} },
+			func() *magosprojectv1alpha1.Project { return &magosprojectv1alpha1.Project{} },
+			func() *magosprojectv1alpha1.ProjectList { return &magosprojectv1alpha1.ProjectList{} },
 		),
 	}
 }

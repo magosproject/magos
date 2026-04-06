@@ -21,7 +21,7 @@ import (
 	fmt "fmt"
 	http "net/http"
 
-	typesv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/types/v1alpha1"
+	magosprojectv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/magosproject/v1alpha1"
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"
@@ -29,18 +29,18 @@ import (
 
 type Interface interface {
 	Discovery() discovery.DiscoveryInterface
-	TypesV1alpha1() typesv1alpha1.TypesV1alpha1Interface
+	MagosprojectV1alpha1() magosprojectv1alpha1.MagosprojectV1alpha1Interface
 }
 
 // Clientset contains the clients for groups.
 type Clientset struct {
 	*discovery.DiscoveryClient
-	typesV1alpha1 *typesv1alpha1.TypesV1alpha1Client
+	magosprojectV1alpha1 *magosprojectv1alpha1.MagosprojectV1alpha1Client
 }
 
-// TypesV1alpha1 retrieves the TypesV1alpha1Client
-func (c *Clientset) TypesV1alpha1() typesv1alpha1.TypesV1alpha1Interface {
-	return c.typesV1alpha1
+// MagosprojectV1alpha1 retrieves the MagosprojectV1alpha1Client
+func (c *Clientset) MagosprojectV1alpha1() magosprojectv1alpha1.MagosprojectV1alpha1Interface {
+	return c.magosprojectV1alpha1
 }
 
 // Discovery retrieves the DiscoveryClient
@@ -87,7 +87,7 @@ func NewForConfigAndClient(c *rest.Config, httpClient *http.Client) (*Clientset,
 
 	var cs Clientset
 	var err error
-	cs.typesV1alpha1, err = typesv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
+	cs.magosprojectV1alpha1, err = magosprojectv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func NewForConfigOrDie(c *rest.Config) *Clientset {
 // New creates a new Clientset for the given RESTClient.
 func New(c rest.Interface) *Clientset {
 	var cs Clientset
-	cs.typesV1alpha1 = typesv1alpha1.New(c)
+	cs.magosprojectV1alpha1 = magosprojectv1alpha1.New(c)
 
 	cs.DiscoveryClient = discovery.NewDiscoveryClient(c)
 	return &cs

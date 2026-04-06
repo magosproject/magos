@@ -108,45 +108,9 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 ##@ Code Generation (Typed Clientset, Informers & Listers)
 
-MODULE_NAME := $(shell go list -m)
-GENERATED_DIR := api/internal/generated
-
-### These are code generators for generating typed clientset, informers, and listers
-### based on the CRDs defined in types/v1alpha1. This is handy for the API to interact with the Kubernetes API server while
-### preserving type safety. The generated code will be placed in internal/generated and should not be modified manually.
 .PHONY: codegen
-codegen: codegen-clientset codegen-lister codegen-informer ## Generate typed clientset, informers, and listers.
-
-.PHONY: codegen-clientset
-codegen-clientset: client-gen ## Generate typed clientset.
-	@rm -rf $(GENERATED_DIR)/clientset
-	$(CLIENT_GEN) \
-		--clientset-name versioned \
-		--input-base "$(MODULE_NAME)" \
-		--input "types/v1alpha1" \
-		--output-dir $(GENERATED_DIR)/clientset \
-		--output-pkg $(MODULE_NAME)/$(GENERATED_DIR)/clientset \
-		--go-header-file hack/boilerplate.go.txt
-
-.PHONY: codegen-lister
-codegen-lister: lister-gen ## Generate typed listers.
-	@rm -rf $(GENERATED_DIR)/listers
-	$(LISTER_GEN) \
-		--output-dir $(GENERATED_DIR)/listers \
-		--output-pkg $(MODULE_NAME)/$(GENERATED_DIR)/listers \
-		--go-header-file hack/boilerplate.go.txt \
-		$(MODULE_NAME)/types/v1alpha1
-
-.PHONY: codegen-informer
-codegen-informer: informer-gen ## Generate typed informers.
-	@rm -rf $(GENERATED_DIR)/informers
-	$(INFORMER_GEN) \
-		--output-dir $(GENERATED_DIR)/informers \
-		--output-pkg $(MODULE_NAME)/$(GENERATED_DIR)/informers \
-		--versioned-clientset-package $(MODULE_NAME)/$(GENERATED_DIR)/clientset/versioned \
-		--listers-package $(MODULE_NAME)/$(GENERATED_DIR)/listers \
-		--go-header-file hack/boilerplate.go.txt \
-		$(MODULE_NAME)/types/v1alpha1
+codegen: ## Generate typed clientset, informers, and listers via kube_codegen.sh.
+	hack/update-codegen.sh
 
 ##@ Build
 
@@ -247,9 +211,6 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
-CLIENT_GEN ?= $(LOCALBIN)/client-gen
-LISTER_GEN ?= $(LOCALBIN)/lister-gen
-INFORMER_GEN ?= $(LOCALBIN)/informer-gen
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.7.1
@@ -259,7 +220,6 @@ ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v2.4.0
-CODE_GENERATOR_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/client-go)
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -289,20 +249,6 @@ golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 
-.PHONY: client-gen
-client-gen: $(CLIENT_GEN) ## Download client-gen locally if necessary.
-$(CLIENT_GEN): $(LOCALBIN)
-	$(call go-install-tool,$(CLIENT_GEN),k8s.io/code-generator/cmd/client-gen,$(CODE_GENERATOR_VERSION))
-
-.PHONY: lister-gen
-lister-gen: $(LISTER_GEN) ## Download lister-gen locally if necessary.
-$(LISTER_GEN): $(LOCALBIN)
-	$(call go-install-tool,$(LISTER_GEN),k8s.io/code-generator/cmd/lister-gen,$(CODE_GENERATOR_VERSION))
-
-.PHONY: informer-gen
-informer-gen: $(INFORMER_GEN) ## Download informer-gen locally if necessary.
-$(INFORMER_GEN): $(LOCALBIN)
-	$(call go-install-tool,$(INFORMER_GEN),k8s.io/code-generator/cmd/informer-gen,$(CODE_GENERATOR_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary

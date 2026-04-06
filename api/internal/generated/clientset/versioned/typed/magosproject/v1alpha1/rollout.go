@@ -21,7 +21,7 @@ import (
 	context "context"
 
 	scheme "github.com/magosproject/magos/api/internal/generated/clientset/versioned/scheme"
-	typesv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
+	magosprojectv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -36,34 +36,34 @@ type RolloutsGetter interface {
 
 // RolloutInterface has methods to work with Rollout resources.
 type RolloutInterface interface {
-	Create(ctx context.Context, rollout *typesv1alpha1.Rollout, opts v1.CreateOptions) (*typesv1alpha1.Rollout, error)
-	Update(ctx context.Context, rollout *typesv1alpha1.Rollout, opts v1.UpdateOptions) (*typesv1alpha1.Rollout, error)
+	Create(ctx context.Context, rollout *magosprojectv1alpha1.Rollout, opts v1.CreateOptions) (*magosprojectv1alpha1.Rollout, error)
+	Update(ctx context.Context, rollout *magosprojectv1alpha1.Rollout, opts v1.UpdateOptions) (*magosprojectv1alpha1.Rollout, error)
 	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-	UpdateStatus(ctx context.Context, rollout *typesv1alpha1.Rollout, opts v1.UpdateOptions) (*typesv1alpha1.Rollout, error)
+	UpdateStatus(ctx context.Context, rollout *magosprojectv1alpha1.Rollout, opts v1.UpdateOptions) (*magosprojectv1alpha1.Rollout, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*typesv1alpha1.Rollout, error)
-	List(ctx context.Context, opts v1.ListOptions) (*typesv1alpha1.RolloutList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*magosprojectv1alpha1.Rollout, error)
+	List(ctx context.Context, opts v1.ListOptions) (*magosprojectv1alpha1.RolloutList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *typesv1alpha1.Rollout, err error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *magosprojectv1alpha1.Rollout, err error)
 	RolloutExpansion
 }
 
 // rollouts implements RolloutInterface
 type rollouts struct {
-	*gentype.ClientWithList[*typesv1alpha1.Rollout, *typesv1alpha1.RolloutList]
+	*gentype.ClientWithList[*magosprojectv1alpha1.Rollout, *magosprojectv1alpha1.RolloutList]
 }
 
 // newRollouts returns a Rollouts
-func newRollouts(c *TypesV1alpha1Client, namespace string) *rollouts {
+func newRollouts(c *MagosprojectV1alpha1Client, namespace string) *rollouts {
 	return &rollouts{
-		gentype.NewClientWithList[*typesv1alpha1.Rollout, *typesv1alpha1.RolloutList](
+		gentype.NewClientWithList[*magosprojectv1alpha1.Rollout, *magosprojectv1alpha1.RolloutList](
 			"rollouts",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			namespace,
-			func() *typesv1alpha1.Rollout { return &typesv1alpha1.Rollout{} },
-			func() *typesv1alpha1.RolloutList { return &typesv1alpha1.RolloutList{} },
+			func() *magosprojectv1alpha1.Rollout { return &magosprojectv1alpha1.Rollout{} },
+			func() *magosprojectv1alpha1.RolloutList { return &magosprojectv1alpha1.RolloutList{} },
 		),
 	}
 }

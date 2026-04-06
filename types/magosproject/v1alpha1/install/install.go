@@ -17,7 +17,7 @@ limitations under the License.
 package install
 
 import (
-	"github.com/magosproject/magos/types/v1alpha1"
+	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 

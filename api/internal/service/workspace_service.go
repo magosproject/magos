@@ -8,8 +8,8 @@ import (
 
 	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
-	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/types/v1alpha1"
-	apiv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
+	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/magosproject/v1alpha1"
+	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
@@ -39,7 +39,7 @@ type workspaceService struct {
 
 func NewWorkspaceService(logger *slog.Logger, client versioned.Interface) WorkspaceService {
 	factory := externalversions.NewSharedInformerFactory(client, 5*time.Minute)
-	workspaceInformer := factory.Types().V1alpha1().Workspaces()
+	workspaceInformer := factory.Magosproject().V1alpha1().Workspaces()
 
 	svc := &workspaceService{
 		logger:      logger,
@@ -76,7 +76,6 @@ func NewWorkspaceService(logger *slog.Logger, client versioned.Interface) Worksp
 
 	return svc
 }
-
 
 func (s *workspaceService) HasSynced() bool {
 	return s.informer.HasSynced()

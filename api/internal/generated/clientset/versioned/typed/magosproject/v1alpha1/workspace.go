@@ -21,7 +21,7 @@ import (
 	context "context"
 
 	scheme "github.com/magosproject/magos/api/internal/generated/clientset/versioned/scheme"
-	typesv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
+	magosprojectv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -36,34 +36,34 @@ type WorkspacesGetter interface {
 
 // WorkspaceInterface has methods to work with Workspace resources.
 type WorkspaceInterface interface {
-	Create(ctx context.Context, workspace *typesv1alpha1.Workspace, opts v1.CreateOptions) (*typesv1alpha1.Workspace, error)
-	Update(ctx context.Context, workspace *typesv1alpha1.Workspace, opts v1.UpdateOptions) (*typesv1alpha1.Workspace, error)
+	Create(ctx context.Context, workspace *magosprojectv1alpha1.Workspace, opts v1.CreateOptions) (*magosprojectv1alpha1.Workspace, error)
+	Update(ctx context.Context, workspace *magosprojectv1alpha1.Workspace, opts v1.UpdateOptions) (*magosprojectv1alpha1.Workspace, error)
 	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-	UpdateStatus(ctx context.Context, workspace *typesv1alpha1.Workspace, opts v1.UpdateOptions) (*typesv1alpha1.Workspace, error)
+	UpdateStatus(ctx context.Context, workspace *magosprojectv1alpha1.Workspace, opts v1.UpdateOptions) (*magosprojectv1alpha1.Workspace, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*typesv1alpha1.Workspace, error)
-	List(ctx context.Context, opts v1.ListOptions) (*typesv1alpha1.WorkspaceList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*magosprojectv1alpha1.Workspace, error)
+	List(ctx context.Context, opts v1.ListOptions) (*magosprojectv1alpha1.WorkspaceList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *typesv1alpha1.Workspace, err error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *magosprojectv1alpha1.Workspace, err error)
 	WorkspaceExpansion
 }
 
 // workspaces implements WorkspaceInterface
 type workspaces struct {
-	*gentype.ClientWithList[*typesv1alpha1.Workspace, *typesv1alpha1.WorkspaceList]
+	*gentype.ClientWithList[*magosprojectv1alpha1.Workspace, *magosprojectv1alpha1.WorkspaceList]
 }
 
 // newWorkspaces returns a Workspaces
-func newWorkspaces(c *TypesV1alpha1Client, namespace string) *workspaces {
+func newWorkspaces(c *MagosprojectV1alpha1Client, namespace string) *workspaces {
 	return &workspaces{
-		gentype.NewClientWithList[*typesv1alpha1.Workspace, *typesv1alpha1.WorkspaceList](
+		gentype.NewClientWithList[*magosprojectv1alpha1.Workspace, *magosprojectv1alpha1.WorkspaceList](
 			"workspaces",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			namespace,
-			func() *typesv1alpha1.Workspace { return &typesv1alpha1.Workspace{} },
-			func() *typesv1alpha1.WorkspaceList { return &typesv1alpha1.WorkspaceList{} },
+			func() *magosprojectv1alpha1.Workspace { return &magosprojectv1alpha1.Workspace{} },
+			func() *magosprojectv1alpha1.WorkspaceList { return &magosprojectv1alpha1.WorkspaceList{} },
 		),
 	}
 }

@@ -18,34 +18,34 @@ limitations under the License.
 package fake
 
 import (
-	v1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/types/v1alpha1"
+	v1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/magosproject/v1alpha1"
 	rest "k8s.io/client-go/rest"
 	testing "k8s.io/client-go/testing"
 )
 
-type FakeTypesV1alpha1 struct {
+type FakeMagosprojectV1alpha1 struct {
 	*testing.Fake
 }
 
-func (c *FakeTypesV1alpha1) Projects(namespace string) v1alpha1.ProjectInterface {
+func (c *FakeMagosprojectV1alpha1) Projects(namespace string) v1alpha1.ProjectInterface {
 	return newFakeProjects(c, namespace)
 }
 
-func (c *FakeTypesV1alpha1) Rollouts(namespace string) v1alpha1.RolloutInterface {
+func (c *FakeMagosprojectV1alpha1) Rollouts(namespace string) v1alpha1.RolloutInterface {
 	return newFakeRollouts(c, namespace)
 }
 
-func (c *FakeTypesV1alpha1) VariableSets(namespace string) v1alpha1.VariableSetInterface {
+func (c *FakeMagosprojectV1alpha1) VariableSets(namespace string) v1alpha1.VariableSetInterface {
 	return newFakeVariableSets(c, namespace)
 }
 
-func (c *FakeTypesV1alpha1) Workspaces(namespace string) v1alpha1.WorkspaceInterface {
+func (c *FakeMagosprojectV1alpha1) Workspaces(namespace string) v1alpha1.WorkspaceInterface {
 	return newFakeWorkspaces(c, namespace)
 }
 
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
-func (c *FakeTypesV1alpha1) RESTClient() rest.Interface {
+func (c *FakeMagosprojectV1alpha1) RESTClient() rest.Interface {
 	var ret *rest.RESTClient
 	return ret
 }

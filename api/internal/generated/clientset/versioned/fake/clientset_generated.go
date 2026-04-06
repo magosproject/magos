@@ -19,8 +19,8 @@ package fake
 
 import (
 	clientset "github.com/magosproject/magos/api/internal/generated/clientset/versioned"
-	typesv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/types/v1alpha1"
-	faketypesv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/types/v1alpha1/fake"
+	magosprojectv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/magosproject/v1alpha1"
+	fakemagosprojectv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/magosproject/v1alpha1/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
@@ -94,7 +94,7 @@ var (
 	_ testing.FakeClient  = &Clientset{}
 )
 
-// TypesV1alpha1 retrieves the TypesV1alpha1Client
-func (c *Clientset) TypesV1alpha1() typesv1alpha1.TypesV1alpha1Interface {
-	return &faketypesv1alpha1.FakeTypesV1alpha1{Fake: &c.Fake}
+// MagosprojectV1alpha1 retrieves the MagosprojectV1alpha1Client
+func (c *Clientset) MagosprojectV1alpha1() magosprojectv1alpha1.MagosprojectV1alpha1Interface {
+	return &fakemagosprojectv1alpha1.FakeMagosprojectV1alpha1{Fake: &c.Fake}
 }

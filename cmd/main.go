@@ -21,7 +21,7 @@ import (
 	"flag"
 	"os"
 
-	magosprojectiov1alpha1 "github.com/magosproject/magos/types/v1alpha1"
+	magosprojectiov1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"

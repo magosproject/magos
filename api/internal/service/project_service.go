@@ -8,8 +8,8 @@ import (
 
 	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
-	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/types/v1alpha1"
-	apiv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
+	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/magosproject/v1alpha1"
+	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
@@ -40,7 +40,7 @@ type projectService struct {
 // NewProjectService returns a new ProjectService.
 func NewProjectService(logger *slog.Logger, client versioned.Interface) ProjectService {
 	factory := externalversions.NewSharedInformerFactory(client, 5*time.Minute)
-	projectInformer := factory.Types().V1alpha1().Projects()
+	projectInformer := factory.Magosproject().V1alpha1().Projects()
 
 	svc := &projectService{
 		logger:      logger,

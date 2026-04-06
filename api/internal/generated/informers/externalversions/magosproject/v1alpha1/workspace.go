@@ -23,79 +23,79 @@ import (
 
 	versioned "github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	internalinterfaces "github.com/magosproject/magos/api/internal/generated/informers/externalversions/internalinterfaces"
-	typesv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/types/v1alpha1"
-	magostypesv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
+	magosprojectv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/magosproject/v1alpha1"
+	typesmagosprojectv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
 )
 
-// ProjectInformer provides access to a shared informer and lister for
-// Projects.
-type ProjectInformer interface {
+// WorkspaceInformer provides access to a shared informer and lister for
+// Workspaces.
+type WorkspaceInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() typesv1alpha1.ProjectLister
+	Lister() magosprojectv1alpha1.WorkspaceLister
 }
 
-type projectInformer struct {
+type workspaceInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
 	namespace        string
 }
 
-// NewProjectInformer constructs a new informer for Project type.
+// NewWorkspaceInformer constructs a new informer for Workspace type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewProjectInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredProjectInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewWorkspaceInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredWorkspaceInformer(client, namespace, resyncPeriod, indexers, nil)
 }
 
-// NewFilteredProjectInformer constructs a new informer for Project type.
+// NewFilteredWorkspaceInformer constructs a new informer for Workspace type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredProjectInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredWorkspaceInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.TypesV1alpha1().Projects(namespace).List(context.Background(), options)
+				return client.MagosprojectV1alpha1().Workspaces(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.TypesV1alpha1().Projects(namespace).Watch(context.Background(), options)
+				return client.MagosprojectV1alpha1().Workspaces(namespace).Watch(context.Background(), options)
 			},
 			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.TypesV1alpha1().Projects(namespace).List(ctx, options)
+				return client.MagosprojectV1alpha1().Workspaces(namespace).List(ctx, options)
 			},
 			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.TypesV1alpha1().Projects(namespace).Watch(ctx, options)
+				return client.MagosprojectV1alpha1().Workspaces(namespace).Watch(ctx, options)
 			},
 		}, client),
-		&magostypesv1alpha1.Project{},
+		&typesmagosprojectv1alpha1.Workspace{},
 		resyncPeriod,
 		indexers,
 	)
 }
 
-func (f *projectInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredProjectInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+func (f *workspaceInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	return NewFilteredWorkspaceInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
-func (f *projectInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&magostypesv1alpha1.Project{}, f.defaultInformer)
+func (f *workspaceInformer) Informer() cache.SharedIndexInformer {
+	return f.factory.InformerFor(&typesmagosprojectv1alpha1.Workspace{}, f.defaultInformer)
 }
 
-func (f *projectInformer) Lister() typesv1alpha1.ProjectLister {
-	return typesv1alpha1.NewProjectLister(f.Informer().GetIndexer())
+func (f *workspaceInformer) Lister() magosprojectv1alpha1.WorkspaceLister {
+	return magosprojectv1alpha1.NewWorkspaceLister(f.Informer().GetIndexer())
 }

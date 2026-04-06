@@ -18,18 +18,18 @@ limitations under the License.
 package fake
 
 import (
-	typesv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/types/v1alpha1"
-	v1alpha1 "github.com/magosproject/magos/types/v1alpha1"
+	magosprojectv1alpha1 "github.com/magosproject/magos/api/internal/generated/clientset/versioned/typed/magosproject/v1alpha1"
+	v1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	gentype "k8s.io/client-go/gentype"
 )
 
 // fakeRollouts implements RolloutInterface
 type fakeRollouts struct {
 	*gentype.FakeClientWithList[*v1alpha1.Rollout, *v1alpha1.RolloutList]
-	Fake *FakeTypesV1alpha1
+	Fake *FakeMagosprojectV1alpha1
 }
 
-func newFakeRollouts(fake *FakeTypesV1alpha1, namespace string) typesv1alpha1.RolloutInterface {
+func newFakeRollouts(fake *FakeMagosprojectV1alpha1, namespace string) magosprojectv1alpha1.RolloutInterface {
 	return &fakeRollouts{
 		gentype.NewFakeClientWithList[*v1alpha1.Rollout, *v1alpha1.RolloutList](
 			fake.Fake,

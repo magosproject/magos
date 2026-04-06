@@ -7,8 +7,8 @@ import (
 
 	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
-	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/types/v1alpha1"
-	apiv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
+	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/magosproject/v1alpha1"
+	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/cache"
 )
@@ -28,7 +28,7 @@ type rolloutService struct {
 
 func NewRolloutService(logger *slog.Logger, client versioned.Interface) RolloutService {
 	factory := externalversions.NewSharedInformerFactory(client, 5*time.Minute)
-	rolloutInformer := factory.Types().V1alpha1().Rollouts()
+	rolloutInformer := factory.Magosproject().V1alpha1().Rollouts()
 
 	svc := &rolloutService{
 		logger:   logger,

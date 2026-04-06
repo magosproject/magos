@@ -21,11 +21,11 @@ import (
 	http "net/http"
 
 	scheme "github.com/magosproject/magos/api/internal/generated/clientset/versioned/scheme"
-	typesv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
+	magosprojectv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	rest "k8s.io/client-go/rest"
 )
 
-type TypesV1alpha1Interface interface {
+type MagosprojectV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	ProjectsGetter
 	RolloutsGetter
@@ -33,31 +33,31 @@ type TypesV1alpha1Interface interface {
 	WorkspacesGetter
 }
 
-// TypesV1alpha1Client is used to interact with features provided by the types group.
-type TypesV1alpha1Client struct {
+// MagosprojectV1alpha1Client is used to interact with features provided by the magosproject group.
+type MagosprojectV1alpha1Client struct {
 	restClient rest.Interface
 }
 
-func (c *TypesV1alpha1Client) Projects(namespace string) ProjectInterface {
+func (c *MagosprojectV1alpha1Client) Projects(namespace string) ProjectInterface {
 	return newProjects(c, namespace)
 }
 
-func (c *TypesV1alpha1Client) Rollouts(namespace string) RolloutInterface {
+func (c *MagosprojectV1alpha1Client) Rollouts(namespace string) RolloutInterface {
 	return newRollouts(c, namespace)
 }
 
-func (c *TypesV1alpha1Client) VariableSets(namespace string) VariableSetInterface {
+func (c *MagosprojectV1alpha1Client) VariableSets(namespace string) VariableSetInterface {
 	return newVariableSets(c, namespace)
 }
 
-func (c *TypesV1alpha1Client) Workspaces(namespace string) WorkspaceInterface {
+func (c *MagosprojectV1alpha1Client) Workspaces(namespace string) WorkspaceInterface {
 	return newWorkspaces(c, namespace)
 }
 
-// NewForConfig creates a new TypesV1alpha1Client for the given config.
+// NewForConfig creates a new MagosprojectV1alpha1Client for the given config.
 // NewForConfig is equivalent to NewForConfigAndClient(c, httpClient),
 // where httpClient was generated with rest.HTTPClientFor(c).
-func NewForConfig(c *rest.Config) (*TypesV1alpha1Client, error) {
+func NewForConfig(c *rest.Config) (*MagosprojectV1alpha1Client, error) {
 	config := *c
 	setConfigDefaults(&config)
 	httpClient, err := rest.HTTPClientFor(&config)
@@ -67,21 +67,21 @@ func NewForConfig(c *rest.Config) (*TypesV1alpha1Client, error) {
 	return NewForConfigAndClient(&config, httpClient)
 }
 
-// NewForConfigAndClient creates a new TypesV1alpha1Client for the given config and http client.
+// NewForConfigAndClient creates a new MagosprojectV1alpha1Client for the given config and http client.
 // Note the http client provided takes precedence over the configured transport values.
-func NewForConfigAndClient(c *rest.Config, h *http.Client) (*TypesV1alpha1Client, error) {
+func NewForConfigAndClient(c *rest.Config, h *http.Client) (*MagosprojectV1alpha1Client, error) {
 	config := *c
 	setConfigDefaults(&config)
 	client, err := rest.RESTClientForConfigAndClient(&config, h)
 	if err != nil {
 		return nil, err
 	}
-	return &TypesV1alpha1Client{client}, nil
+	return &MagosprojectV1alpha1Client{client}, nil
 }
 
-// NewForConfigOrDie creates a new TypesV1alpha1Client for the given config and
+// NewForConfigOrDie creates a new MagosprojectV1alpha1Client for the given config and
 // panics if there is an error in the config.
-func NewForConfigOrDie(c *rest.Config) *TypesV1alpha1Client {
+func NewForConfigOrDie(c *rest.Config) *MagosprojectV1alpha1Client {
 	client, err := NewForConfig(c)
 	if err != nil {
 		panic(err)
@@ -89,13 +89,13 @@ func NewForConfigOrDie(c *rest.Config) *TypesV1alpha1Client {
 	return client
 }
 
-// New creates a new TypesV1alpha1Client for the given RESTClient.
-func New(c rest.Interface) *TypesV1alpha1Client {
-	return &TypesV1alpha1Client{c}
+// New creates a new MagosprojectV1alpha1Client for the given RESTClient.
+func New(c rest.Interface) *MagosprojectV1alpha1Client {
+	return &MagosprojectV1alpha1Client{c}
 }
 
 func setConfigDefaults(config *rest.Config) {
-	gv := typesv1alpha1.SchemeGroupVersion
+	gv := magosprojectv1alpha1.SchemeGroupVersion
 	config.GroupVersion = &gv
 	config.APIPath = "/apis"
 	config.NegotiatedSerializer = rest.CodecFactoryForGeneratedClient(scheme.Scheme, scheme.Codecs).WithoutConversion()
@@ -107,7 +107,7 @@ func setConfigDefaults(config *rest.Config) {
 
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
-func (c *TypesV1alpha1Client) RESTClient() rest.Interface {
+func (c *MagosprojectV1alpha1Client) RESTClient() rest.Interface {
 	if c == nil {
 		return nil
 	}

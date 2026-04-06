@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/magosproject/magos/types/v1alpha1"
+	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

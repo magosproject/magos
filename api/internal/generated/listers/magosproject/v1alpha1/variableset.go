@@ -18,7 +18,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	typesv1alpha1 "github.com/magosproject/magos/types/v1alpha1"
+	magosprojectv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	labels "k8s.io/apimachinery/pkg/labels"
 	listers "k8s.io/client-go/listers"
 	cache "k8s.io/client-go/tools/cache"
@@ -29,7 +29,7 @@ import (
 type VariableSetLister interface {
 	// List lists all VariableSets in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*typesv1alpha1.VariableSet, err error)
+	List(selector labels.Selector) (ret []*magosprojectv1alpha1.VariableSet, err error)
 	// VariableSets returns an object that can list and get VariableSets.
 	VariableSets(namespace string) VariableSetNamespaceLister
 	VariableSetListerExpansion
@@ -37,17 +37,17 @@ type VariableSetLister interface {
 
 // variableSetLister implements the VariableSetLister interface.
 type variableSetLister struct {
-	listers.ResourceIndexer[*typesv1alpha1.VariableSet]
+	listers.ResourceIndexer[*magosprojectv1alpha1.VariableSet]
 }
 
 // NewVariableSetLister returns a new VariableSetLister.
 func NewVariableSetLister(indexer cache.Indexer) VariableSetLister {
-	return &variableSetLister{listers.New[*typesv1alpha1.VariableSet](indexer, typesv1alpha1.Resource("variableset"))}
+	return &variableSetLister{listers.New[*magosprojectv1alpha1.VariableSet](indexer, magosprojectv1alpha1.Resource("variableset"))}
 }
 
 // VariableSets returns an object that can list and get VariableSets.
 func (s *variableSetLister) VariableSets(namespace string) VariableSetNamespaceLister {
-	return variableSetNamespaceLister{listers.NewNamespaced[*typesv1alpha1.VariableSet](s.ResourceIndexer, namespace)}
+	return variableSetNamespaceLister{listers.NewNamespaced[*magosprojectv1alpha1.VariableSet](s.ResourceIndexer, namespace)}
 }
 
 // VariableSetNamespaceLister helps list and get VariableSets.
@@ -55,15 +55,15 @@ func (s *variableSetLister) VariableSets(namespace string) VariableSetNamespaceL
 type VariableSetNamespaceLister interface {
 	// List lists all VariableSets in the indexer for a given namespace.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*typesv1alpha1.VariableSet, err error)
+	List(selector labels.Selector) (ret []*magosprojectv1alpha1.VariableSet, err error)
 	// Get retrieves the VariableSet from the indexer for a given namespace and name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*typesv1alpha1.VariableSet, error)
+	Get(name string) (*magosprojectv1alpha1.VariableSet, error)
 	VariableSetNamespaceListerExpansion
 }
 
 // variableSetNamespaceLister implements the VariableSetNamespaceLister
 // interface.
 type variableSetNamespaceLister struct {
-	listers.ResourceIndexer[*typesv1alpha1.VariableSet]
+	listers.ResourceIndexer[*magosprojectv1alpha1.VariableSet]
 }
