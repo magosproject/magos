@@ -74,6 +74,16 @@ type TerraformSpec struct {
 	TfvarsPath string `json:"tfvarsPath,omitempty"`
 }
 
+// JobOverrides holds per-phase configuration that is merged on top of the
+// shared spec-level settings. Fields set here take precedence over the
+// corresponding shared field.
+type JobOverrides struct {
+	// Annotations to add to the Job's pod template. Merged on top of
+	// spec.annotations; values here win on conflict.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
 // WorkspaceSpec defines the desired state of Workspace
 type WorkspaceSpec struct {
 	// ProjectRef is a reference to the project this workspace belongs to
@@ -84,6 +94,19 @@ type WorkspaceSpec struct {
 	// +optional
 	// +kubebuilder:default=true
 	AutoApply bool `json:"autoApply"`
+
+	// Annotations to propagate to both plan and apply Job pod templates.
+	// Per-phase annotations in spec.plan or spec.apply take precedence on conflict.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// Plan holds overrides applied only to plan Jobs.
+	// +optional
+	Plan *JobOverrides `json:"plan,omitempty"`
+
+	// Apply holds overrides applied only to apply Jobs.
+	// +optional
+	Apply *JobOverrides `json:"apply,omitempty"`
 
 	// Source defines the Git repository configuration
 	// +required
