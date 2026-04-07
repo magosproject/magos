@@ -1,0 +1,110 @@
+{{- $root := . -}}
+{{- range $name, $controller := .Values.controllers }}
+{{- if $controller.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "magos.fullname" $root }}-{{ $name }}
+  labels:
+    {{- include "magos.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}-controller
+    control-plane: magos
+spec:
+  replicas: {{ $controller.replicaCount | default 1 }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "magos.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: {{ $name }}-controller
+  template:
+    metadata:
+      annotations:
+        {{- with ($controller.annotations | default $root.Values.podDefaults.annotations) }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "magos.labels" $root | nindent 8 }}
+        app.kubernetes.io/component: {{ $name }}-controller
+        control-plane: magos
+        {{- with ($controller.labels | default $root.Values.podDefaults.labels) }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "magos.controllerServiceAccountName" (dict "root" $root "name" $name "controller" $controller) }}
+      securityContext:
+        {{- toYaml ($controller.securityContext | default $root.Values.podDefaults.securityContext) | nindent 8 }}
+      containers:
+      - name: manager
+        command:
+        - /manager
+        args:
+        {{- if $root.Values.leaderElection.enabled }}
+        - --leader-elect
+        - --leader-elect-id={{ $name }}-controller
+        {{- end }}
+        - --health-probe-bind-address=:{{ $root.Values.healthProbe.port }}
+        {{- if $root.Values.metricsService.enabled }}
+        - --metrics-bind-address=:{{ $root.Values.metricsService.port }}
+        - --metrics-secure={{ $root.Values.metricsService.secure }}
+        {{- end }}
+        - --enable-{{ $name }}-controller
+        image: "{{ $root.Values.image.repository }}:{{ $root.Values.image.tag | default $root.Chart.AppVersion }}"
+        imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ $root.Values.healthProbe.port }}
+          name: health
+          protocol: TCP
+        {{- if $root.Values.metricsService.enabled }}
+        - containerPort: {{ $root.Values.metricsService.port }}
+          name: metrics
+          protocol: TCP
+        {{- end }}
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        {{- if eq $name "workspace" }}
+        - name: MAGOS_JOB_IMAGE
+          value: "{{ $root.Values.jobImage.repository }}:{{ $root.Values.jobImage.tag | default $root.Chart.AppVersion }}"
+        {{- end }}
+        {{- with ($controller.env | default $root.Values.podDefaults.env) }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        securityContext:
+          {{- toYaml ($controller.containerSecurityContext | default $root.Values.podDefaults.containerSecurityContext) | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: {{ $root.Values.healthProbe.livenessPath }}
+            port: {{ $root.Values.healthProbe.port }}
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: {{ $root.Values.healthProbe.readinessPath }}
+            port: {{ $root.Values.healthProbe.port }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- toYaml ($controller.resources | default $root.Values.podDefaults.resources) | nindent 10 }}
+      {{- with ($controller.nodeSelector | default $root.Values.podDefaults.nodeSelector) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with ($controller.affinity | default $root.Values.podDefaults.affinity) }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with ($controller.tolerations | default $root.Values.podDefaults.tolerations) }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 10
+{{- end }}
+{{- end }}

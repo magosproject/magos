@@ -1,0 +1,21 @@
+{{- if and .Values.rbac.create .Values.api.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "magos.fullname" . }}-api
+  labels:
+    {{- include "magos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+rules:
+- apiGroups:
+  - magosproject.io
+  resources:
+  - workspaces
+  - projects
+  - rollouts
+  - variablesets
+  verbs:
+  - get
+  - list
+  - watch
+{{- end }}

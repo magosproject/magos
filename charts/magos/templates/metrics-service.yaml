@@ -1,0 +1,26 @@
+{{- if .Values.metricsService.enabled }}
+{{- $root := . -}}
+{{- range $name, $controller := .Values.controllers }}
+{{- if $controller.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "magos.fullname" $root }}-{{ $name }}-metrics
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "magos.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}-controller
+spec:
+  type: {{ $root.Values.metricsService.type }}
+  ports:
+  - name: metrics
+    port: {{ $root.Values.metricsService.port }}
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    {{- include "magos.selectorLabels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}-controller
+{{- end }}
+{{- end }}
+{{- end }}

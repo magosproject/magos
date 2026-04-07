@@ -1,0 +1,159 @@
+image:
+  repository: ghcr.io/magosproject/magos/controller
+  pullPolicy: IfNotPresent
+  tag: ""
+
+jobImage:
+  repository: ghcr.io/magosproject/magos/job
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+rbac:
+  create: true
+
+podDefaults:
+  annotations: {}
+  labels: {}
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+      - ALL
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  env: []
+
+healthProbe:
+  port: 8081
+  livenessPath: /healthz
+  readinessPath: /readyz
+
+metricsService:
+  enabled: false
+  port: 8080
+  type: ClusterIP
+  secure: false
+
+leaderElection:
+  enabled: true
+
+controllers:
+  workspace:
+    enabled: true
+    replicaCount: 1
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      name: ""
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+  project:
+    enabled: true
+    replicaCount: 1
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      name: ""
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+  rollout:
+    enabled: true
+    replicaCount: 1
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      name: ""
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+  variableset:
+    enabled: true
+    replicaCount: 1
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      name: ""
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
+ui:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ghcr.io/magosproject/magos/ui
+    pullPolicy: IfNotPresent
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+api:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ghcr.io/magosproject/magos/api
+    pullPolicy: IfNotPresent
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 80
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    name: ""
+  env: []
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
