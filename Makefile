@@ -120,7 +120,7 @@ run: deps manifests generate fmt vet ## Run all components in parallel.
 .PHONY: run-controller
 ARGS ?= --enable-workspace-controller --enable-project-controller --enable-variableset-controller --enable-rollout-controller
 run-controller: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go $(ARGS)
+	MAGOS_JOB_IMAGE=magos-job:local go run ./cmd/main.go $(ARGS)
 
 .PHONY: run-api
 run-api: ## Run the API server from your host.
