@@ -553,6 +553,10 @@ func (in *WorkspaceStatus) DeepCopyInto(out *WorkspaceStatus) {
 		in, out := &in.LastReconcileTime, &out.LastReconcileTime
 		*out = (*in).DeepCopy()
 	}
+	if in.NextReconcileTime != nil {
+		in, out := &in.NextReconcileTime, &out.NextReconcileTime
+		*out = (*in).DeepCopy()
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]v1.Condition, len(*in))

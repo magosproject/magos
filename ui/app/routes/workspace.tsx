@@ -53,7 +53,7 @@ export async function clientLoader({
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
 }
 
 function revisionUrl(repoURL: string, revision: string): string | null {
@@ -187,6 +187,14 @@ export default function Workspace() {
           <InfoCard label="Last reconcile">
             <Text size="sm">
               {formatDate(ws.status.lastReconcileTime)}
+            </Text>
+          </InfoCard>
+        )}
+
+        {ws.status?.nextReconcileTime && (
+          <InfoCard label="Next reconcile">
+            <Text size="sm">
+              {formatDate(ws.status.nextReconcileTime)}
             </Text>
           </InfoCard>
         )}

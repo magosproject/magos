@@ -1374,6 +1374,11 @@ export interface components {
              */
             message?: string;
             /**
+             * @description NextReconcileTime is the expected time of the next scheduled reconciliation
+             *     +optional
+             */
+            nextReconcileTime?: string;
+            /**
              * @description ObservedRevision is the git revision that was most recently observed/applied
              *     +optional
              */

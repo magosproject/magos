@@ -139,6 +139,10 @@ type WorkspaceStatus struct {
 	// +optional
 	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
 
+	// NextReconcileTime is the expected time of the next scheduled reconciliation
+	// +optional
+	NextReconcileTime *metav1.Time `json:"nextReconcileTime,omitempty"`
+
 	// conditions represent the current state of the Workspace resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
 	//

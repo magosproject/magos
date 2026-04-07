@@ -213,6 +213,11 @@ spec:
                 description: Message is a human-readable explanation of the current
                   phase
                 type: string
+              nextReconcileTime:
+                description: NextReconcileTime is the expected time of the next scheduled
+                  reconciliation
+                format: date-time
+                type: string
               observedRevision:
                 description: ObservedRevision is the git revision that was most recently
                   observed/applied
