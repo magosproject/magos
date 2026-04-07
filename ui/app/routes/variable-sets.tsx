@@ -4,6 +4,8 @@ import Breadcrumbs from "../components/Breadcrumbs";
 import KubeBadge from "../components/KubeBadge";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
 import apiClient from "../api/client";
+import type { VariableSet } from "../api/types";
+import { useSSEList } from "../hooks/useSSEList";
 
 export function meta() {
   return [{ title: "Variable Sets – magos" }];
@@ -18,14 +20,16 @@ type VariableSetRow = {
 
 export async function clientLoader() {
   const { data } = await apiClient.GET("/apis/magosproject.io/v1alpha1/variablesets");
-  return (data ?? []).map(
-    (vs): VariableSetRow => ({
-      id: vs.metadata?.uid ?? `${vs.metadata?.namespace}/${vs.metadata?.name}`,
-      name: vs.metadata?.name ?? "",
-      namespace: vs.metadata?.namespace ?? "",
-      conditionCount: vs.status?.conditions?.length ?? 0,
-    })
-  );
+  return (data ?? []).map(toVariableSetRow);
+}
+
+function toVariableSetRow(vs: VariableSet): VariableSetRow {
+  return {
+    id: vs.metadata?.uid ?? `${vs.metadata?.namespace}/${vs.metadata?.name}`,
+    name: vs.metadata?.name ?? "",
+    namespace: vs.metadata?.namespace ?? "",
+    conditionCount: vs.status?.conditions?.length ?? 0,
+  };
 }
 
 const columns: ColumnDef<VariableSetRow>[] = [
@@ -62,7 +66,13 @@ const columns: ColumnDef<VariableSetRow>[] = [
 ];
 
 export default function VariableSets() {
-  const variableSets = useLoaderData<typeof clientLoader>();
+  const initial = useLoaderData<typeof clientLoader>();
+  const variableSets = useSSEList<VariableSet, VariableSetRow>(
+    "/apis/magosproject.io/v1alpha1/variablesets/events",
+    initial,
+    toVariableSetRow,
+    clientLoader
+  );
 
   return (
     <Stack gap="md">

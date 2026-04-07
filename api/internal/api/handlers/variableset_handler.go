@@ -65,3 +65,15 @@ func (h *VariableSetHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, variableSet)
 }
+
+// Events godoc
+//
+//	@Summary		Stream VariableSet events
+//	@Description	Server-Sent Events stream of VariableSet changes. Each event is a JSON-encoded VariableSetEvent.
+//	@Tags			VariableSet
+//	@Produce		text/event-stream
+//	@Success		200	{object}	service.VariableSetEvent
+//	@Router			/apis/magosproject.io/v1alpha1/variablesets/events [get]
+func (h *VariableSetHandler) Events(w http.ResponseWriter, r *http.Request) {
+	StreamSSE(w, r, h.service.Watch)
+}

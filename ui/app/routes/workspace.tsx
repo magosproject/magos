@@ -17,6 +17,8 @@ import StatusBadge from "../components/StatusBadge";
 import KubeBadge from "../components/KubeBadge";
 import { repoIcon } from "../utils/repoIcon";
 import apiClient from "../api/client";
+import type { Workspace as WorkspaceType } from "../api/types";
+import { useSSEItem } from "../hooks/useSSEItem";
 
 export function meta({ params }: { params: { namespace: string; name: string } }) {
   return [{ title: `${params.name} – magos` }];
@@ -41,7 +43,12 @@ function formatDate(iso: string) {
 
 export default function Workspace() {
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
-  const ws = useLoaderData<typeof clientLoader>();
+  const initial = useLoaderData<typeof clientLoader>();
+  const ws = useSSEItem<WorkspaceType>(
+    "/apis/magosproject.io/v1alpha1/workspaces/events",
+    initial,
+    (obj) => obj.metadata?.namespace === namespace && obj.metadata?.name === name
+  );
 
   const repoURL = ws.spec?.source?.repoURL ?? "";
 

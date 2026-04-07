@@ -105,9 +105,55 @@ body {
   box-shadow: 0 0 0 1px var(--mantine-color-red-7);
 }
 
+/* Project lineage graph custom node */
+.lineage-node {
+  padding: 10px 14px;
+  border-radius: var(--mantine-radius-md);
+  border: 1px solid var(--mantine-color-dark-4);
+  background: var(--mantine-color-body);
+  width: 160px;
+  text-align: center;
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.lineage-node--project {
+  border-color: var(--mantine-color-blue-7);
+  cursor: default;
+}
+
+.lineage-node--workspace {
+  border-color: var(--mantine-color-magos-6);
+  cursor: pointer;
+}
+
+.lineage-node--workspace:hover {
+  box-shadow: 0 0 0 1px var(--mantine-color-magos-5);
+}
+
+.lineage-node--variableset {
+  border-color: var(--mantine-color-grape-6);
+  cursor: pointer;
+}
+
+.lineage-node--variableset:hover {
+  box-shadow: 0 0 0 1px var(--mantine-color-grape-5);
+}
+
+.lineage-node[data-status="Applied"],
+.lineage-node[data-status="Ready"] {
+  border-color: var(--mantine-color-green-7);
+}
+
+.lineage-node[data-status="Planning"],
+.lineage-node[data-status="Planned"] {
+  border-color: var(--mantine-color-blue-6);
+}
+
 /* Label selector key=value chip */
 .label-chip {
-  font-family: var(--mantine-font-family-monospace, monospace);
+  font-family: var(--mantine-font-family-monospace, monospace), serif;
   font-size: 11px;
   letter-spacing: -0.3px;
   background: var(--mantine-color-dark-7);

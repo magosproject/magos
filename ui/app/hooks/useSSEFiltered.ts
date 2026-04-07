@@ -1,18 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import type { WatchEvent } from "../api/types";
 
-export function useSSEList<TApi, TRow extends { id: string }>(
+type WithMetadata = { metadata?: { uid?: string; namespace?: string; name?: string } };
+
+function objectId(obj: WithMetadata): string {
+  return obj.metadata?.uid ?? `${obj.metadata?.namespace}/${obj.metadata?.name}`;
+}
+
+// useSSEFiltered manages a list of raw API objects via SSE.
+// The server is expected to handle filtering via query params in the URL.
+// fetchItems is called on reconnect to re-sync.
+export function useSSEFiltered<T extends WithMetadata>(
   url: string,
-  initial: TRow[],
-  toRow: (item: TApi) => TRow,
-  fetchItems?: () => Promise<TRow[]>
-): TRow[] {
-  const [items, setItems] = useState<TRow[]>(initial);
-  const toRowRef = useRef(toRow);
+  initial: T[],
+  fetchItems?: () => Promise<T[]>
+): T[] {
+  const [items, setItems] = useState<T[]>(initial);
   const fetchItemsRef = useRef(fetchItems);
 
   useEffect(() => {
-    toRowRef.current = toRow;
     fetchItemsRef.current = fetchItems;
   });
 
@@ -28,22 +34,20 @@ export function useSSEList<TApi, TRow extends { id: string }>(
     };
 
     source.onmessage = (ev: MessageEvent<string>) => {
-      const event: WatchEvent<TApi> = JSON.parse(ev.data);
+      const event: WatchEvent<T> = JSON.parse(ev.data);
       if (!event.type || !event.object) return;
       if (event.type === "BOOKMARK") return;
 
-      const row = toRowRef.current(event.object);
+      const uid = objectId(event.object);
 
       setItems((prev) => {
         switch (event.type) {
           case "ADDED":
-            return prev.some((r) => r.id === row.id) ? prev : [...prev, row];
+            return prev.some((r) => objectId(r) === uid) ? prev : [...prev, event.object!];
           case "MODIFIED":
-            return prev.map((r) => (r.id === row.id ? row : r));
-          case "ERROR":
-            return prev.map((r) => (r.id === row.id ? row : r));
+            return prev.map((r) => (objectId(r) === uid ? event.object! : r));
           case "DELETED":
-            return prev.filter((r) => r.id !== row.id);
+            return prev.filter((r) => objectId(r) !== uid);
           default:
             return prev;
         }
@@ -55,3 +59,4 @@ export function useSSEList<TApi, TRow extends { id: string }>(
 
   return items;
 }
+

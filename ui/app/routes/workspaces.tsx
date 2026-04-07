@@ -1,5 +1,5 @@
 import { Anchor, Group, Stack, Text } from "@mantine/core";
-import { IconBox, IconFolder, IconHexagon } from "@tabler/icons-react";
+import { IconBox, IconFolder } from "@tabler/icons-react";
 import { useLoaderData } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
@@ -95,12 +95,14 @@ const columns: ColumnDef<WorkspaceRow>[] = [
   },
 ];
 
+const spinningPhases = new Set(["Reconciling", "Planning", "Applying", "Deleting"]);
+
 function toCard(ws: WorkspaceRow): ResourceCardProps {
   return {
     to: `/workspaces/${ws.namespace}/${ws.name}`,
     title: ws.name,
     statusColor: statusColor[ws.phase] ?? "gray",
-    badges: [{ label: ws.phase, color: statusColor[ws.phase] }],
+    badges: [{ label: ws.phase, color: statusColor[ws.phase], spinning: spinningPhases.has(ws.phase) }],
     meta: [
       { icon: <IconBox size={16} color="gray" />, label: ws.projectRef || "No Project" },
       {
@@ -109,10 +111,7 @@ function toCard(ws: WorkspaceRow): ResourceCardProps {
         href: ws.repoURL,
       },
       { icon: <IconFolder size={16} color="gray" />, label: ws.path },
-      {
-        icon: <IconHexagon size={16} color="var(--mantine-color-blue-filled)" />,
-        label: <span style={{ color: "var(--mantine-color-blue-text)" }}>{ws.namespace}</span>,
-      },
+      { label: <KubeBadge label={ws.namespace} /> },
     ],
   };
 }

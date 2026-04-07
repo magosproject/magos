@@ -33,6 +33,8 @@ import StatusBadge from "~/components/StatusBadge";
 import KubeBadge from "~/components/KubeBadge";
 import { Tabs } from "@mantine/core";
 import apiClient from "~/api/client";
+import type { Rollout as RolloutType } from "~/api/types";
+import { useSSEItem } from "~/hooks/useSSEItem";
 
 export function meta({ params }: { params: { namespace: string; name: string } }) {
   return [{ title: `${params.name} – magos` }];
@@ -53,10 +55,17 @@ export async function clientLoader({
 
 type StepStatus = "completed" | "active" | "failed" | "pending";
 
-function stepStatus(index: number, currentStep: number, phase: string): StepStatus {
-  if (index < currentStep || phase === "Applied") return "completed";
-  if (index === currentStep && phase === "Reconciling") return "active";
-  if (index === currentStep && phase === "Failed") return "failed";
+function stepStatus(index: number, currentStep: number, phase: string, groups: number[][]): StepStatus {
+  if (phase === "Applied") return "completed";
+
+  const stepGroupIdx = groups.findIndex((g) => g.includes(index));
+  const currentGroupIdx = groups.findIndex((g) => g.includes(currentStep));
+
+  if (stepGroupIdx < currentGroupIdx) return "completed";
+  if (stepGroupIdx === currentGroupIdx) {
+    if (phase === "Reconciling") return "active";
+    if (phase === "Failed") return "failed";
+  }
   return "pending";
 }
 
@@ -140,6 +149,26 @@ function StepPipelineNode({ data }: NodeProps<Node<StepNodeData>>) {
 
 const nodeTypes = { stepNode: StepPipelineNode };
 
+function groupStepsByLabels(steps: { name: string; labels: Record<string, string> }[]): number[][] {
+  const toKey = (labels: Record<string, string>) =>
+    JSON.stringify(Object.entries(labels).sort((a, b) => a[0].localeCompare(b[0])));
+
+  const groups: number[][] = [];
+  const seen = new Map<string, number>();
+
+  for (let i = 0; i < steps.length; i++) {
+    const key = toKey(steps[i].labels);
+    if (!seen.has(key)) {
+      seen.set(key, groups.length);
+      groups.push([i]);
+    } else {
+      groups[seen.get(key)!].push(i);
+    }
+  }
+
+  return groups;
+}
+
 function StepPipelineGraph({
   steps,
   currentStep,
@@ -153,40 +182,69 @@ function StepPipelineGraph({
   const { fitView } = useReactFlow();
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const initialNodes = useMemo<Node<StepNodeData>[]>(() => {
-    return steps.map((step, i) => ({
-      id: `step-${i}`,
-      type: "stepNode",
-      position: { x: i * 320, y: 0 },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
-      draggable: false,
-      data: { name: step.name, index: i, status: stepStatus(i, currentStep, phase), labels: step.labels },
-    }));
-  }, [steps, currentStep, phase]);
+  const colWidth = 320;
+  const rowHeight = 140;
 
-  const initialEdges = useMemo<Edge[]>(() => {
-    return steps.slice(1).map((_, i) => {
-      const srcStatus = stepStatus(i, currentStep, phase);
-      const isFlowing = srcStatus === "completed" || srcStatus === "active";
-      const isFailed = stepStatus(i + 1, currentStep, phase) === "failed";
-      let strokeColor = theme.colors.dark[4];
-      if (isFailed) strokeColor = theme.colors.red[6];
-      else if (isFlowing) strokeColor = theme.colors.green[6];
+  const groups = useMemo(() => groupStepsByLabels(steps), [steps]);
+
+  const graphHeight = Math.max(180, Math.max(...groups.map((g) => g.length)) * rowHeight + 40);
+
+  const computedNodes = useMemo<Node<StepNodeData>[]>(() => {
+    return steps.map((step, i) => {
+      const groupIdx = groups.findIndex((g) => g.includes(i));
+      const posInGroup = groups[groupIdx].indexOf(i);
+      const groupSize = groups[groupIdx].length;
+      const y = (posInGroup - (groupSize - 1) / 2) * rowHeight;
       return {
-        id: `e-${i}-${i + 1}`,
-        source: `step-${i}`,
-        target: `step-${i + 1}`,
-        type: "smoothstep",
-        animated: isFlowing,
-        markerEnd: { type: MarkerType.ArrowClosed, color: strokeColor },
-        style: { stroke: strokeColor, strokeWidth: 2 },
+        id: `step-${i}`,
+        type: "stepNode",
+        position: { x: groupIdx * colWidth, y },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+        draggable: false,
+        data: { name: step.name, index: i, status: stepStatus(i, currentStep, phase, groups), labels: step.labels },
       };
     });
-  }, [steps, currentStep, phase, theme]);
+  }, [steps, currentStep, phase, groups]);
 
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+  const computedEdges = useMemo<Edge[]>(() => {
+    const edges: Edge[] = [];
+    for (let gi = 0; gi < groups.length - 1; gi++) {
+      for (const srcIdx of groups[gi]) {
+        for (const dstIdx of groups[gi + 1]) {
+          const srcStatus = stepStatus(srcIdx, currentStep, phase, groups);
+          const isFlowing = srcStatus === "completed" || srcStatus === "active";
+          const isFailed = srcStatus === "failed";
+          const strokeColor = isFailed
+            ? theme.colors.red[6]
+            : isFlowing
+              ? theme.colors.green[6]
+              : theme.colors.dark[4];
+          edges.push({
+            id: `e-${srcIdx}-${dstIdx}`,
+            source: `step-${srcIdx}`,
+            target: `step-${dstIdx}`,
+            type: "smoothstep",
+            animated: isFlowing,
+            markerEnd: { type: MarkerType.ArrowClosed, color: strokeColor },
+            style: { stroke: strokeColor, strokeWidth: 2 },
+          });
+        }
+      }
+    }
+    return edges;
+  }, [steps, currentStep, phase, theme, groups]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges);
+
+  useEffect(() => {
+    setNodes(computedNodes);
+  }, [computedNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(computedEdges);
+  }, [computedEdges, setEdges]);
 
   const handleFit = useCallback(() => {
     fitView({ padding: 0.3, minZoom: 0.5, maxZoom: 1.5, duration: 600 });
@@ -208,7 +266,7 @@ function StepPipelineGraph({
   return (
     <Box
       ref={wrapperRef}
-      h={180}
+      h={graphHeight}
       w="100%"
       style={{
         border: "1px solid var(--mantine-color-default-border)",
@@ -236,7 +294,12 @@ function StepPipelineGraph({
 
 export default function Rollout() {
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
-  const rollout = useLoaderData<typeof clientLoader>();
+  const initial = useLoaderData<typeof clientLoader>();
+  const rollout = useSSEItem<RolloutType>(
+    "/apis/magosproject.io/v1alpha1/rollouts/events",
+    initial,
+    (obj) => obj.metadata?.namespace === namespace && obj.metadata?.name === name
+  );
 
   const steps = (rollout.spec?.strategy?.steps ?? []).map((s) => ({
     name: s.name ?? "",
@@ -245,6 +308,8 @@ export default function Rollout() {
   const currentStep = rollout.status?.currentStep ?? 0;
   const phase = rollout.status?.phase ?? "";
   const totalSteps = steps.length;
+
+  const completedSteps = phase === "Applied" ? totalSteps : currentStep;
 
   return (
     <Stack gap="lg">
@@ -279,7 +344,7 @@ export default function Rollout() {
               </InfoCard>
               <InfoCard label="Progress">
                 <Text size="sm">
-                  Step {Math.min(currentStep + 1, totalSteps)} of {totalSteps}
+                  {completedSteps}/{totalSteps} completed
                 </Text>
               </InfoCard>
               {rollout.status?.reason && (
