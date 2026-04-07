@@ -19,6 +19,7 @@ import KubeBadge from "../components/KubeBadge";
 import ConditionsTable from "../components/ConditionsTable";
 import ProjectLineageGraph from "../components/ProjectLineageGraph";
 import { repoIcon } from "../utils/repoIcon";
+import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
 import type { Project, Workspace as WorkspaceType } from "../api/types";
 import { useSSEItem } from "../hooks/useSSEItem";
@@ -75,7 +76,7 @@ export default function Workspace() {
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const initial = useLoaderData<typeof clientLoader>();
   const ws = useSSEItem<WorkspaceType>(
-    "/apis/magosproject.io/v1alpha1/workspaces/events",
+    apiUrl("/apis/magosproject.io/v1alpha1/workspaces/events"),
     initial.workspace,
     (obj) => obj.metadata?.namespace === namespace && obj.metadata?.name === name
   );

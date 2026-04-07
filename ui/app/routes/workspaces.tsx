@@ -3,6 +3,7 @@ import { useLoaderData } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
 import PageTagline from "../components/PageTagline";
 import ResourceList from "../components/ResourceList";
+import { apiUrl } from "../api/base";
 import WorkspaceCard, {
   type WorkspaceItem,
   toWorkspaceItem,
@@ -26,7 +27,7 @@ export async function clientLoader() {
 export default function Workspaces() {
   const initial = useLoaderData<typeof clientLoader>();
   const [workspaces, changedIds] = useSSEList<Workspace, WorkspaceItem>(
-    "/apis/magosproject.io/v1alpha1/workspaces/events",
+    apiUrl("/apis/magosproject.io/v1alpha1/workspaces/events"),
     initial,
     toWorkspaceItem,
     clientLoader

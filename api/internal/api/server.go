@@ -29,7 +29,6 @@ var swaggerUI []byte
 // Server represents the HTTP API server.
 type Server struct {
 	logger             *slog.Logger
-	allowedOrigin      string
 	projectHandler     *handlers.ProjectHandler
 	workspaceHandler   *handlers.WorkspaceHandler
 	rolloutHandler     *handlers.RolloutHandler
@@ -37,7 +36,7 @@ type Server struct {
 }
 
 // NewServer creates a new API server with the given Kubernetes client.
-func NewServer(logger *slog.Logger, vc versioned.Interface, allowedOrigin string) *Server {
+func NewServer(logger *slog.Logger, vc versioned.Interface) *Server {
 	factory := externalversions.NewSharedInformerFactory(vc, 5*time.Minute)
 
 	projectSvc := service.NewProjectService(logger, factory)
@@ -49,7 +48,6 @@ func NewServer(logger *slog.Logger, vc versioned.Interface, allowedOrigin string
 
 	return &Server{
 		logger:             logger,
-		allowedOrigin:      allowedOrigin,
 		projectHandler:     handlers.NewProjectHandler(logger, projectSvc),
 		workspaceHandler:   handlers.NewWorkspaceHandler(logger, workspaceSvc),
 		rolloutHandler:     handlers.NewRolloutHandler(logger, rolloutSvc),
@@ -80,7 +78,7 @@ func NewServerWithDefaults(logger *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("failed to create versioned clientset: %w", err)
 	}
 
-	return NewServer(logger, vc, os.Getenv("CORS_ALLOWED_ORIGIN")), nil
+	return NewServer(logger, vc), nil
 }
 
 // Router returns the HTTP handler with all routes configured.
@@ -171,11 +169,10 @@ func (s *Server) recoveryMiddleware(next http.Handler) http.Handler {
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if origin != "" && origin == s.allowedOrigin {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-		}
+		// TODO(anyone): figure out if it is a security concern to allow all origins
+		// my first intuition says it's fine for now especially since we're not storing any cookies/sessions in
+		// the browser and this will never run on a public domain anyways?
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")

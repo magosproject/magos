@@ -4,6 +4,7 @@ import { resourceId, resourceName, resourceNamespace } from "../api/resource";
 import Breadcrumbs from "../components/Breadcrumbs";
 import PageTagline from "../components/PageTagline";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
+import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
 import type { Project } from "../api/types";
 import { useSSEList } from "../hooks/useSSEList";
@@ -74,7 +75,7 @@ const columns: ColumnDef<ProjectRow>[] = [
 export default function Projects() {
   const initial = useLoaderData<typeof clientLoader>();
   const [projects, changedIds] = useSSEList<Project, ProjectRow>(
-    "/apis/magosproject.io/v1alpha1/projects/events",
+    apiUrl("/apis/magosproject.io/v1alpha1/projects/events"),
     initial,
     toProjectRow,
     clientLoader

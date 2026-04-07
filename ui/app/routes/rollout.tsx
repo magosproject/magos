@@ -20,6 +20,7 @@ import FlowGraph from "~/components/FlowGraph";
 import LineageNode, { type LineageNodeData } from "~/components/LineageNode";
 import RolloutStepCard, { type StepStatus } from "~/components/RolloutStepCard";
 import { Tabs } from "@mantine/core";
+import { apiUrl } from "~/api/base";
 import apiClient from "~/api/client";
 import type { LabelSelector, Rollout as RolloutType, RolloutStep, Phase } from "~/api/types";
 import { useSSEItem } from "~/hooks/useSSEItem";
@@ -175,7 +176,7 @@ export default function Rollout() {
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const initial = useLoaderData<typeof clientLoader>();
   const rollout = useSSEItem<RolloutType>(
-    "/apis/magosproject.io/v1alpha1/rollouts/events",
+    apiUrl("/apis/magosproject.io/v1alpha1/rollouts/events"),
     initial,
     (obj) => obj.metadata?.namespace === namespace && obj.metadata?.name === name
   );

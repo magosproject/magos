@@ -4,9 +4,4 @@ import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig({
   plugins: [reactRouter(), tsconfigPaths()],
-  server: {
-    proxy: {
-      "/apis": "http://localhost:8080",
-    },
-  },
 });

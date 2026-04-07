@@ -4,6 +4,7 @@ import { resourceId, resourceName, resourceNamespace } from "../api/resource";
 import Breadcrumbs from "../components/Breadcrumbs";
 import PageTagline from "../components/PageTagline";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
+import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
 import type { VariableSet } from "../api/types";
 import { useSSEList } from "../hooks/useSSEList";
@@ -63,7 +64,7 @@ const columns: ColumnDef<VariableSetRow>[] = [
 export default function VariableSets() {
   const initial = useLoaderData<typeof clientLoader>();
   const [variableSets, changedIds] = useSSEList<VariableSet, VariableSetRow>(
-    "/apis/magosproject.io/v1alpha1/variablesets/events",
+    apiUrl("/apis/magosproject.io/v1alpha1/variablesets/events"),
     initial,
     toVariableSetRow,
     clientLoader

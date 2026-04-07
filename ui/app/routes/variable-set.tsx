@@ -5,6 +5,7 @@ import Breadcrumbs from "../components/Breadcrumbs";
 import InfoCard from "../components/InfoCard";
 import KubeBadge from "../components/KubeBadge";
 import ConditionsTable from "../components/ConditionsTable";
+import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
 import type { VariableSet } from "../api/types";
 import { useSSEItem } from "../hooks/useSSEItem";
@@ -30,7 +31,7 @@ export default function VariableSetDetail() {
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const initial = useLoaderData<typeof clientLoader>();
   const vs = useSSEItem<VariableSet>(
-    "/apis/magosproject.io/v1alpha1/variablesets/events",
+    apiUrl("/apis/magosproject.io/v1alpha1/variablesets/events"),
     initial,
     (obj) => obj.metadata?.namespace === namespace && obj.metadata?.name === name
   );

@@ -19,6 +19,7 @@ import KubeBadge from "~/components/KubeBadge";
 import ProjectLineageGraph from "~/components/ProjectLineageGraph";
 import ResourceList from "~/components/ResourceList";
 import WorkspaceCard, { toWorkspaceItem, workspaceColumns } from "~/components/WorkspaceCard";
+import { apiUrl } from "~/api/base";
 import apiClient from "~/api/client";
 import type { Project as ProjectType, Workspace } from "~/api/types";
 import { useSSEItem } from "~/hooks/useSSEItem";
@@ -56,13 +57,13 @@ export default function Project() {
   const initial = useLoaderData<typeof clientLoader>();
 
   const project = useSSEItem<ProjectType>(
-    "/apis/magosproject.io/v1alpha1/projects/events",
+    apiUrl("/apis/magosproject.io/v1alpha1/projects/events"),
     initial.project,
     (obj) => obj.metadata?.namespace === namespace && obj.metadata?.name === name
   );
 
   const [workspaces, wsChangedIds] = useSSEFiltered<Workspace>(
-    `/apis/magosproject.io/v1alpha1/workspaces/events?projectRef=${name}`,
+    apiUrl(`/apis/magosproject.io/v1alpha1/workspaces/events?projectRef=${name}`),
     initial.workspaces
   );
 

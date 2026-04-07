@@ -6,6 +6,7 @@ import Breadcrumbs from "../components/Breadcrumbs";
 import PageTagline from "../components/PageTagline";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
 import StatusBadge from "../components/StatusBadge";
+import { apiUrl } from "../api/base";
 import { statusColor, flashColorVar } from "../utils/colors";
 import apiClient from "../api/client";
 import type { Rollout, RolloutStep } from "../api/types";
@@ -128,7 +129,7 @@ const columns: ColumnDef<RolloutRow>[] = [
 export default function Rollouts() {
   const initial = useLoaderData<typeof clientLoader>();
   const [rollouts, changedIds] = useSSEList<Rollout, RolloutRow>(
-    "/apis/magosproject.io/v1alpha1/rollouts/events",
+    apiUrl("/apis/magosproject.io/v1alpha1/rollouts/events"),
     initial,
     toRolloutRow,
     clientLoader
