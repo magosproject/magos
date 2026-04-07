@@ -1,10 +1,9 @@
-import React, { useEffect, useMemo, useRef, useCallback } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   ReactFlow,
   Controls,
   Background,
   MarkerType,
-  Position,
   type Edge,
   type Node,
   useNodesState,
@@ -13,195 +12,181 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Box, Text, Group, ThemeIcon, Stack, useMantineTheme } from "@mantine/core";
-import { IconBox, IconFolder, IconBraces } from "@tabler/icons-react";
-import { useNavigate } from "react-router";
-import { type Workspace } from "../mock-data/workspaces";
-import { type Project } from "../mock-data/projects";
-import { type VariableSet } from "../mock-data/variable-sets";
+import { Box, useMantineTheme } from "@mantine/core";
+import { IconBox, IconFolder } from "@tabler/icons-react";
+import type { CSSProperties } from "react";
+import type { Project, Workspace } from "../api/types";
+import { statusColor, flashColorVar } from "../utils/colors";
+import { repoIcon } from "../utils/repoIcon";
+import { spinningStatuses } from "./StatusBadge";
+import LineageNode, { type LineageNodeData } from "./LineageNode";
+
+const nodeTypes = { lineageNode: LineageNode };
 
 interface ProjectLineageGraphProps {
   project: Project;
-  projectVariableSets: VariableSet[];
-  projectWorkspaces: Workspace[];
+  variableSetRefs: string[];
+  workspaces: Workspace[];
+  flashIds?: Set<string>;
 }
 
 function ProjectLineageGraphInner({
   project,
-  projectVariableSets,
-  projectWorkspaces,
+  variableSetRefs,
+  workspaces,
+  flashIds,
 }: ProjectLineageGraphProps) {
   const theme = useMantineTheme();
   const { fitView } = useReactFlow();
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
 
-  const onNodeClick = useCallback(
-    (_event: React.MouseEvent, node: Node) => {
-      if (node.id.startsWith("ws-")) {
-        navigate(`/workspaces/${node.id.replace("ws-", "")}`);
-      } else if (node.id.startsWith("proj-")) {
-        navigate(`/projects/${node.id.replace("proj-", "")}`);
-      } else if (node.id.startsWith("vs-")) {
-        navigate(`/variable-sets/${node.id.replace("vs-", "")}`);
-      }
-    },
-    [navigate]
-  );
+  const projectName = project.metadata?.name ?? "";
+  const projectNamespace = project.metadata?.namespace ?? "";
+  const projectPhase = project.status?.phase ?? "";
 
-  const initialNodes = useMemo(() => {
-    const nodes: Node[] = [];
+  const nodeSpacing = 280;
+  const nodeWidth = 250;
+  const getStartX = (targetX: number, count: number) =>
+    targetX - ((count - 1) * nodeSpacing) / 2;
 
-    const nodeSpacing = 200;
-    const getStartX = (targetX: number, count: number) => targetX - ((count - 1) * nodeSpacing) / 2;
-
+  const computedNodes = useMemo(() => {
+    const nodes: Node<LineageNodeData>[] = [];
     const projX = 250;
-    const projY = 150;
+    const projY = 160;
 
-    // Project Node (middle)
     nodes.push({
-      id: `proj-${project.id}`,
-      type: "default",
+      id: `proj-${projectNamespace}/${projectName}`,
+      type: "lineageNode",
       position: { x: projX, y: projY },
-      sourcePosition: Position.Bottom,
-      targetPosition: Position.Top,
+      draggable: false,
+      width: nodeWidth,
       data: {
-        label: (
-          <Stack gap={4} align="center">
-            <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-              Project
-            </Text>
-            <Group gap="xs" wrap="nowrap">
-              <ThemeIcon size="sm" variant="light" color="blue">
-                <IconBox size={14} />
-              </ThemeIcon>
-              <Text size="sm" fw={600}>
-                {project.name}
-              </Text>
-            </Group>
-          </Stack>
-        ),
-      },
-      style: {
-        border: `1px solid ${theme.colors.blue[6]}`,
-        borderRadius: 8,
-        padding: 10,
-        background: "var(--mantine-color-body)",
-        cursor: "pointer",
+        kindLabel: "Project",
+        to: `/projects/${projectNamespace}/${projectName}`,
+        title: projectName,
+        badges: projectPhase
+          ? [{ label: projectPhase, color: statusColor[projectPhase] ?? "gray", spinning: spinningStatuses.has(projectPhase) }]
+          : [],
+        meta: [],
+        statusColor: statusColor[projectPhase] ?? "gray",
+        borderAll: true,
       },
     });
 
-    // VariableSet Nodes (top)
-    const vsStartX = getStartX(projX, projectVariableSets.length);
-
-    projectVariableSets.forEach((vs, index) => {
+    const vsStartX = getStartX(projX, variableSetRefs.length);
+    variableSetRefs.forEach((vsName, i) => {
       nodes.push({
-        id: `vs-${vs.id}`,
-        type: "input",
-        position: { x: vsStartX + index * nodeSpacing, y: 0 },
-        sourcePosition: Position.Bottom,
-        targetPosition: Position.Top,
+        id: `vs-${vsName}`,
+        type: "lineageNode",
+        position: { x: vsStartX + i * nodeSpacing, y: 0 },
+        draggable: false,
+        width: nodeWidth,
         data: {
-          label: (
-            <Stack gap={4} align="center">
-              <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-                Variable Set
-              </Text>
-              <Group gap="xs" wrap="nowrap">
-                <ThemeIcon size="sm" variant="light" color="grape">
-                  <IconBraces size={14} />
-                </ThemeIcon>
-                <Text size="sm" fw={600}>
-                  {vs.name}
-                </Text>
-              </Group>
-            </Stack>
-          ),
-        },
-        style: {
-          border: `1px solid ${theme.colors.grape[6]}`,
-          borderRadius: 8,
-          padding: 10,
-          background: "var(--mantine-color-body)",
-          cursor: "pointer",
+          kindLabel: "Variable Set",
+          to: `/variable-sets/${projectNamespace}/${vsName}`,
+          title: vsName,
+          badges: [],
+          meta: [],
+          borderAll: true,
         },
       });
     });
 
-    // Workspace Nodes (bottom)
-    const wsStartX = getStartX(projX, projectWorkspaces.length);
+    const wsStartX = getStartX(projX, workspaces.length);
+    workspaces.forEach((ws, i) => {
+      const wsNs = ws.metadata?.namespace ?? "";
+      const wsName = ws.metadata?.name ?? "";
+      const wsPhase = ws.status?.phase ?? "";
+      const wsProjectRef = ws.spec?.projectRef?.name ?? "";
+      const wsRepoURL = ws.spec?.source?.repoURL ?? "";
+      const wsPath = ws.spec?.source?.path ?? "";
+      const wsId = ws.metadata?.uid ?? `${wsNs}/${wsName}`;
+      const isFlashing = flashIds?.has(wsId);
 
-    projectWorkspaces.forEach((ws, index) => {
       nodes.push({
-        id: `ws-${ws.id}`,
-        type: "output",
-        position: { x: wsStartX + index * nodeSpacing, y: 300 },
-        sourcePosition: Position.Bottom,
-        targetPosition: Position.Top,
+        id: `ws-${wsNs}/${wsName}`,
+        type: "lineageNode",
+        position: { x: wsStartX + i * nodeSpacing, y: 340 },
+        draggable: false,
+        width: nodeWidth,
         data: {
-          label: (
-            <Stack gap={4} align="center">
-              <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-                Workspace
-              </Text>
-              <Group gap="xs" wrap="nowrap">
-                <ThemeIcon size="sm" variant="light" color="magos">
-                  <IconFolder size={14} />
-                </ThemeIcon>
-                <Text size="sm" fw={600}>
-                  {ws.name}
-                </Text>
-              </Group>
-            </Stack>
-          ),
-        },
-        style: {
-          border: `1px solid ${theme.colors.magos[6]}`,
-          borderRadius: 8,
-          padding: 10,
-          background: "var(--mantine-color-body)",
-          cursor: "pointer",
+          kindLabel: "Workspace",
+          to: `/workspaces/${wsNs}/${wsName}`,
+          title: wsName,
+          badges: wsPhase
+            ? [{ label: wsPhase, color: statusColor[wsPhase] ?? "gray", spinning: spinningStatuses.has(wsPhase) }]
+            : [],
+          meta: [
+            {
+              icon: <IconBox size={16} color="gray" />,
+              label: wsProjectRef || "No Project",
+              to: wsProjectRef ? `/projects/${wsNs}/${wsProjectRef}` : undefined,
+            },
+            {
+              icon: repoIcon(wsRepoURL),
+              label: wsRepoURL.replace(/^https?:\/\//, ""),
+              href: wsRepoURL,
+            },
+            { icon: <IconFolder size={16} color="gray" />, label: wsPath },
+          ],
+          statusColor: statusColor[wsPhase] ?? "gray",
+          borderAll: true,
+          flashStyle: isFlashing
+            ? ({ "--flash-color": flashColorVar(wsPhase) } as CSSProperties)
+            : undefined,
         },
       });
     });
 
     return nodes;
-  }, [project, projectVariableSets, projectWorkspaces, theme]);
+  }, [variableSetRefs, workspaces, projectName, projectNamespace, projectPhase, flashIds]);
 
-  const initialEdges = useMemo(() => {
+  const computedEdges = useMemo(() => {
     const edges: Edge[] = [];
 
-    // Edges from VariableSets to Project
-    projectVariableSets.forEach((vs) => {
+    variableSetRefs.forEach((vsName) => {
       edges.push({
-        id: `e-vs-${vs.id}-proj`,
-        source: `vs-${vs.id}`,
-        target: `proj-${project.id}`,
+        id: `e-vs-${vsName}-proj`,
+        source: `vs-${vsName}`,
+        target: `proj-${projectNamespace}/${projectName}`,
         type: "smoothstep",
         animated: true,
-        markerEnd: { type: MarkerType.ArrowClosed },
-        style: { stroke: theme.colors.gray[6] },
+        markerEnd: { type: MarkerType.ArrowClosed, color: theme.colors.gray[6] },
+        style: { stroke: theme.colors.gray[6], strokeWidth: 2 },
       });
     });
 
-    // Edges from Project to Workspaces
-    projectWorkspaces.forEach((ws) => {
+    workspaces.forEach((ws) => {
+      const wsNs = ws.metadata?.namespace ?? "";
+      const wsName = ws.metadata?.name ?? "";
+      const phase = ws.status?.phase ?? "";
+      const color = statusColor[phase] ?? "gray";
+      const resolvedColor = theme.colors[color]?.[6] ?? theme.colors.gray[6];
+
       edges.push({
-        id: `e-proj-ws-${ws.id}`,
-        source: `proj-${project.id}`,
-        target: `ws-${ws.id}`,
+        id: `e-proj-ws-${wsNs}/${wsName}`,
+        source: `proj-${projectNamespace}/${projectName}`,
+        target: `ws-${wsNs}/${wsName}`,
         type: "smoothstep",
         animated: true,
-        markerEnd: { type: MarkerType.ArrowClosed },
-        style: { stroke: theme.colors.gray[6] },
+        markerEnd: { type: MarkerType.ArrowClosed, color: resolvedColor },
+        style: { stroke: resolvedColor, strokeWidth: 2 },
       });
     });
 
     return edges;
-  }, [project, projectVariableSets, projectWorkspaces, theme]);
+  }, [workspaces, variableSetRefs, theme, projectName, projectNamespace]);
 
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges);
+
+  useEffect(() => {
+    setNodes(computedNodes);
+  }, [computedNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(computedEdges);
+  }, [computedEdges, setEdges]);
 
   useEffect(() => {
     if (!wrapperRef.current) return;
@@ -209,7 +194,7 @@ function ProjectLineageGraphInner({
       for (const entry of entries) {
         if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
           window.requestAnimationFrame(() => {
-            fitView({ padding: 0.2, minZoom: 0.1, maxZoom: 1.5, duration: 800 });
+            fitView({ padding: 0.3, minZoom: 0.5, maxZoom: 1.5, duration: 600 });
           });
         }
       }
@@ -221,7 +206,7 @@ function ProjectLineageGraphInner({
   return (
     <Box
       ref={wrapperRef}
-      h={400}
+      h={520}
       w="100%"
       style={{
         border: "1px solid var(--mantine-color-default-border)",
@@ -233,10 +218,15 @@ function ProjectLineageGraphInner({
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        onNodeClick={onNodeClick}
+        nodeTypes={nodeTypes}
         fitView
+        panOnDrag
+        zoomOnScroll={false}
+        zoomOnPinch
+        preventScrolling={false}
+        proOptions={{ hideAttribution: true }}
       >
-        <Controls />
+        <Controls showInteractive={false} />
         <Background />
       </ReactFlow>
     </Box>

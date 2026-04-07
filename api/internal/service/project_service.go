@@ -3,10 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
-	"sync"
-	"time"
 
-	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
 	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/magosproject/v1alpha1"
 	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
@@ -16,8 +13,8 @@ import (
 )
 
 type ProjectEvent struct {
-	Type   watch.EventType       `json:"type"`
-	Object *apiv1alpha1.Project  `json:"object"`
+	Type   watch.EventType      `json:"type"`
+	Object *apiv1alpha1.Project `json:"object"`
 }
 
 // ProjectService defines operations for Project resources.
@@ -29,33 +26,29 @@ type ProjectService interface {
 
 // projectService implements ProjectService.
 type projectService struct {
-	logger      *slog.Logger
-	factory     externalversions.SharedInformerFactory
-	informer    cache.SharedIndexInformer
-	lister      listerv1alpha1.ProjectLister
-	mu          sync.Mutex
-	subscribers map[chan ProjectEvent]struct{}
+	logger   *slog.Logger
+	informer cache.SharedIndexInformer
+	lister   listerv1alpha1.ProjectLister
+	events   *Broadcaster[ProjectEvent]
 }
 
 // NewProjectService returns a new ProjectService.
-func NewProjectService(logger *slog.Logger, client versioned.Interface) ProjectService {
-	factory := externalversions.NewSharedInformerFactory(client, 5*time.Minute)
+func NewProjectService(logger *slog.Logger, factory externalversions.SharedInformerFactory) ProjectService {
 	projectInformer := factory.Magosproject().V1alpha1().Projects()
 
 	svc := &projectService{
-		logger:      logger,
-		lister:      projectInformer.Lister(),
-		informer:    projectInformer.Informer(),
-		factory:     factory,
-		subscribers: make(map[chan ProjectEvent]struct{}),
+		logger:   logger,
+		lister:   projectInformer.Lister(),
+		informer: projectInformer.Informer(),
+		events:   NewBroadcaster[ProjectEvent](),
 	}
 
 	projectInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			svc.broadcast(ProjectEvent{Type: watch.Added, Object: obj.(*apiv1alpha1.Project)})
+			svc.events.Send(ProjectEvent{Type: watch.Added, Object: obj.(*apiv1alpha1.Project)})
 		},
 		UpdateFunc: func(_, obj interface{}) {
-			svc.broadcast(ProjectEvent{Type: watch.Modified, Object: obj.(*apiv1alpha1.Project)})
+			svc.events.Send(ProjectEvent{Type: watch.Modified, Object: obj.(*apiv1alpha1.Project)})
 		},
 		DeleteFunc: func(obj interface{}) {
 			project, ok := obj.(*apiv1alpha1.Project)
@@ -69,11 +62,9 @@ func NewProjectService(logger *slog.Logger, client versioned.Interface) ProjectS
 					return
 				}
 			}
-			svc.broadcast(ProjectEvent{Type: watch.Deleted, Object: project})
+			svc.events.Send(ProjectEvent{Type: watch.Deleted, Object: project})
 		},
 	})
-
-	svc.factory.Start(context.Background().Done())
 
 	return svc
 }
@@ -85,31 +76,7 @@ func (s *projectService) HasSynced() bool {
 
 // Watch returns a channel that receives events for Project resources.
 func (s *projectService) Watch(ctx context.Context) <-chan ProjectEvent {
-	ch := make(chan ProjectEvent, 64)
-	s.mu.Lock()
-	s.subscribers[ch] = struct{}{}
-	s.mu.Unlock()
-
-	go func() {
-		<-ctx.Done()
-		s.mu.Lock()
-		delete(s.subscribers, ch)
-		close(ch)
-		s.mu.Unlock()
-	}()
-
-	return ch
-}
-
-func (s *projectService) broadcast(event ProjectEvent) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for ch := range s.subscribers {
-		select {
-		case ch <- event:
-		default:
-		}
-	}
+	return s.events.Subscribe(ctx)
 }
 
 // List returns all Project resources across all namespaces.

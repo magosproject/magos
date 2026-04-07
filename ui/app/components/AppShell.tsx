@@ -33,6 +33,7 @@ import {
 } from "@tabler/icons-react";
 import { Link, Outlet, useLocation } from "react-router";
 import { currentUser } from "../mock-data/user";
+import BlinkingCursor from "./BlinkingCursor";
 
 const navItems = [
   { label: "Projects", icon: IconFolderOpen, to: "/projects" },
@@ -57,6 +58,43 @@ export default function Shell() {
 
   const navWidth = collapsed ? 60 : 220;
 
+  const renderNavItem = (item: (typeof navItems)[number], extraProps?: Record<string, unknown>) => {
+    const isActive = location.pathname.startsWith(item.to);
+    const link = (
+      <NavLink
+        key={item.to}
+        component={Link}
+        to={item.to}
+        label={
+          <Text
+            size="sm"
+            style={{
+              opacity: collapsed ? 0 : 1,
+              transition: "opacity 150ms ease",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+            }}
+          >
+            {item.label}
+          </Text>
+        }
+        leftSection={<item.icon size={18} />}
+        active={isActive}
+        color="magos.5"
+        variant="light"
+        style={{ borderRadius: 6 }}
+        {...extraProps}
+      />
+    );
+    return collapsed ? (
+      <Tooltip key={item.to} label={item.label} position="right">
+        {link}
+      </Tooltip>
+    ) : (
+      link
+    );
+  };
+
   return (
     <AppShell
       header={{ height: 56 }}
@@ -74,15 +112,15 @@ export default function Shell() {
             <Burger opened={mobileOpen} onClick={toggleMobile} hiddenFrom="sm" size="sm" />
             <Group gap="xs" wrap="nowrap" align="center">
               <IconHexagon
-                size={collapsed ? 28 : 34}
+                size={collapsed ? 24 : 28}
                 color="var(--mantine-color-magos-5)"
                 stroke={2.5}
               />
               {!collapsed && (
-                <Group gap={0}>
+                <Group gap={0} align="baseline">
                   <Text
                     fw={900}
-                    size="28px"
+                    size="22px"
                     style={{
                       color: colorScheme === "dark" ? "white" : "black",
                       letterSpacing: 3,
@@ -90,6 +128,7 @@ export default function Shell() {
                   >
                     magos
                   </Text>
+                  <BlinkingCursor size="22px" fw={900} />
                 </Group>
               )}
             </Group>
@@ -141,41 +180,7 @@ export default function Shell() {
         }}
       >
         <Stack gap={4} p="xs" style={{ flex: 1 }}>
-          {navItems.map((item) => {
-            const isActive = location.pathname.startsWith(item.to);
-            const link = (
-              <NavLink
-                key={item.to}
-                component={Link}
-                to={item.to}
-                label={
-                  <Text
-                    size="sm"
-                    style={{
-                      opacity: collapsed ? 0 : 1,
-                      transition: "opacity 150ms ease",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {item.label}
-                  </Text>
-                }
-                leftSection={<item.icon size={18} />}
-                active={isActive}
-                color="magos.5"
-                variant="light"
-                style={{ borderRadius: 6 }}
-              />
-            );
-            return collapsed ? (
-              <Tooltip key={item.to} label={item.label} position="right">
-                {link}
-              </Tooltip>
-            ) : (
-              link
-            );
-          })}
+          {navItems.map((item) => renderNavItem(item))}
 
           {currentUser.role === "admin" && (
             <>
@@ -194,39 +199,7 @@ export default function Shell() {
               >
                 Admin
               </Text>
-              {adminNavItems.map((item) => {
-                const isActive = location.pathname.startsWith(item.to);
-                const link = (
-                  <NavLink
-                    key={item.to}
-                    component={Link}
-                    to={item.to}
-                    label={
-                      <Text
-                        size="sm"
-                        style={{
-                          opacity: collapsed ? 0 : 1,
-                          transition: "opacity 150ms ease",
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                        }}
-                      >
-                        {item.label}
-                      </Text>
-                    }
-                    leftSection={<item.icon size={18} />}
-                    active={isActive}
-                    style={{ borderRadius: 6 }}
-                  />
-                );
-                return collapsed ? (
-                  <Tooltip key={item.to} label={item.label} position="right">
-                    {link}
-                  </Tooltip>
-                ) : (
-                  link
-                );
-              })}
+              {adminNavItems.map((item) => renderNavItem(item))}
             </>
           )}
         </Stack>

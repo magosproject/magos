@@ -1,11 +1,8 @@
 package handlers
 
 import (
-	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/magosproject/magos/api/internal/service"
 )
@@ -72,51 +69,20 @@ func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
 // Events godoc
 //
 //	@Summary		Stream Workspace events
-//	@Description	Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent.
+//	@Description	Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent. Use ?projectRef=name to filter by project.
 //	@Tags			Workspace
 //	@Produce		text/event-stream
-//	@Success		200	{object}	service.WorkspaceEvent
+//	@Param			projectRef	query		string	false	"Filter by project name"
+//	@Success		200			{object}	service.WorkspaceEvent
 //	@Router			/apis/magosproject.io/v1alpha1/workspaces/events [get]
 func (h *WorkspaceHandler) Events(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "streaming not supported")
+	projectRef := r.URL.Query().Get("projectRef")
+	if projectRef == "" {
+		StreamSSE(w, r, h.service.Watch)
 		return
 	}
 
-	rc := http.NewResponseController(w)
-	_ = rc.SetWriteDeadline(time.Time{})
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-
-	events := h.service.Watch(r.Context())
-	heartbeat := time.NewTicker(15 * time.Second)
-	defer heartbeat.Stop()
-
-	for {
-		select {
-		case event, ok := <-events:
-			if !ok {
-				return
-			}
-			data, err := json.Marshal(event)
-			if err != nil {
-				continue
-			}
-			if _, err = fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
-				return
-			}
-			flusher.Flush()
-		case <-heartbeat.C:
-			if _, err := fmt.Fprintf(w, ": ping\n\n"); err != nil {
-				return
-			}
-			flusher.Flush()
-		case <-r.Context().Done():
-			return
-		}
-	}
+	FilteredStreamSSE(w, r, h.service.Watch, func(e service.WorkspaceEvent) bool {
+		return e.Object != nil && e.Object.Spec.ProjectRef.Name == projectRef
+	})
 }

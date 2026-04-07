@@ -19,7 +19,7 @@ import {
   IconSelector,
 } from "@tabler/icons-react";
 import { useNavigate } from "react-router";
-import { type ReactNode } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 import ResourceCard, { type ResourceCardProps } from "./ResourceCard";
 
 type StringKeys<T> = { [K in keyof T]: T[K] extends string ? K : never }[keyof T];
@@ -42,6 +42,8 @@ interface ResourceListProps<T extends { id: string }> {
   toHref: (item: T) => string;
   defaultView?: ViewMode;
   hideViewToggle?: boolean;
+  flashIds?: Set<string>;
+  getFlashStyle?: (item: T) => CSSProperties | undefined;
 }
 
 type ViewMode = "card" | "row";
@@ -57,6 +59,8 @@ export default function ResourceList<T extends { id: string }>({
   toHref,
   defaultView = "card",
   hideViewToggle = false,
+  flashIds,
+  getFlashStyle,
 }: ResourceListProps<T>) {
   const [view, setView] = useState<ViewMode>(defaultView);
   const [search, setSearch] = useState("");
@@ -154,9 +158,17 @@ export default function ResourceList<T extends { id: string }>({
           </Text>
         ) : (
           <SimpleGrid cols={{ base: 1, sm: 2, md: 3, lg: 4 }} spacing="md">
-            {filtered.map((item) => (
-              <ResourceCard key={item.id} {...toCard(item)} />
-            ))}
+            {filtered.map((item) => {
+              const isFlashing = flashIds?.has(item.id);
+              const flashStyle = isFlashing && getFlashStyle ? getFlashStyle(item) : undefined;
+              return (
+                <ResourceCard
+                  key={item.id}
+                  {...toCard(item)}
+                  flashStyle={flashStyle}
+                />
+              );
+            })}
           </SimpleGrid>
         )
       ) : (
@@ -195,17 +207,22 @@ export default function ResourceList<T extends { id: string }>({
                 </Table.Td>
               </Table.Tr>
             ) : (
-              filtered.map((item) => (
-                <Table.Tr
-                  key={item.id}
-                  onClick={() => navigate(toHref(item))}
-                  style={{ cursor: "pointer" }}
-                >
-                  {columns.map((col) => (
-                    <Table.Td key={col.key}>{col.render(item)}</Table.Td>
-                  ))}
-                </Table.Tr>
-              ))
+              filtered.map((item) => {
+                const isFlashing = flashIds?.has(item.id);
+                const flashStyle = isFlashing && getFlashStyle ? getFlashStyle(item) : undefined;
+                return (
+                  <Table.Tr
+                    key={item.id}
+                    onClick={() => navigate(toHref(item))}
+                    className={isFlashing ? "flash-highlight" : undefined}
+                    style={{ cursor: "pointer", ...flashStyle }}
+                  >
+                    {columns.map((col) => (
+                      <Table.Td key={col.key}>{col.render(item)}</Table.Td>
+                    ))}
+                  </Table.Tr>
+                );
+              })
             )}
           </Table.Tbody>
         </Table>

@@ -65,3 +65,15 @@ func (h *RolloutHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, rollout)
 }
+
+// Events godoc
+//
+//	@Summary		Stream Rollout events
+//	@Description	Server-Sent Events stream of Rollout changes. Each event is a JSON-encoded RolloutEvent.
+//	@Tags			Rollout
+//	@Produce		text/event-stream
+//	@Success		200	{object}	service.RolloutEvent
+//	@Router			/apis/magosproject.io/v1alpha1/rollouts/events [get]
+func (h *RolloutHandler) Events(w http.ResponseWriter, r *http.Request) {
+	StreamSSE(w, r, h.service.Watch)
+}

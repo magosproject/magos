@@ -192,6 +192,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/apis/magosproject.io/v1alpha1/rollouts/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream Rollout events
+         * @description Server-Sent Events stream of Rollout changes. Each event is a JSON-encoded RolloutEvent.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": components["schemas"]["service.RolloutEvent"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/apis/magosproject.io/v1alpha1/rollouts/{namespace}/{name}": {
         parameters: {
             query?: never;
@@ -284,6 +323,45 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apis/magosproject.io/v1alpha1/variablesets/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream VariableSet events
+         * @description Server-Sent Events stream of VariableSet changes. Each event is a JSON-encoded VariableSetEvent.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": components["schemas"]["service.VariableSetEvent"];
                     };
                 };
             };
@@ -409,11 +487,14 @@ export interface paths {
         };
         /**
          * Stream Workspace events
-         * @description Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent.
+         * @description Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent. Use ?projectRef=name to filter by project.
          */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description Filter by project name */
+                    projectRef?: string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -611,6 +692,14 @@ export interface components {
         "k8s_io_apimachinery_pkg_apis_meta_v1.ConditionStatus": "True" | "False" | "Unknown";
         "service.ProjectEvent": {
             object?: components["schemas"]["v1alpha1.Project"];
+            type?: components["schemas"]["watch.EventType"];
+        };
+        "service.RolloutEvent": {
+            object?: components["schemas"]["v1alpha1.Rollout"];
+            type?: components["schemas"]["watch.EventType"];
+        };
+        "service.VariableSetEvent": {
+            object?: components["schemas"]["v1alpha1.VariableSet"];
             type?: components["schemas"]["watch.EventType"];
         };
         "service.WorkspaceEvent": {
@@ -1071,6 +1160,11 @@ export interface components {
              */
             reason?: string;
         };
+        "v1alpha1.Rollout": {
+            metadata?: components["schemas"]["v1.ObjectMeta"];
+            spec?: components["schemas"]["v1alpha1.RolloutSpec"];
+            status?: components["schemas"]["v1alpha1.RolloutStatus"];
+        };
         /**
          * @description spec defines the desired state of Rollout
          *     +required
@@ -1173,6 +1267,11 @@ export interface components {
              *     +required
              */
             version?: string;
+        };
+        "v1alpha1.VariableSet": {
+            metadata?: components["schemas"]["v1.ObjectMeta"];
+            spec?: components["schemas"]["v1alpha1.VariableSetSpec"];
+            status?: components["schemas"]["v1alpha1.VariableSetStatus"];
         };
         "v1alpha1.VariableSetReference": {
             /**

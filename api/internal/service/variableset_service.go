@@ -3,47 +3,76 @@ package service
 import (
 	"context"
 	"log/slog"
-	"time"
 
-	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
 	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/magosproject/v1alpha1"
 	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
 )
 
+type VariableSetEvent struct {
+	Type   watch.EventType          `json:"type"`
+	Object *apiv1alpha1.VariableSet `json:"object"`
+}
+
 // VariableSetService defines operations for VariableSet resources.
 type VariableSetService interface {
+	Watch(ctx context.Context) <-chan VariableSetEvent
 	List(ctx context.Context) ([]*apiv1alpha1.VariableSet, error)
 	Get(ctx context.Context, namespace, name string) (*apiv1alpha1.VariableSet, error)
 }
 
 type variableSetService struct {
 	logger   *slog.Logger
-	factory  externalversions.SharedInformerFactory
 	informer cache.SharedIndexInformer
 	lister   listerv1alpha1.VariableSetLister
+	events   *Broadcaster[VariableSetEvent]
 }
 
-func NewVariableSetService(logger *slog.Logger, client versioned.Interface) VariableSetService {
-	factory := externalversions.NewSharedInformerFactory(client, 5*time.Minute)
+func NewVariableSetService(logger *slog.Logger, factory externalversions.SharedInformerFactory) VariableSetService {
 	variableSetInformer := factory.Magosproject().V1alpha1().VariableSets()
 
 	svc := &variableSetService{
 		logger:   logger,
-		factory:  factory,
 		informer: variableSetInformer.Informer(),
 		lister:   variableSetInformer.Lister(),
+		events:   NewBroadcaster[VariableSetEvent](),
 	}
 
-	svc.factory.Start(context.Background().Done())
+	variableSetInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			svc.events.Send(VariableSetEvent{Type: watch.Added, Object: obj.(*apiv1alpha1.VariableSet)})
+		},
+		UpdateFunc: func(_, obj interface{}) {
+			svc.events.Send(VariableSetEvent{Type: watch.Modified, Object: obj.(*apiv1alpha1.VariableSet)})
+		},
+		DeleteFunc: func(obj interface{}) {
+			vs, ok := obj.(*apiv1alpha1.VariableSet)
+			if !ok {
+				tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+				if !ok {
+					return
+				}
+				vs, ok = tombstone.Obj.(*apiv1alpha1.VariableSet)
+				if !ok {
+					return
+				}
+			}
+			svc.events.Send(VariableSetEvent{Type: watch.Deleted, Object: vs})
+		},
+	})
 
 	return svc
 }
 
 func (s *variableSetService) HasSynced() bool {
 	return s.informer.HasSynced()
+}
+
+func (s *variableSetService) Watch(ctx context.Context) <-chan VariableSetEvent {
+	return s.events.Subscribe(ctx)
 }
 
 func (s *variableSetService) List(_ context.Context) ([]*apiv1alpha1.VariableSet, error) {

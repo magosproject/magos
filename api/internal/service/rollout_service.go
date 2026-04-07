@@ -3,47 +3,76 @@ package service
 import (
 	"context"
 	"log/slog"
-	"time"
 
-	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
 	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/magosproject/v1alpha1"
 	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
 )
 
+type RolloutEvent struct {
+	Type   watch.EventType      `json:"type"`
+	Object *apiv1alpha1.Rollout `json:"object"`
+}
+
 // RolloutService defines operations for Rollout resources.
 type RolloutService interface {
+	Watch(ctx context.Context) <-chan RolloutEvent
 	List(ctx context.Context) ([]*apiv1alpha1.Rollout, error)
 	Get(ctx context.Context, namespace, name string) (*apiv1alpha1.Rollout, error)
 }
 
 type rolloutService struct {
 	logger   *slog.Logger
-	factory  externalversions.SharedInformerFactory
 	informer cache.SharedIndexInformer
 	lister   listerv1alpha1.RolloutLister
+	events   *Broadcaster[RolloutEvent]
 }
 
-func NewRolloutService(logger *slog.Logger, client versioned.Interface) RolloutService {
-	factory := externalversions.NewSharedInformerFactory(client, 5*time.Minute)
+func NewRolloutService(logger *slog.Logger, factory externalversions.SharedInformerFactory) RolloutService {
 	rolloutInformer := factory.Magosproject().V1alpha1().Rollouts()
 
 	svc := &rolloutService{
 		logger:   logger,
-		factory:  factory,
 		informer: rolloutInformer.Informer(),
 		lister:   rolloutInformer.Lister(),
+		events:   NewBroadcaster[RolloutEvent](),
 	}
 
-	svc.factory.Start(context.Background().Done())
+	rolloutInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			svc.events.Send(RolloutEvent{Type: watch.Added, Object: obj.(*apiv1alpha1.Rollout)})
+		},
+		UpdateFunc: func(_, obj interface{}) {
+			svc.events.Send(RolloutEvent{Type: watch.Modified, Object: obj.(*apiv1alpha1.Rollout)})
+		},
+		DeleteFunc: func(obj interface{}) {
+			rollout, ok := obj.(*apiv1alpha1.Rollout)
+			if !ok {
+				tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+				if !ok {
+					return
+				}
+				rollout, ok = tombstone.Obj.(*apiv1alpha1.Rollout)
+				if !ok {
+					return
+				}
+			}
+			svc.events.Send(RolloutEvent{Type: watch.Deleted, Object: rollout})
+		},
+	})
 
 	return svc
 }
 
 func (s *rolloutService) HasSynced() bool {
 	return s.informer.HasSynced()
+}
+
+func (s *rolloutService) Watch(ctx context.Context) <-chan RolloutEvent {
+	return s.events.Subscribe(ctx)
 }
 
 func (s *rolloutService) List(_ context.Context) ([]*apiv1alpha1.Rollout, error) {
