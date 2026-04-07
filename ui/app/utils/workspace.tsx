@@ -1,5 +1,5 @@
 import { Anchor, Text } from "@mantine/core";
-import { IconBox, IconFolder } from "@tabler/icons-react";
+import { IconBox, IconClock, IconFolder } from "@tabler/icons-react";
 import type { CSSProperties } from "react";
 import type { ColumnDef } from "../components/ResourceList";
 import type { ResourceCardProps } from "../components/ResourceCard";
@@ -16,6 +16,7 @@ export type WorkspaceRow = {
   projectRef: string;
   repoURL: string;
   path: string;
+  syncInterval: string;
 };
 
 export function toWorkspaceRow(ws: Workspace): WorkspaceRow {
@@ -27,6 +28,7 @@ export function toWorkspaceRow(ws: Workspace): WorkspaceRow {
     projectRef: ws.spec?.projectRef?.name ?? "",
     repoURL: ws.spec?.source?.repoURL ?? "",
     path: ws.spec?.source?.path ?? "",
+    syncInterval: ws.metadata?.annotations?.["magosproject.io/reconcile-interval"] ?? "3m",
   };
 }
 
@@ -94,6 +96,7 @@ export function workspaceToCard(ws: WorkspaceRow): ResourceCardProps {
         href: ws.repoURL,
       },
       { icon: <IconFolder size={16} color="gray" />, label: ws.path },
+      { icon: <IconClock size={16} color="gray" />, label: `Sync every ${ws.syncInterval}` },
     ],
   };
 }
