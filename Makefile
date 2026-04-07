@@ -177,7 +177,7 @@ docker-build: ## Build docker images for all components.
 	$(CONTAINER_TOOL) build -t ${IMG} .
 	$(CONTAINER_TOOL) build -t ${UI_IMG} -f ui/Dockerfile ui/
 	$(CONTAINER_TOOL) build -t ${JOB_IMG} -f cmd/job/Dockerfile .
-	$(CONTAINER_TOOL) build -t ${API_IMG} -f api/Dockerfile api/
+	$(CONTAINER_TOOL) build -t ${API_IMG} -f api/Dockerfile .
 
 .PHONY: docker-push
 docker-push: ## Push docker images for all components.

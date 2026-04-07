@@ -9,21 +9,23 @@ WORKDIR /build
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata make
 
-# Copy go mod files
+# Copy root module (needed for replace directive in api/go.mod)
 COPY go.mod go.sum ./
+COPY types/ types/
 
-# Download dependencies with verification
-RUN go mod download && go mod verify
+# Copy go mod files and download dependencies
+COPY api/go.mod api/go.sum api/
+RUN cd api && go mod download && go mod verify
 
 # Copy source code
-COPY . .
+COPY api/ api/
 
 # Build the application with optimizations
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
+RUN cd api && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
     -a \
     -installsuffix cgo \
     -ldflags="-w -s" \
-    -o api cmd/api/main.go
+    -o /build/api cmd/api/main.go
 
 # Runtime stage
 FROM alpine:3.20
@@ -35,10 +37,8 @@ RUN apk add --no-cache ca-certificates tzdata curl && \
     addgroup -g 1000 apiuser && \
     adduser -D -u 1000 -G apiuser apiuser
 
-# Copy binary and docs from builder with correct ownership
+# Copy binary from builder with correct ownership
 COPY --from=builder --chown=apiuser:apiuser /build/api .
-# TODO: set-up API docs, build/docs doesn't exist yet
-# COPY --from=builder --chown=apiuser:apiuser /build/docs ./docs
 
 # Use non-root user for security
 USER apiuser
