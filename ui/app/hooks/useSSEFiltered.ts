@@ -1,13 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { WatchEvent } from "../api/types";
+import { resourceId } from "../api/resource";
+import type { ResourceObject, WatchEvent } from "../api/types";
 
-type WithMetadata = { metadata?: { uid?: string; namespace?: string; name?: string } };
-
-function objectId(obj: WithMetadata): string {
-  return obj.metadata?.uid ?? `${obj.metadata?.namespace}/${obj.metadata?.name}`;
-}
-
-export function useSSEFiltered<T extends WithMetadata>(
+export function useSSEFiltered<T extends ResourceObject>(
   url: string,
   initial: T[],
   fetchItems?: () => Promise<T[]>
@@ -60,19 +55,19 @@ export function useSSEFiltered<T extends WithMetadata>(
       if (!event.type || !event.object) return;
       if (event.type === "BOOKMARK") return;
 
-      const uid = objectId(event.object);
+      const uid = resourceId(event.object);
 
       setItems((prev) => {
         switch (event.type) {
           case "ADDED":
-            if (prev.some((r) => objectId(r) === uid)) return prev;
+            if (prev.some((r) => resourceId(r) === uid)) return prev;
             markChanged(uid);
             return [...prev, event.object!];
           case "MODIFIED":
             markChanged(uid);
-            return prev.map((r) => (objectId(r) === uid ? event.object! : r));
+            return prev.map((r) => (resourceId(r) === uid ? event.object! : r));
           case "DELETED":
-            return prev.filter((r) => objectId(r) !== uid);
+            return prev.filter((r) => resourceId(r) !== uid);
           default:
             return prev;
         }
@@ -88,4 +83,3 @@ export function useSSEFiltered<T extends WithMetadata>(
 
   return [items, changedIds];
 }
-

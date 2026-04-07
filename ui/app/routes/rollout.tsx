@@ -1,40 +1,27 @@
-import { useCallback, useEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import {
   Anchor,
-  Box,
   Button,
   Group,
   SimpleGrid,
   Stack,
   Text,
   Title,
-  ThemeIcon,
   useMantineTheme,
 } from "@mantine/core";
 import { useLoaderData, useParams, Link } from "react-router";
-import { IconRefresh, IconCheck, IconX, IconClock, IconPlayerPlay } from "@tabler/icons-react";
-import {
-  ReactFlow,
-  Controls,
-  type Edge,
-  type Node,
-  type NodeProps,
-  Position,
-  MarkerType,
-  useNodesState,
-  useEdgesState,
-  useReactFlow,
-  ReactFlowProvider,
-  Handle,
-} from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
+import { IconRefresh } from "@tabler/icons-react";
+import { type Edge, type Node, Position, MarkerType } from "@xyflow/react";
 import Breadcrumbs from "~/components/Breadcrumbs";
 import InfoCard from "~/components/InfoCard";
 import StatusBadge from "~/components/StatusBadge";
 import KubeBadge from "~/components/KubeBadge";
+import FlowGraph from "~/components/FlowGraph";
+import LineageNode, { type LineageNodeData } from "~/components/LineageNode";
+import RolloutStepCard, { type StepStatus } from "~/components/RolloutStepCard";
 import { Tabs } from "@mantine/core";
 import apiClient from "~/api/client";
-import type { Rollout as RolloutType } from "~/api/types";
+import type { LabelSelector, Rollout as RolloutType, RolloutStep, Phase } from "~/api/types";
 import { useSSEItem } from "~/hooks/useSSEItem";
 import { useFlashOnChange } from "~/hooks/useFlashOnChange";
 import { flashColorVar } from "~/utils/colors";
@@ -56,9 +43,7 @@ export async function clientLoader({
   return data;
 }
 
-type StepStatus = "completed" | "active" | "failed" | "pending";
-
-function stepStatus(index: number, currentStep: number, phase: string, groups: number[][]): StepStatus {
+function stepStatus(index: number, currentStep: number, phase: Phase | undefined, groups: number[][]): StepStatus {
   if (phase === "Applied") return "completed";
 
   const stepGroupIdx = groups.findIndex((g) => g.includes(index));
@@ -72,87 +57,11 @@ function stepStatus(index: number, currentStep: number, phase: string, groups: n
   return "pending";
 }
 
-interface StepNodeData {
-  name: string;
-  index: number;
-  status: StepStatus;
-  labels: Record<string, string>;
-  [key: string]: unknown;
+function selectorLabels(selector?: LabelSelector): Record<string, string> {
+  return selector?.matchLabels ?? {};
 }
 
-function StepStatusIcon({ status }: { status: StepStatus }) {
-  if (status === "completed")
-    return (
-      <ThemeIcon size={20} radius="xl" color="green" variant="filled">
-        <IconCheck size={11} />
-      </ThemeIcon>
-    );
-  if (status === "active")
-    return (
-      <ThemeIcon size={20} radius="xl" color="magos" variant="filled" className="pulse">
-        <IconPlayerPlay size={11} />
-      </ThemeIcon>
-    );
-  if (status === "failed")
-    return (
-      <ThemeIcon size={20} radius="xl" color="red" variant="filled">
-        <IconX size={11} />
-      </ThemeIcon>
-    );
-  return (
-    <ThemeIcon size={20} radius="xl" color="dark.4" variant="filled">
-      <IconClock size={11} />
-    </ThemeIcon>
-  );
-}
-
-const statusLabel: Record<StepStatus, string> = {
-  completed: "Completed",
-  active: "In progress",
-  failed: "Failed",
-  pending: "Pending",
-};
-
-function StepPipelineNode({ data }: NodeProps<Node<StepNodeData>>) {
-  const { name, index, status, labels } = data;
-  return (
-    <>
-      <Handle type="target" position={Position.Left} style={{ visibility: "hidden" }} />
-      <div className="step-pipeline-node" data-status={status}>
-        <Stack gap={8}>
-          <Group gap={6} wrap="nowrap" align="center">
-            <StepStatusIcon status={status} />
-            <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-              <Text size="xs" fw={600} truncate>
-                {name}
-              </Text>
-              <Text size="xs" c="dimmed">
-                Step {index + 1} &middot; {statusLabel[status]}
-              </Text>
-            </Stack>
-          </Group>
-          <Group gap={4} wrap="wrap">
-            {Object.entries(labels).map(([k, v]) => {
-              const shortKey = k.replace("magosproject.io/", "");
-              return (
-                <span key={k} className="label-chip">
-                  <span style={{ color: "var(--mantine-color-magos-4)" }}>{shortKey}</span>
-                  <span style={{ opacity: 0.35 }}>=</span>
-                  <span style={{ color: "var(--mantine-color-dimmed)" }}>{v}</span>
-                </span>
-              );
-            })}
-          </Group>
-        </Stack>
-      </div>
-      <Handle type="source" position={Position.Right} style={{ visibility: "hidden" }} />
-    </>
-  );
-}
-
-const nodeTypes = { stepNode: StepPipelineNode };
-
-function groupStepsByLabels(steps: { name: string; labels: Record<string, string> }[]): number[][] {
+function groupStepsByLabels(steps: RolloutStep[]): number[][] {
   const toKey = (labels: Record<string, string>) =>
     JSON.stringify(Object.entries(labels).sort((a, b) => a[0].localeCompare(b[0])));
 
@@ -160,7 +69,7 @@ function groupStepsByLabels(steps: { name: string; labels: Record<string, string
   const seen = new Map<string, number>();
 
   for (let i = 0; i < steps.length; i++) {
-    const key = toKey(steps[i].labels);
+    const key = toKey(selectorLabels(steps[i].selector));
     if (!seen.has(key)) {
       seen.set(key, groups.length);
       groups.push([i]);
@@ -172,46 +81,63 @@ function groupStepsByLabels(steps: { name: string; labels: Record<string, string
   return groups;
 }
 
+const nodeTypes = { lineageNode: LineageNode };
+
 function StepPipelineGraph({
   steps,
   currentStep,
   phase,
+  flash,
 }: {
-  steps: { name: string; labels: Record<string, string> }[];
+  steps: RolloutStep[];
   currentStep: number;
-  phase: string;
+  phase?: Phase;
+  flash?: boolean;
 }) {
   const theme = useMantineTheme();
-  const { fitView } = useReactFlow();
-  const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const colWidth = 320;
-  const rowHeight = 140;
+  const nodeWidth = 280;
+  const colWidth = 380;
+  const rowHeight = 150;
 
   const groups = useMemo(() => groupStepsByLabels(steps), [steps]);
-
   const graphHeight = Math.max(180, Math.max(...groups.map((g) => g.length)) * rowHeight + 40);
 
-  const computedNodes = useMemo<Node<StepNodeData>[]>(() => {
+  const nodes = useMemo<Node<LineageNodeData>[]>(() => {
     return steps.map((step, i) => {
       const groupIdx = groups.findIndex((g) => g.includes(i));
       const posInGroup = groups[groupIdx].indexOf(i);
       const groupSize = groups[groupIdx].length;
       const y = (posInGroup - (groupSize - 1) / 2) * rowHeight;
+      const status = stepStatus(i, currentStep, phase, groups);
+      const isActive = status === "active" || status === "failed";
       return {
         id: `step-${i}`,
-        type: "stepNode",
+        type: "lineageNode",
         position: { x: groupIdx * colWidth, y },
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         draggable: false,
-        data: { name: step.name, index: i, status: stepStatus(i, currentStep, phase, groups), labels: step.labels },
+        width: nodeWidth,
+        data: {
+          kindLabel: `Step ${i + 1}`,
+          content: (
+            <RolloutStepCard
+              name={step.name ?? ""}
+              index={i}
+              status={status}
+              labels={selectorLabels(step.selector)}
+              flash={flash && isActive}
+              phase={phase}
+            />
+          ),
+        },
       };
     });
-  }, [steps, currentStep, phase, groups]);
+  }, [steps, currentStep, phase, groups, flash, nodeWidth, colWidth, rowHeight]);
 
-  const computedEdges = useMemo<Edge[]>(() => {
-    const edges: Edge[] = [];
+  const edges = useMemo<Edge[]>(() => {
+    const result: Edge[] = [];
     for (let gi = 0; gi < groups.length - 1; gi++) {
       for (const srcIdx of groups[gi]) {
         for (const dstIdx of groups[gi + 1]) {
@@ -227,7 +153,7 @@ function StepPipelineGraph({
               : isFlowing
                 ? theme.colors.green[6]
                 : theme.colors.dark[4];
-          edges.push({
+          result.push({
             id: `e-${srcIdx}-${dstIdx}`,
             source: `step-${srcIdx}`,
             target: `step-${dstIdx}`,
@@ -239,64 +165,10 @@ function StepPipelineGraph({
         }
       }
     }
-    return edges;
+    return result;
   }, [currentStep, phase, theme, groups]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges);
-
-  useEffect(() => {
-    setNodes(computedNodes);
-  }, [computedNodes, setNodes]);
-
-  useEffect(() => {
-    setEdges(computedEdges);
-  }, [computedEdges, setEdges]);
-
-  const handleFit = useCallback(() => {
-    fitView({ padding: 0.3, minZoom: 0.5, maxZoom: 1.5, duration: 600 });
-  }, [fitView]);
-
-  useEffect(() => {
-    if (!wrapperRef.current) return;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
-          window.requestAnimationFrame(handleFit);
-        }
-      }
-    });
-    observer.observe(wrapperRef.current);
-    return () => observer.disconnect();
-  }, [handleFit]);
-
-  return (
-    <Box
-      ref={wrapperRef}
-      h={graphHeight}
-      w="100%"
-      style={{
-        border: "1px solid var(--mantine-color-default-border)",
-        borderRadius: "var(--mantine-radius-md)",
-      }}
-    >
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        nodeTypes={nodeTypes}
-        fitView
-        panOnDrag
-        zoomOnScroll={false}
-        zoomOnPinch
-        preventScrolling={false}
-        proOptions={{ hideAttribution: true }}
-      >
-        <Controls showInteractive={false} />
-      </ReactFlow>
-    </Box>
-  );
+  return <FlowGraph nodes={nodes} edges={edges} nodeTypes={nodeTypes} height={graphHeight} />;
 }
 
 export default function Rollout() {
@@ -308,17 +180,14 @@ export default function Rollout() {
     (obj) => obj.metadata?.namespace === namespace && obj.metadata?.name === name
   );
 
-  const steps = (rollout.spec?.strategy?.steps ?? []).map((s) => ({
-    name: s.name ?? "",
-    labels: s.selector?.matchLabels ?? {},
-  }));
+  const steps = rollout.spec?.strategy?.steps ?? [];
   const currentStep = rollout.status?.currentStep ?? 0;
-  const phase = rollout.status?.phase ?? "";
+  const phase = rollout.status?.phase;
   const totalSteps = steps.length;
 
   const completedSteps = phase === "Applied" ? totalSteps : currentStep;
-  const flash = useFlashOnChange(phase);
-  const flashStyle = { "--flash-color": flashColorVar(phase) } as CSSProperties;
+  const flash = useFlashOnChange(`${phase}-${currentStep}`);
+  const flashStyle = { "--flash-color": flashColorVar(phase ?? "") } as CSSProperties;
 
   return (
     <Stack gap="lg">
@@ -344,7 +213,7 @@ export default function Rollout() {
           <Stack gap="md">
             <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
               <InfoCard label="Phase" className={flash ? "flash-highlight" : undefined} style={flashStyle}>
-                <StatusBadge status={phase} size="md" />
+                <StatusBadge status={phase ?? ""} size="md" />
               </InfoCard>
               <InfoCard label="Project">
                 {rollout.spec?.projectRef ? (
@@ -377,9 +246,7 @@ export default function Rollout() {
         </Tabs.Panel>
 
         <Tabs.Panel value="steps" pt="md">
-          <ReactFlowProvider>
-            <StepPipelineGraph steps={steps} currentStep={currentStep} phase={phase} />
-          </ReactFlowProvider>
+          <StepPipelineGraph steps={steps} currentStep={currentStep} phase={phase} flash={flash} />
         </Tabs.Panel>
       </Tabs>
     </Stack>

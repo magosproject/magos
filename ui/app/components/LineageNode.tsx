@@ -5,26 +5,35 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import { Text } from "@mantine/core";
-import ResourceCard, { type ResourceCardProps } from "./ResourceCard";
+import type { ReactNode } from "react";
 
-export interface LineageNodeData extends ResourceCardProps {
+export interface LineageNodeData {
   kindLabel: string;
+  content: ReactNode;
   [key: string]: unknown;
 }
 
-export default function LineageNode({ data }: NodeProps<Node<LineageNodeData>>) {
-  const { kindLabel, ...cardProps } = data;
-
+export default function LineageNode({
+  data,
+  sourcePosition,
+  targetPosition,
+}: NodeProps<Node<LineageNodeData>>) {
   return (
     <>
-      <Handle type="target" position={Position.Top} style={{ visibility: "hidden" }} />
+      <Handle
+        type="target"
+        position={targetPosition ?? Position.Top}
+        style={{ visibility: "hidden" }}
+      />
       <Text size="10px" c="dimmed" tt="uppercase" fw={700} ta="center" mb={4}>
-        {kindLabel}
+        {data.kindLabel}
       </Text>
-      <ResourceCard {...cardProps} />
-      <Handle type="source" position={Position.Bottom} style={{ visibility: "hidden" }} />
+      {data.content}
+      <Handle
+        type="source"
+        position={sourcePosition ?? Position.Bottom}
+        style={{ visibility: "hidden" }}
+      />
     </>
   );
 }
-
-

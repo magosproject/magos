@@ -3,17 +3,16 @@ import { useLoaderData } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
 import PageTagline from "../components/PageTagline";
 import ResourceList from "../components/ResourceList";
+import WorkspaceCard, {
+  type WorkspaceItem,
+  toWorkspaceItem,
+  workspaceColumns,
+} from "../components/WorkspaceCard";
+import { flashColorVar } from "../utils/colors";
 import apiClient from "../api/client";
 import type { Workspace } from "../api/types";
 import { useSSEList } from "../hooks/useSSEList";
-import {
-  type WorkspaceRow,
-  toWorkspaceRow,
-  workspaceColumns,
-  workspaceToCard,
-  workspaceToHref,
-  workspaceFlashStyle,
-} from "../utils/workspace";
+import type { CSSProperties } from "react";
 
 export function meta() {
   return [{ title: "Workspaces – magos" }];
@@ -21,15 +20,15 @@ export function meta() {
 
 export async function clientLoader() {
   const { data } = await apiClient.GET("/apis/magosproject.io/v1alpha1/workspaces");
-  return (data ?? []).map(toWorkspaceRow);
+  return (data ?? []).map(toWorkspaceItem);
 }
 
 export default function Workspaces() {
   const initial = useLoaderData<typeof clientLoader>();
-  const [workspaces, changedIds] = useSSEList<Workspace, WorkspaceRow>(
+  const [workspaces, changedIds] = useSSEList<Workspace, WorkspaceItem>(
     "/apis/magosproject.io/v1alpha1/workspaces/events",
     initial,
-    toWorkspaceRow,
+    toWorkspaceItem,
     clientLoader
   );
 
@@ -41,12 +40,12 @@ export default function Workspaces() {
       </Group>
       <ResourceList
         items={workspaces}
-        searchKey="name"
+        getSearchText={(ws) => ws.metadata?.name ?? ""}
         columns={workspaceColumns}
-        toCard={workspaceToCard}
-        toHref={workspaceToHref}
+        renderCard={(ws) => <WorkspaceCard workspace={ws} flash={changedIds.has(ws.id)} />}
+        toHref={(ws) => `/workspaces/${ws.metadata?.namespace}/${ws.metadata?.name}`}
         flashIds={changedIds}
-        getFlashStyle={workspaceFlashStyle}
+        getFlashStyle={(ws) => ({ "--flash-color": flashColorVar(ws.status?.phase ?? "") }) as CSSProperties}
       />
     </Stack>
   );

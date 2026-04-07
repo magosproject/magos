@@ -1,12 +1,5 @@
 import { Badge, Stack, Table, Text, Title } from "@mantine/core";
-
-interface Condition {
-  type?: string;
-  status?: string;
-  reason?: string;
-  message?: string;
-  [key: string]: unknown;
-}
+import type { Condition } from "../api/types";
 
 interface Props {
   conditions: Condition[];
@@ -63,7 +56,6 @@ export default function ConditionsTable({ conditions }: Props) {
     </Stack>
   );
 }
-
 
 
 

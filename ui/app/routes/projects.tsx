@@ -1,5 +1,6 @@
 import { Badge, Stack, Text } from "@mantine/core";
 import { useLoaderData } from "react-router";
+import { resourceId, resourceName, resourceNamespace } from "../api/resource";
 import Breadcrumbs from "../components/Breadcrumbs";
 import PageTagline from "../components/PageTagline";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
@@ -26,9 +27,9 @@ export async function clientLoader() {
 
 function toProjectRow(p: Project): ProjectRow {
   return {
-    id: p.metadata?.uid ?? `${p.metadata?.namespace}/${p.metadata?.name}`,
-    name: p.metadata?.name ?? "",
-    namespace: p.metadata?.namespace ?? "",
+    id: resourceId(p),
+    name: resourceName(p),
+    namespace: resourceNamespace(p),
     description: p.spec?.description ?? "",
     variableSetCount: p.spec?.variableSetRef?.length ?? 0,
   };

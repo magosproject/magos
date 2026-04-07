@@ -1,9 +1,6 @@
-export const statusColor: Record<string, string> = {
-  active: "magos",
-  provisioning: "yellow",
-  error: "red",
+import type { Phase } from "../api/types";
 
-  // Rollout / Workspace phases (from the CRD Phase enum)
+export const statusColor: Record<Phase | string, string> = {
   Pending: "gray",
   Reconciling: "yellow",
   Ready: "magos",
@@ -18,6 +15,6 @@ export const statusColor: Record<string, string> = {
 
 export function flashColorVar(status: string): string {
   const color = statusColor[status] ?? "gray";
-  return `color-mix(in srgb, var(--mantine-color-${color}-5) 15%, transparent)`;
+  return `color-mix(in srgb, var(--mantine-color-${color}-5) 15%, var(--mantine-color-body))`;
 }
 

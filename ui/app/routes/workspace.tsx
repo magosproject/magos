@@ -9,8 +9,9 @@ import {
   Title,
 } from "@mantine/core";
 import { IconFolder, IconRefresh } from "@tabler/icons-react";
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { Link, useLoaderData, useParams } from "react-router";
+import { resourceId } from "../api/resource";
 import Breadcrumbs from "../components/Breadcrumbs";
 import InfoCard from "../components/InfoCard";
 import StatusBadge from "../components/StatusBadge";
@@ -89,6 +90,8 @@ export default function Workspace() {
   const phase = ws.status?.phase ?? "";
   const flash = useFlashOnChange(phase);
   const flashStyle = { "--flash-color": flashColorVar(phase) } as CSSProperties;
+  const wsId = resourceId(ws);
+  const lineageFlashIds = useMemo(() => (flash ? new Set([wsId]) : new Set<string>()), [flash, wsId]);
 
   return (
     <Stack gap="lg">
@@ -220,6 +223,7 @@ export default function Workspace() {
             project={project}
             variableSetRefs={variableSetRefs}
             workspaces={[ws]}
+            flashIds={lineageFlashIds}
           />
         </Stack>
       )}
