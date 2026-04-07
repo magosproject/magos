@@ -1,7 +1,7 @@
-import { Badge, Group, Stack, Text } from "@mantine/core";
+import { Badge, Stack, Text } from "@mantine/core";
 import { useLoaderData } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
-import KubeBadge from "../components/KubeBadge";
+import PageTagline from "../components/PageTagline";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
 import apiClient from "../api/client";
 import type { VariableSet } from "../api/types";
@@ -57,17 +57,11 @@ const columns: ColumnDef<VariableSetRow>[] = [
         </Badge>
       ),
   },
-  {
-    key: "namespace",
-    label: "Kubernetes Namespace",
-    sortField: "namespace",
-    render: (vs) => <KubeBadge label={vs.namespace} />,
-  },
 ];
 
 export default function VariableSets() {
   const initial = useLoaderData<typeof clientLoader>();
-  const variableSets = useSSEList<VariableSet, VariableSetRow>(
+  const [variableSets, changedIds] = useSSEList<VariableSet, VariableSetRow>(
     "/apis/magosproject.io/v1alpha1/variablesets/events",
     initial,
     toVariableSetRow,
@@ -77,26 +71,7 @@ export default function VariableSets() {
   return (
     <Stack gap="md">
       <Breadcrumbs crumbs={[{ label: "Variable Sets" }]} />
-      <Group gap={4} align="center">
-        <Text
-          size="xl"
-          fw={700}
-          variant="gradient"
-          gradient={{ from: "magos.4", to: "magos.7", deg: 45 }}
-          style={{ fontFamily: "monospace", letterSpacing: -0.5 }}
-        >
-          // hardcoded no more
-        </Text>
-        <Text
-          className="blinking-cursor"
-          size="xl"
-          fw={700}
-          c="magos.5"
-          style={{ fontFamily: "monospace" }}
-        >
-          _
-        </Text>
-      </Group>
+      <PageTagline text="// hardcoded no more" />
       <ResourceList
         items={variableSets}
         searchKey="name"
@@ -104,6 +79,7 @@ export default function VariableSets() {
         toHref={(vs) => `/variable-sets/${vs.namespace}/${vs.name}`}
         defaultView="row"
         hideViewToggle
+        flashIds={changedIds}
       />
     </Stack>
   );

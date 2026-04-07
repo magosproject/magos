@@ -15,3 +15,9 @@ export const statusColor: Record<string, string> = {
   Failed: "red",
   Deleting: "orange",
 };
+
+export function flashColorVar(status: string): string {
+  const color = statusColor[status] ?? "gray";
+  return `color-mix(in srgb, var(--mantine-color-${color}-5) 15%, transparent)`;
+}
+

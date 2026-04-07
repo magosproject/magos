@@ -5,22 +5,32 @@ import {
   Group,
   SimpleGrid,
   Stack,
-  Table,
   Tabs,
   Text,
   Title,
 } from "@mantine/core";
 import { Link, useLoaderData, useParams } from "react-router";
+import type { CSSProperties } from "react";
 import { IconRefresh } from "@tabler/icons-react";
 import Breadcrumbs from "~/components/Breadcrumbs";
 import InfoCard from "~/components/InfoCard";
 import StatusBadge from "~/components/StatusBadge";
 import KubeBadge from "~/components/KubeBadge";
 import ProjectLineageGraph from "~/components/ProjectLineageGraph";
+import ResourceList from "~/components/ResourceList";
 import apiClient from "~/api/client";
 import type { Project as ProjectType, Workspace } from "~/api/types";
 import { useSSEItem } from "~/hooks/useSSEItem";
 import { useSSEFiltered } from "~/hooks/useSSEFiltered";
+import { useFlashOnChange } from "~/hooks/useFlashOnChange";
+import { flashColorVar } from "~/utils/colors";
+import {
+  toWorkspaceRow,
+  workspaceColumns,
+  workspaceToCard,
+  workspaceToHref,
+  workspaceFlashStyle,
+} from "~/utils/workspace";
 
 export function meta({ params }: { params: { namespace: string; name: string } }) {
   return [{ title: `${params.name} – magos` }];
@@ -57,12 +67,20 @@ export default function Project() {
     (obj) => obj.metadata?.namespace === namespace && obj.metadata?.name === name
   );
 
-  const workspaces = useSSEFiltered<Workspace>(
+  const [workspaces, wsChangedIds] = useSSEFiltered<Workspace>(
     `/apis/magosproject.io/v1alpha1/workspaces/events?projectRef=${name}`,
     initial.workspaces
   );
 
   const variableSetRefs = (project.spec?.variableSetRef ?? []).map((ref) => ref.name ?? "");
+  const workspaceRows = workspaces.map(toWorkspaceRow);
+
+  const wsRowChangedIds = new Set(
+    workspaceRows.filter((r) => wsChangedIds.has(r.id)).map((r) => r.id)
+  );
+  const phase = project.status?.phase ?? "";
+  const flash = useFlashOnChange(phase);
+  const flashStyle = { "--flash-color": flashColorVar(phase) } as CSSProperties;
 
   return (
     <Stack gap="lg">
@@ -95,8 +113,8 @@ export default function Project() {
         <Tabs.Panel value="overview" pt="md">
           <Stack gap="md">
             <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
-              <InfoCard label="Status">
-                <StatusBadge status={project.status?.phase ?? ""} size="md" />
+              <InfoCard label="Status" className={flash ? "flash-highlight" : undefined} style={flashStyle}>
+                <StatusBadge status={phase} size="md" />
               </InfoCard>
               <InfoCard label="Workspaces">
                 <Text size="sm">{workspaces.length}</Text>
@@ -116,6 +134,7 @@ export default function Project() {
                   project={project}
                   variableSetRefs={variableSetRefs}
                   workspaces={workspaces}
+                  flashIds={wsChangedIds}
                 />
               </Stack>
             )}
@@ -123,42 +142,21 @@ export default function Project() {
         </Tabs.Panel>
 
         <Tabs.Panel value="workspaces" pt="md">
-          {workspaces.length === 0 ? (
+          {workspaceRows.length === 0 ? (
             <Text size="sm" c="dimmed">
               No workspaces linked to this project.
             </Text>
           ) : (
-            <Table highlightOnHover withTableBorder withColumnBorders={false}>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Name</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th>Kubernetes Namespace</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {workspaces.map((ws) => (
-                  <Table.Tr key={ws.metadata?.uid ?? ws.metadata?.name}>
-                    <Table.Td>
-                      <Anchor
-                        component={Link}
-                        to={`/workspaces/${ws.metadata?.namespace}/${ws.metadata?.name}`}
-                        size="sm"
-                        fw={500}
-                      >
-                        {ws.metadata?.name}
-                      </Anchor>
-                    </Table.Td>
-                    <Table.Td>
-                      <StatusBadge status={ws.status?.phase ?? ""} />
-                    </Table.Td>
-                    <Table.Td>
-                      <KubeBadge label={ws.metadata?.namespace ?? ""} />
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
+            <ResourceList
+              items={workspaceRows}
+              searchKey="name"
+              columns={workspaceColumns}
+              toCard={workspaceToCard}
+              toHref={workspaceToHref}
+              flashIds={wsRowChangedIds}
+              getFlashStyle={workspaceFlashStyle}
+              defaultView="row"
+            />
           )}
         </Tabs.Panel>
 

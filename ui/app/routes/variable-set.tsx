@@ -1,9 +1,10 @@
-import { Badge, Button, Group, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { Button, Group, SimpleGrid, Stack, Title } from "@mantine/core";
 import { IconRefresh } from "@tabler/icons-react";
 import { useLoaderData, useParams } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
 import InfoCard from "../components/InfoCard";
 import KubeBadge from "../components/KubeBadge";
+import ConditionsTable from "../components/ConditionsTable";
 import apiClient from "../api/client";
 import type { VariableSet } from "../api/types";
 import { useSSEItem } from "../hooks/useSSEItem";
@@ -57,49 +58,7 @@ export default function VariableSetDetail() {
       </SimpleGrid>
 
       {vs.status?.conditions && vs.status.conditions.length > 0 && (
-        <Stack gap="xs">
-          <Title order={4}>Conditions</Title>
-          <Table withTableBorder withColumnBorders={false}>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Type</Table.Th>
-                <Table.Th>Status</Table.Th>
-                <Table.Th>Reason</Table.Th>
-                <Table.Th>Message</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {vs.status.conditions.map((c) => (
-                <Table.Tr key={c.type}>
-                  <Table.Td>
-                    <Text size="sm" fw={500}>
-                      {c.type}
-                    </Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Badge
-                      variant="light"
-                      color={c.status === "True" ? "green" : c.status === "False" ? "red" : "gray"}
-                      size="sm"
-                    >
-                      {c.status}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="sm" c="dimmed">
-                      {c.reason}
-                    </Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="sm" c="dimmed">
-                      {c.message}
-                    </Text>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </Stack>
+        <ConditionsTable conditions={vs.status.conditions} />
       )}
     </Stack>
   );

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, type CSSProperties } from "react";
 import {
+  Anchor,
   Box,
   Button,
   Group,
@@ -10,7 +11,7 @@ import {
   ThemeIcon,
   useMantineTheme,
 } from "@mantine/core";
-import { useLoaderData, useParams } from "react-router";
+import { useLoaderData, useParams, Link } from "react-router";
 import { IconRefresh, IconCheck, IconX, IconClock, IconPlayerPlay } from "@tabler/icons-react";
 import {
   ReactFlow,
@@ -35,6 +36,8 @@ import { Tabs } from "@mantine/core";
 import apiClient from "~/api/client";
 import type { Rollout as RolloutType } from "~/api/types";
 import { useSSEItem } from "~/hooks/useSSEItem";
+import { useFlashOnChange } from "~/hooks/useFlashOnChange";
+import { flashColorVar } from "~/utils/colors";
 
 export function meta({ params }: { params: { namespace: string; name: string } }) {
   return [{ title: `${params.name} – magos` }];
@@ -213,13 +216,17 @@ function StepPipelineGraph({
       for (const srcIdx of groups[gi]) {
         for (const dstIdx of groups[gi + 1]) {
           const srcStatus = stepStatus(srcIdx, currentStep, phase, groups);
+          const dstStatus = stepStatus(dstIdx, currentStep, phase, groups);
           const isFlowing = srcStatus === "completed" || srcStatus === "active";
           const isFailed = srcStatus === "failed";
+          const isActive = dstStatus === "active";
           const strokeColor = isFailed
             ? theme.colors.red[6]
-            : isFlowing
-              ? theme.colors.green[6]
-              : theme.colors.dark[4];
+            : isActive
+              ? theme.colors.magos[5]
+              : isFlowing
+                ? theme.colors.green[6]
+                : theme.colors.dark[4];
           edges.push({
             id: `e-${srcIdx}-${dstIdx}`,
             source: `step-${srcIdx}`,
@@ -233,7 +240,7 @@ function StepPipelineGraph({
       }
     }
     return edges;
-  }, [steps, currentStep, phase, theme, groups]);
+  }, [currentStep, phase, theme, groups]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges);
@@ -310,6 +317,8 @@ export default function Rollout() {
   const totalSteps = steps.length;
 
   const completedSteps = phase === "Applied" ? totalSteps : currentStep;
+  const flash = useFlashOnChange(phase);
+  const flashStyle = { "--flash-color": flashColorVar(phase) } as CSSProperties;
 
   return (
     <Stack gap="lg">
@@ -334,13 +343,17 @@ export default function Rollout() {
         <Tabs.Panel value="overview" pt="md">
           <Stack gap="md">
             <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
-              <InfoCard label="Phase">
+              <InfoCard label="Phase" className={flash ? "flash-highlight" : undefined} style={flashStyle}>
                 <StatusBadge status={phase} size="md" />
               </InfoCard>
               <InfoCard label="Project">
-                <Text size="sm" c="dimmed">
-                  {rollout.spec?.projectRef ?? "—"}
-                </Text>
+                {rollout.spec?.projectRef ? (
+                  <Anchor component={Link} to={`/projects/${namespace}/${rollout.spec.projectRef}`} size="sm">
+                    {rollout.spec.projectRef}
+                  </Anchor>
+                ) : (
+                  <Text size="sm" c="dimmed">—</Text>
+                )}
               </InfoCard>
               <InfoCard label="Progress">
                 <Text size="sm">

@@ -2,7 +2,7 @@ import { Badge, Group } from "@mantine/core";
 import { IconRefresh } from "@tabler/icons-react";
 import { statusColor } from "../utils/colors";
 
-const spinningStatuses = new Set([
+export const spinningStatuses = new Set([
   "provisioning",
   "Reconciling",
   "Planning",
@@ -17,7 +17,12 @@ interface Props {
 
 export default function StatusBadge({ status, size = "sm" }: Props) {
   return (
-    <Badge color={statusColor[status]} variant="light" size={size}>
+    <Badge
+      color={statusColor[status]}
+      variant="light"
+      size={size}
+      className="status-badge"
+    >
       <Group gap={4} wrap="nowrap" align="center">
         {spinningStatuses.has(status) && (
           <span className="spin">

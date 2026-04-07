@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { WatchEvent } from "../api/types";
 
 type WithMetadata = { metadata?: { uid?: string; namespace?: string; name?: string } };
@@ -7,23 +7,45 @@ function objectId(obj: WithMetadata): string {
   return obj.metadata?.uid ?? `${obj.metadata?.namespace}/${obj.metadata?.name}`;
 }
 
-// useSSEFiltered manages a list of raw API objects via SSE.
-// The server is expected to handle filtering via query params in the URL.
-// fetchItems is called on reconnect to re-sync.
 export function useSSEFiltered<T extends WithMetadata>(
   url: string,
   initial: T[],
   fetchItems?: () => Promise<T[]>
-): T[] {
+): [T[], Set<string>] {
   const [items, setItems] = useState<T[]>(initial);
+  const [changedIds, setChangedIds] = useState<Set<string>>(new Set());
+  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const fetchItemsRef = useRef(fetchItems);
 
   useEffect(() => {
     fetchItemsRef.current = fetchItems;
   });
 
+  const markChanged = useCallback((id: string) => {
+    const existing = timersRef.current.get(id);
+    if (existing) clearTimeout(existing);
+
+    setChangedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+
+    const timer = setTimeout(() => {
+      timersRef.current.delete(id);
+      setChangedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, 500);
+
+    timersRef.current.set(id, timer);
+  }, []);
+
   useEffect(() => {
     const source = new EventSource(url);
+    const timers = timersRef.current;
     let opened = false;
 
     source.onopen = () => {
@@ -43,8 +65,11 @@ export function useSSEFiltered<T extends WithMetadata>(
       setItems((prev) => {
         switch (event.type) {
           case "ADDED":
-            return prev.some((r) => objectId(r) === uid) ? prev : [...prev, event.object!];
+            if (prev.some((r) => objectId(r) === uid)) return prev;
+            markChanged(uid);
+            return [...prev, event.object!];
           case "MODIFIED":
+            markChanged(uid);
             return prev.map((r) => (objectId(r) === uid ? event.object! : r));
           case "DELETED":
             return prev.filter((r) => objectId(r) !== uid);
@@ -54,9 +79,13 @@ export function useSSEFiltered<T extends WithMetadata>(
       });
     };
 
-    return () => source.close();
-  }, [url]);
+    return () => {
+      source.close();
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
+  }, [url, markChanged]);
 
-  return items;
+  return [items, changedIds];
 }
 

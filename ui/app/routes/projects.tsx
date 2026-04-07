@@ -1,8 +1,8 @@
-import { Badge, Group, Stack, Text } from "@mantine/core";
+import { Badge, Stack, Text } from "@mantine/core";
 import { useLoaderData } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
+import PageTagline from "../components/PageTagline";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
-import KubeBadge from "../components/KubeBadge";
 import apiClient from "../api/client";
 import type { Project } from "../api/types";
 import { useSSEList } from "../hooks/useSSEList";
@@ -68,17 +68,11 @@ const columns: ColumnDef<ProjectRow>[] = [
         </Badge>
       ),
   },
-  {
-    key: "namespace",
-    label: "Kubernetes Namespace",
-    sortField: "namespace",
-    render: (p) => <KubeBadge label={p.namespace} />,
-  },
 ];
 
 export default function Projects() {
   const initial = useLoaderData<typeof clientLoader>();
-  const projects = useSSEList<Project, ProjectRow>(
+  const [projects, changedIds] = useSSEList<Project, ProjectRow>(
     "/apis/magosproject.io/v1alpha1/projects/events",
     initial,
     toProjectRow,
@@ -88,26 +82,7 @@ export default function Projects() {
   return (
     <Stack gap="md">
       <Breadcrumbs crumbs={[{ label: "Projects" }]} />
-      <Group gap={4} align="center">
-        <Text
-          size="xl"
-          fw={700}
-          variant="gradient"
-          gradient={{ from: "magos.4", to: "magos.7", deg: 45 }}
-          style={{ fontFamily: "monospace", letterSpacing: -0.5 }}
-        >
-          // isolated blast radiuses
-        </Text>
-        <Text
-          className="blinking-cursor"
-          size="xl"
-          fw={700}
-          c="magos.5"
-          style={{ fontFamily: "monospace" }}
-        >
-          _
-        </Text>
-      </Group>
+      <PageTagline text="// isolated blast radiuses" />
       <ResourceList
         items={projects}
         searchKey="name"
@@ -115,6 +90,7 @@ export default function Projects() {
         toHref={(p) => `/projects/${p.namespace}/${p.name}`}
         defaultView="row"
         hideViewToggle
+        flashIds={changedIds}
       />
     </Stack>
   );
