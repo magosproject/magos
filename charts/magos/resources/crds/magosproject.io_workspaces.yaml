@@ -69,6 +69,15 @@ spec:
                       Annotations to add to the Job's pod template. Merged on top of
                       spec.annotations; values here win on conflict.
                     type: object
+                  timeoutSeconds:
+                    description: |-
+                      TimeoutSeconds sets the activeDeadlineSeconds on the Kubernetes Job.
+                      If the Job does not finish within this duration, Kubernetes marks it
+                      as Failed, preventing a Workspace from being stuck in Planning or
+                      Applying indefinitely. When unset, DefaultJobTimeoutSeconds (86400) is
+                      used.
+                    format: int64
+                    type: integer
                 type: object
               autoApply:
                 default: true
@@ -85,6 +94,15 @@ spec:
                       Annotations to add to the Job's pod template. Merged on top of
                       spec.annotations; values here win on conflict.
                     type: object
+                  timeoutSeconds:
+                    description: |-
+                      TimeoutSeconds sets the activeDeadlineSeconds on the Kubernetes Job.
+                      If the Job does not finish within this duration, Kubernetes marks it
+                      as Failed, preventing a Workspace from being stuck in Planning or
+                      Applying indefinitely. When unset, DefaultJobTimeoutSeconds (86400) is
+                      used.
+                    format: int64
+                    type: integer
                 type: object
               projectRef:
                 description: ProjectRef is a reference to the project this workspace
