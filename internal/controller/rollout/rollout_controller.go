@@ -191,7 +191,7 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 				if !isFullyApplied || hasReconcileRequest || ws.Status.Phase == "" || ws.Status.Phase == v1alpha1.PhasePending {
 					hasPermission := false
 					if ws.Annotations != nil {
-						hasPermission = ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == "true"
+						hasPermission = ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == v1alpha1.AnnotationValueTrue
 					}
 
 					if !hasPermission {
@@ -207,7 +207,7 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 							if latestWS.Annotations == nil {
 								latestWS.Annotations = make(map[string]string)
 							}
-							latestWS.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] = "true"
+							latestWS.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] = v1alpha1.AnnotationValueTrue
 							if err := r.Update(ctx, latestWS); err != nil {
 								logger.Error(err, "Failed to update workspace with execution permission", "workspace", ws.Name)
 							}
@@ -248,7 +248,7 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 				if _, ok := activeStepWorkspaces[ws.UID]; ok {
 					continue
 				}
-				if ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == "true" {
+				if ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == v1alpha1.AnnotationValueTrue {
 					logger.Info("Revoking execution permission from workspace in later step", "workspace", ws.Name, "step", step.Name)
 					latestWS := &v1alpha1.Workspace{}
 					if err := r.Get(ctx, client.ObjectKeyFromObject(&ws), latestWS); err == nil {

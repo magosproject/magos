@@ -188,7 +188,7 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *v1alp
 		// in an unnecessary API update and another reconcile of the Workspace.
 		isAllowed := false
 		if ws.Annotations != nil {
-			isAllowed = ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == "true"
+			isAllowed = ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == v1alpha1.AnnotationValueTrue
 		}
 
 		if isAllowed {
@@ -221,7 +221,7 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *v1alp
 				if latestWS.Annotations == nil {
 					latestWS.Annotations = make(map[string]string)
 				}
-				latestWS.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] = "true"
+				latestWS.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] = v1alpha1.AnnotationValueTrue
 				if err := r.Update(ctx, latestWS); err != nil {
 					logger.Error(err, "Failed to grant execution permission to workspace", "workspace", ws.Name)
 				}

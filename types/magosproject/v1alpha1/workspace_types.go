@@ -21,6 +21,9 @@ import (
 )
 
 const (
+	// AnnotationValueTrue is the canonical string used for boolean "true" annotation values.
+	AnnotationValueTrue = "true"
+
 	// WorkspaceFinalizerName is the finalizer added to Workspace resources
 	WorkspaceFinalizerName = "magosproject.io/finalizer"
 

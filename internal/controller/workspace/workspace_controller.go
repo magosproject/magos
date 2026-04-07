@@ -490,7 +490,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// sets the annotation.
 	isAllowed := false
 	if workspace.Annotations != nil {
-		isAllowed = workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == "true"
+		isAllowed = workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == v1alpha1.AnnotationValueTrue
 	}
 
 	if !isAllowed {
@@ -591,7 +591,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		if errors.IsNotFound(applyJobGetErr) {
 			// Apply job doesn't exist yet, check if we have approval to proceed
 			isApproved := workspace.Spec.AutoApply
-			if workspace.Annotations != nil && workspace.Annotations[v1alpha1.WorkspaceApprovedAnnotation] == "true" {
+			if workspace.Annotations != nil && workspace.Annotations[v1alpha1.WorkspaceApprovedAnnotation] == v1alpha1.AnnotationValueTrue {
 				isApproved = true
 			}
 
