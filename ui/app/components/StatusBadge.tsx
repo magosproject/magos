@@ -21,7 +21,6 @@ export default function StatusBadge({ status, size = "sm" }: Props) {
       color={statusColor[status]}
       variant="light"
       size={size}
-      className="status-badge"
     >
       <Group gap={4} wrap="nowrap" align="center">
         {spinningStatuses.has(status) && (

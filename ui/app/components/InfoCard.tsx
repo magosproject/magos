@@ -13,7 +13,7 @@ export default function InfoCard({ label, children, className, style }: InfoCard
     <Stack
       gap={4}
       p="sm"
-      className={`info-card${className ? ` ${className}` : ""}`}
+      className={className}
       style={{
         border: "1px solid var(--mantine-color-default-border)",
         borderRadius: "var(--mantine-radius-md)",

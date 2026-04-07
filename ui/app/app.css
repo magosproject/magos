@@ -31,15 +31,6 @@ body {
   border-color: var(--mantine-color-magos-5);
 }
 
-.blinking-cursor {
-  animation: blink 1s step-end infinite;
-}
-
-@keyframes blink {
-  50% {
-    opacity: 0;
-  }
-}
 
 @keyframes pulse {
   0% {
@@ -96,7 +87,6 @@ body {
   border-color: var(--mantine-color-red-7);
   box-shadow: 0 0 0 1px var(--mantine-color-red-7);
 }
-
 
 
 @keyframes flash-highlight {
