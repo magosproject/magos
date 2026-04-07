@@ -25,22 +25,12 @@ body {
 
 .resource-card {
   border-color: var(--mantine-color-magos-9);
-  transition: border-color 150ms ease;
 }
 
 .resource-card:hover {
   border-color: var(--mantine-color-magos-5);
 }
 
-.blinking-cursor {
-  animation: blink 1s step-end infinite;
-}
-
-@keyframes blink {
-  50% {
-    opacity: 0;
-  }
-}
 
 @keyframes pulse {
   0% {
@@ -64,9 +54,6 @@ body {
   height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
-  transition:
-    transform 150ms ease,
-    box-shadow 150ms ease;
 }
 
 /* Connector line between pipeline steps */
@@ -75,7 +62,6 @@ body {
   flex: 1;
   min-width: 8px;
   max-width: 24px;
-  transition: background-color 150ms ease;
 }
 
 /* Step pipeline node used on the detail page (ReactFlow custom node) */
@@ -86,9 +72,6 @@ body {
   background: var(--mantine-color-body);
   width: 220px;
   overflow: hidden;
-  transition:
-    border-color 200ms ease,
-    box-shadow 200ms ease;
 }
 
 .step-pipeline-node[data-status="completed"] {
@@ -105,9 +88,24 @@ body {
   box-shadow: 0 0 0 1px var(--mantine-color-red-7);
 }
 
+
+@keyframes flash-highlight {
+  0%, 15% {
+    background-color: var(--flash-color, rgba(244, 224, 94, 0.18));
+  }
+}
+
+.flash-highlight {
+  animation: flash-highlight 500ms ease-in;
+}
+
+tr.flash-highlight > td {
+  animation: flash-highlight 500ms ease-in;
+}
+
 /* Label selector key=value chip */
 .label-chip {
-  font-family: var(--mantine-font-family-monospace, monospace);
+  font-family: var(--mantine-font-family-monospace, monospace), serif;
   font-size: 11px;
   letter-spacing: -0.3px;
   background: var(--mantine-color-dark-7);

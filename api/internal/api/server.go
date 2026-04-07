@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -8,9 +9,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/magosproject/magos/api/internal/api/handlers"
 	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
+	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
 	"github.com/magosproject/magos/api/internal/service"
 
 	"k8s.io/client-go/rest"
@@ -35,10 +38,15 @@ type Server struct {
 
 // NewServer creates a new API server with the given Kubernetes client.
 func NewServer(logger *slog.Logger, vc versioned.Interface, allowedOrigin string) *Server {
-	projectSvc := service.NewProjectService(logger, vc)
-	workspaceSvc := service.NewWorkspaceService(logger, vc)
-	rolloutSvc := service.NewRolloutService(logger, vc)
-	variableSetSvc := service.NewVariableSetService(logger, vc)
+	factory := externalversions.NewSharedInformerFactory(vc, 5*time.Minute)
+
+	projectSvc := service.NewProjectService(logger, factory)
+	workspaceSvc := service.NewWorkspaceService(logger, factory)
+	rolloutSvc := service.NewRolloutService(logger, factory)
+	variableSetSvc := service.NewVariableSetService(logger, factory)
+
+	factory.Start(context.Background().Done())
+
 	return &Server{
 		logger:             logger,
 		allowedOrigin:      allowedOrigin,
@@ -107,10 +115,12 @@ func (s *Server) Router() http.Handler {
 
 	// Rollouts
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/rollouts", s.rolloutHandler.List)
+	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/rollouts/events", s.rolloutHandler.Events)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/rollouts/{namespace}/{name}", s.rolloutHandler.Get)
 
 	// VariableSets
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/variablesets", s.variableSetHandler.List)
+	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/variablesets/events", s.variableSetHandler.Events)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/variablesets/{namespace}/{name}", s.variableSetHandler.Get)
 
 	// Wrap with middleware

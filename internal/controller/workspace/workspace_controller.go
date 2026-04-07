@@ -202,6 +202,9 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if res.RequeueAfter == 0 {
 		res.RequeueAfter = r.getSyncInterval(workspace)
 	}
+
+	r.updateNextReconcileTime(ctx, workspace, res.RequeueAfter)
+
 	return res, nil
 }
 
@@ -921,6 +924,33 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 
 	if err != nil {
 		log.FromContext(ctx).Error(err, "Failed to update workspace status")
+	}
+}
+
+// updateNextReconcileTime writes the expected next reconciliation time into
+// the Workspace status so that the UI can display when the next sync will
+// happen.
+func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, workspace *v1alpha1.Workspace, requeueAfter time.Duration) {
+	next := metav1.NewTime(time.Now().Add(requeueAfter))
+
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &v1alpha1.Workspace{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(workspace), latest); err != nil {
+			return err
+		}
+
+		latest.Status.NextReconcileTime = &next
+		if err := r.Status().Update(ctx, latest); err != nil {
+			return err
+		}
+
+		workspace.Status = latest.Status
+		workspace.ResourceVersion = latest.ResourceVersion
+		return nil
+	})
+
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to update next reconcile time")
 	}
 }
 

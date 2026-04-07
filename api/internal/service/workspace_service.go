@@ -3,10 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
-	"sync"
-	"time"
 
-	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
 	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/magosproject/v1alpha1"
 	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
@@ -29,32 +26,28 @@ type WorkspaceService interface {
 }
 
 type workspaceService struct {
-	logger      *slog.Logger
-	factory     externalversions.SharedInformerFactory
-	informer    cache.SharedIndexInformer
-	lister      listerv1alpha1.WorkspaceLister
-	mu          sync.Mutex
-	subscribers map[chan WorkspaceEvent]struct{}
+	logger   *slog.Logger
+	informer cache.SharedIndexInformer
+	lister   listerv1alpha1.WorkspaceLister
+	events   *Broadcaster[WorkspaceEvent]
 }
 
-func NewWorkspaceService(logger *slog.Logger, client versioned.Interface) WorkspaceService {
-	factory := externalversions.NewSharedInformerFactory(client, 5*time.Minute)
+func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory) WorkspaceService {
 	workspaceInformer := factory.Magosproject().V1alpha1().Workspaces()
 
 	svc := &workspaceService{
-		logger:      logger,
-		lister:      workspaceInformer.Lister(),
-		informer:    workspaceInformer.Informer(),
-		factory:     factory,
-		subscribers: make(map[chan WorkspaceEvent]struct{}),
+		logger:   logger,
+		lister:   workspaceInformer.Lister(),
+		informer: workspaceInformer.Informer(),
+		events:   NewBroadcaster[WorkspaceEvent](),
 	}
 
 	workspaceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			svc.broadcast(WorkspaceEvent{Type: watch.Added, Object: obj.(*apiv1alpha1.Workspace)})
+			svc.events.Send(WorkspaceEvent{Type: watch.Added, Object: obj.(*apiv1alpha1.Workspace)})
 		},
 		UpdateFunc: func(_, obj interface{}) {
-			svc.broadcast(WorkspaceEvent{Type: watch.Modified, Object: obj.(*apiv1alpha1.Workspace)})
+			svc.events.Send(WorkspaceEvent{Type: watch.Modified, Object: obj.(*apiv1alpha1.Workspace)})
 		},
 		DeleteFunc: func(obj interface{}) {
 			workspace, ok := obj.(*apiv1alpha1.Workspace)
@@ -68,11 +61,9 @@ func NewWorkspaceService(logger *slog.Logger, client versioned.Interface) Worksp
 					return
 				}
 			}
-			svc.broadcast(WorkspaceEvent{Type: watch.Deleted, Object: workspace})
+			svc.events.Send(WorkspaceEvent{Type: watch.Deleted, Object: workspace})
 		},
 	})
-
-	svc.factory.Start(context.Background().Done())
 
 	return svc
 }
@@ -82,31 +73,7 @@ func (s *workspaceService) HasSynced() bool {
 }
 
 func (s *workspaceService) Watch(ctx context.Context) <-chan WorkspaceEvent {
-	ch := make(chan WorkspaceEvent, 64)
-	s.mu.Lock()
-	s.subscribers[ch] = struct{}{}
-	s.mu.Unlock()
-
-	go func() {
-		<-ctx.Done()
-		s.mu.Lock()
-		delete(s.subscribers, ch)
-		close(ch)
-		s.mu.Unlock()
-	}()
-
-	return ch
-}
-
-func (s *workspaceService) broadcast(event WorkspaceEvent) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for ch := range s.subscribers {
-		select {
-		case ch <- event:
-		default:
-		}
-	}
+	return s.events.Subscribe(ctx)
 }
 
 func (s *workspaceService) List(_ context.Context) ([]*apiv1alpha1.Workspace, error) {

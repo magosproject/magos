@@ -13,7 +13,6 @@ interface Props {
 export default function Breadcrumbs({ crumbs }: Props) {
   return (
     <MantineBreadcrumbs
-      mb="md"
       separatorMargin={6}
       separator={
         <Text size="sm" lh={1} c="dimmed">

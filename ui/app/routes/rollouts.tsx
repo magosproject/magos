@@ -2,11 +2,13 @@ import { Box, Group, Stack, Text, Tooltip } from "@mantine/core";
 import type { CSSProperties } from "react";
 import { useLoaderData } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
+import PageTagline from "../components/PageTagline";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
 import StatusBadge from "../components/StatusBadge";
-import KubeBadge from "../components/KubeBadge";
-import { statusColor } from "../utils/colors";
+import { statusColor, flashColorVar } from "../utils/colors";
 import apiClient from "../api/client";
+import type { Rollout } from "../api/types";
+import { useSSEList } from "../hooks/useSSEList";
 
 export function meta() {
   return [{ title: "Rollouts – magos" }];
@@ -25,18 +27,20 @@ type RolloutRow = {
 
 export async function clientLoader() {
   const { data } = await apiClient.GET("/apis/magosproject.io/v1alpha1/rollouts");
-  return (data ?? []).map(
-    (ro): RolloutRow => ({
-      id: ro.metadata?.uid ?? `${ro.metadata?.namespace}/${ro.metadata?.name}`,
-      name: ro.metadata?.name ?? "",
-      namespace: ro.metadata?.namespace ?? "",
-      phase: ro.status?.phase ?? "",
-      projectRef: ro.spec?.projectRef ?? "",
-      currentStep: ro.status?.currentStep ?? 0,
-      totalSteps: ro.spec?.strategy?.steps?.length ?? 0,
-      steps: ro.spec?.strategy?.steps?.map((s) => ({ name: s.name ?? "" })) ?? [],
-    })
-  );
+  return (data ?? []).map(toRolloutRow);
+}
+
+function toRolloutRow(ro: Rollout): RolloutRow {
+  return {
+    id: ro.metadata?.uid ?? `${ro.metadata?.namespace}/${ro.metadata?.name}`,
+    name: ro.metadata?.name ?? "",
+    namespace: ro.metadata?.namespace ?? "",
+    phase: ro.status?.phase ?? "",
+    projectRef: ro.spec?.projectRef ?? "",
+    currentStep: ro.status?.currentStep ?? 0,
+    totalSteps: ro.spec?.strategy?.steps?.length ?? 0,
+    steps: ro.spec?.strategy?.steps?.map((s) => ({ name: s.name ?? "" })) ?? [],
+  };
 }
 
 function StepPipeline({ rollout }: { rollout: RolloutRow }) {
@@ -112,45 +116,29 @@ const columns: ColumnDef<RolloutRow>[] = [
       <Group gap="sm" align="center" wrap="nowrap">
         <StepPipeline rollout={ro} />
         <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
-          {Math.min(ro.currentStep + 1, ro.totalSteps)}/{ro.totalSteps}
+          {ro.phase === "Applied" ? ro.totalSteps : ro.currentStep}/{ro.totalSteps}
         </Text>
       </Group>
     ),
   },
-  {
-    key: "namespace",
-    label: "Kubernetes Namespace",
-    sortField: "namespace",
-    render: (ro) => <KubeBadge label={ro.namespace} />,
-  },
 ];
 
 export default function Rollouts() {
-  const rollouts = useLoaderData<typeof clientLoader>();
+  const initial = useLoaderData<typeof clientLoader>();
+  const [rollouts, changedIds] = useSSEList<Rollout, RolloutRow>(
+    "/apis/magosproject.io/v1alpha1/rollouts/events",
+    initial,
+    toRolloutRow,
+    clientLoader
+  );
+
+  const getFlashStyle = (ro: RolloutRow) =>
+    ({ "--flash-color": flashColorVar(ro.phase) }) as CSSProperties;
 
   return (
     <Stack gap="md">
       <Breadcrumbs crumbs={[{ label: "Rollouts" }]} />
-      <Group gap={4} align="center">
-        <Text
-          size="xl"
-          fw={700}
-          variant="gradient"
-          gradient={{ from: "magos.4", to: "magos.7", deg: 45 }}
-          style={{ fontFamily: "monospace", letterSpacing: -0.5 }}
-        >
-          // sequential precision
-        </Text>
-        <Text
-          className="blinking-cursor"
-          size="xl"
-          fw={700}
-          c="magos.5"
-          style={{ fontFamily: "monospace" }}
-        >
-          _
-        </Text>
-      </Group>
+      <PageTagline text="// sequential precision" />
       <ResourceList
         items={rollouts}
         searchKey="name"
@@ -158,6 +146,8 @@ export default function Rollouts() {
         toHref={(ro) => `/rollouts/${ro.namespace}/${ro.name}`}
         defaultView="row"
         hideViewToggle
+        flashIds={changedIds}
+        getFlashStyle={getFlashStyle}
       />
     </Stack>
   );

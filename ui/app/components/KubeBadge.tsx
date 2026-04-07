@@ -1,5 +1,4 @@
 import { Badge } from "@mantine/core";
-import { IconHexagon } from "@tabler/icons-react";
 
 interface KubeBadgeProps {
   label: string;
@@ -10,8 +9,7 @@ export default function KubeBadge({ label }: KubeBadgeProps) {
     <Badge
       variant="outline"
       color="blue"
-      leftSection={<IconHexagon size={12} />}
-      styles={{ root: { textTransform: "none" } }}
+      styles={{ root: { textTransform: "none", fontFamily: "monospace", letterSpacing: -0.3 } }}
     >
       {label}
     </Badge>

@@ -1,9 +1,11 @@
-import { Badge, Group, Stack, Text } from "@mantine/core";
+import { Badge, Stack, Text } from "@mantine/core";
 import { useLoaderData } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
-import KubeBadge from "../components/KubeBadge";
+import PageTagline from "../components/PageTagline";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
 import apiClient from "../api/client";
+import type { VariableSet } from "../api/types";
+import { useSSEList } from "../hooks/useSSEList";
 
 export function meta() {
   return [{ title: "Variable Sets – magos" }];
@@ -18,14 +20,16 @@ type VariableSetRow = {
 
 export async function clientLoader() {
   const { data } = await apiClient.GET("/apis/magosproject.io/v1alpha1/variablesets");
-  return (data ?? []).map(
-    (vs): VariableSetRow => ({
-      id: vs.metadata?.uid ?? `${vs.metadata?.namespace}/${vs.metadata?.name}`,
-      name: vs.metadata?.name ?? "",
-      namespace: vs.metadata?.namespace ?? "",
-      conditionCount: vs.status?.conditions?.length ?? 0,
-    })
-  );
+  return (data ?? []).map(toVariableSetRow);
+}
+
+function toVariableSetRow(vs: VariableSet): VariableSetRow {
+  return {
+    id: vs.metadata?.uid ?? `${vs.metadata?.namespace}/${vs.metadata?.name}`,
+    name: vs.metadata?.name ?? "",
+    namespace: vs.metadata?.namespace ?? "",
+    conditionCount: vs.status?.conditions?.length ?? 0,
+  };
 }
 
 const columns: ColumnDef<VariableSetRow>[] = [
@@ -53,40 +57,21 @@ const columns: ColumnDef<VariableSetRow>[] = [
         </Badge>
       ),
   },
-  {
-    key: "namespace",
-    label: "Kubernetes Namespace",
-    sortField: "namespace",
-    render: (vs) => <KubeBadge label={vs.namespace} />,
-  },
 ];
 
 export default function VariableSets() {
-  const variableSets = useLoaderData<typeof clientLoader>();
+  const initial = useLoaderData<typeof clientLoader>();
+  const [variableSets, changedIds] = useSSEList<VariableSet, VariableSetRow>(
+    "/apis/magosproject.io/v1alpha1/variablesets/events",
+    initial,
+    toVariableSetRow,
+    clientLoader
+  );
 
   return (
     <Stack gap="md">
       <Breadcrumbs crumbs={[{ label: "Variable Sets" }]} />
-      <Group gap={4} align="center">
-        <Text
-          size="xl"
-          fw={700}
-          variant="gradient"
-          gradient={{ from: "magos.4", to: "magos.7", deg: 45 }}
-          style={{ fontFamily: "monospace", letterSpacing: -0.5 }}
-        >
-          // hardcoded no more
-        </Text>
-        <Text
-          className="blinking-cursor"
-          size="xl"
-          fw={700}
-          c="magos.5"
-          style={{ fontFamily: "monospace" }}
-        >
-          _
-        </Text>
-      </Group>
+      <PageTagline text="// hardcoded no more" />
       <ResourceList
         items={variableSets}
         searchKey="name"
@@ -94,6 +79,7 @@ export default function VariableSets() {
         toHref={(vs) => `/variable-sets/${vs.namespace}/${vs.name}`}
         defaultView="row"
         hideViewToggle
+        flashIds={changedIds}
       />
     </Stack>
   );

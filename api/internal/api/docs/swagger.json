@@ -90,6 +90,28 @@
                 },
                 "type": "object"
             },
+            "service.RolloutEvent": {
+                "properties": {
+                    "object": {
+                        "$ref": "#/components/schemas/v1alpha1.Rollout"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/watch.EventType"
+                    }
+                },
+                "type": "object"
+            },
+            "service.VariableSetEvent": {
+                "properties": {
+                    "object": {
+                        "$ref": "#/components/schemas/v1alpha1.VariableSet"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/watch.EventType"
+                    }
+                },
+                "type": "object"
+            },
             "service.WorkspaceEvent": {
                 "properties": {
                     "object": {
@@ -458,6 +480,20 @@
                 },
                 "type": "object"
             },
+            "v1alpha1.Rollout": {
+                "properties": {
+                    "metadata": {
+                        "$ref": "#/components/schemas/v1.ObjectMeta"
+                    },
+                    "spec": {
+                        "$ref": "#/components/schemas/v1alpha1.RolloutSpec"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/v1alpha1.RolloutStatus"
+                    }
+                },
+                "type": "object"
+            },
             "v1alpha1.RolloutSpec": {
                 "description": "spec defines the desired state of Rollout\n+required",
                 "properties": {
@@ -562,6 +598,20 @@
                 },
                 "type": "object"
             },
+            "v1alpha1.VariableSet": {
+                "properties": {
+                    "metadata": {
+                        "$ref": "#/components/schemas/v1.ObjectMeta"
+                    },
+                    "spec": {
+                        "$ref": "#/components/schemas/v1alpha1.VariableSetSpec"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/v1alpha1.VariableSetStatus"
+                    }
+                },
+                "type": "object"
+            },
             "v1alpha1.VariableSetReference": {
                 "properties": {
                     "name": {
@@ -658,6 +708,10 @@
                     },
                     "message": {
                         "description": "Message is a human-readable explanation of the current phase\n+optional",
+                        "type": "string"
+                    },
+                    "nextReconcileTime": {
+                        "description": "NextReconcileTime is the expected time of the next scheduled reconciliation\n+optional",
                         "type": "string"
                     },
                     "observedRevision": {
@@ -854,6 +908,27 @@
                 ]
             }
         },
+        "/apis/magosproject.io/v1alpha1/rollouts/events": {
+            "get": {
+                "description": "Server-Sent Events stream of Rollout changes. Each event is a JSON-encoded RolloutEvent.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/service.RolloutEvent"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Stream Rollout events",
+                "tags": [
+                    "Rollout"
+                ]
+            }
+        },
         "/apis/magosproject.io/v1alpha1/rollouts/{namespace}/{name}": {
             "get": {
                 "parameters": [
@@ -942,6 +1017,27 @@
                     }
                 },
                 "summary": "List VariableSet resources",
+                "tags": [
+                    "VariableSet"
+                ]
+            }
+        },
+        "/apis/magosproject.io/v1alpha1/variablesets/events": {
+            "get": {
+                "description": "Server-Sent Events stream of VariableSet changes. Each event is a JSON-encoded VariableSetEvent.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/service.VariableSetEvent"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Stream VariableSet events",
                 "tags": [
                     "VariableSet"
                 ]
@@ -1042,7 +1138,17 @@
         },
         "/apis/magosproject.io/v1alpha1/workspaces/events": {
             "get": {
-                "description": "Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent.",
+                "description": "Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent. Use ?projectRef=name to filter by project.",
+                "parameters": [
+                    {
+                        "description": "Filter by project name",
+                        "in": "query",
+                        "name": "projectRef",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "content": {

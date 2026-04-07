@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WatchEvent } from "../api/types";
 
-export function useSSEList<TApi, TRow extends { id: string }>(
+type WithMetadata = { metadata?: { uid?: string; namespace?: string; name?: string } };
+
+function objectId(obj: WithMetadata): string {
+  return obj.metadata?.uid ?? `${obj.metadata?.namespace}/${obj.metadata?.name}`;
+}
+
+export function useSSEFiltered<T extends WithMetadata>(
   url: string,
-  initial: TRow[],
-  toRow: (item: TApi) => TRow,
-  fetchItems?: () => Promise<TRow[]>
-): [TRow[], Set<string>] {
-  const [items, setItems] = useState<TRow[]>(initial);
+  initial: T[],
+  fetchItems?: () => Promise<T[]>
+): [T[], Set<string>] {
+  const [items, setItems] = useState<T[]>(initial);
   const [changedIds, setChangedIds] = useState<Set<string>>(new Set());
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const toRowRef = useRef(toRow);
   const fetchItemsRef = useRef(fetchItems);
 
   useEffect(() => {
-    toRowRef.current = toRow;
     fetchItemsRef.current = fetchItems;
   });
 
@@ -53,24 +56,23 @@ export function useSSEList<TApi, TRow extends { id: string }>(
     };
 
     source.onmessage = (ev: MessageEvent<string>) => {
-      const event: WatchEvent<TApi> = JSON.parse(ev.data);
+      const event: WatchEvent<T> = JSON.parse(ev.data);
       if (!event.type || !event.object) return;
       if (event.type === "BOOKMARK") return;
 
-      const row = toRowRef.current(event.object);
+      const uid = objectId(event.object);
 
       setItems((prev) => {
         switch (event.type) {
           case "ADDED":
-            if (prev.some((r) => r.id === row.id)) return prev;
-            markChanged(row.id);
-            return [...prev, row];
+            if (prev.some((r) => objectId(r) === uid)) return prev;
+            markChanged(uid);
+            return [...prev, event.object!];
           case "MODIFIED":
-          case "ERROR":
-            markChanged(row.id);
-            return prev.map((r) => (r.id === row.id ? row : r));
+            markChanged(uid);
+            return prev.map((r) => (objectId(r) === uid ? event.object! : r));
           case "DELETED":
-            return prev.filter((r) => r.id !== row.id);
+            return prev.filter((r) => objectId(r) !== uid);
           default:
             return prev;
         }
@@ -86,3 +88,4 @@ export function useSSEList<TApi, TRow extends { id: string }>(
 
   return [items, changedIds];
 }
+

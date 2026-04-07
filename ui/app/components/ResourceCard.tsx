@@ -10,8 +10,8 @@ import {
   useMantineTheme,
 } from "@mantine/core";
 import { IconRefresh } from "@tabler/icons-react";
-import { useNavigate } from "react-router";
-import { type ReactNode } from "react";
+import { Link, useNavigate } from "react-router";
+import { type CSSProperties, type ReactNode } from "react";
 
 export interface ResourceCardBadge {
   label: string;
@@ -23,6 +23,7 @@ export interface ResourceCardMeta {
   icon?: ReactNode;
   label: ReactNode;
   href?: string;
+  to?: string;
 }
 
 export interface ResourceCardProps {
@@ -32,6 +33,44 @@ export interface ResourceCardProps {
   badges: ResourceCardBadge[];
   meta: ResourceCardMeta[];
   statusColor?: string;
+  borderAll?: boolean;
+  flashStyle?: CSSProperties;
+}
+
+function MetaRow({ icon, label, href, to }: ResourceCardMeta) {
+  const iconBox = icon && (
+    <Box style={{ display: "flex", alignItems: "center", color: "var(--mantine-color-dimmed)" }}>
+      {icon}
+    </Box>
+  );
+
+  let content: ReactNode;
+  if (href) {
+    content = (
+      <Anchor href={href} target="_blank" size="xs" truncate onClick={(e) => e.stopPropagation()}>
+        {label}
+      </Anchor>
+    );
+  } else if (to) {
+    content = (
+      <Anchor component={Link} to={to} size="xs" truncate onClick={(e) => e.stopPropagation()}>
+        {label}
+      </Anchor>
+    );
+  } else {
+    content = (
+      <Text size="xs" c="dimmed" truncate component="div">
+        {label}
+      </Text>
+    );
+  }
+
+  return (
+    <Group gap={8} wrap="nowrap">
+      {iconBox}
+      {content}
+    </Group>
+  );
 }
 
 export default function ResourceCard({
@@ -41,27 +80,34 @@ export default function ResourceCard({
   badges,
   meta,
   statusColor,
+  borderAll,
+  flashStyle,
 }: ResourceCardProps) {
   const navigate = useNavigate();
   const theme = useMantineTheme();
 
-  // Resolve status color to actual theme color if possible, fallback to the string
   const resolvedColor =
     statusColor && theme.colors[statusColor]
       ? theme.colors[statusColor][theme.primaryShade as number | 6]
       : statusColor;
+
+  const borderStyle = resolvedColor
+    ? borderAll
+      ? { border: `2px solid ${resolvedColor}` }
+      : { borderLeft: `4px solid ${resolvedColor}` }
+    : undefined;
 
   return (
     <Card
       withBorder
       padding="md"
       radius="md"
-      className="resource-card"
+      className={`resource-card${flashStyle ? " flash-highlight" : ""}`}
       style={{
         cursor: "pointer",
         textDecoration: "none",
-        borderLeft: resolvedColor ? `4px solid ${resolvedColor}` : undefined,
-        transition: "box-shadow 0.2s ease, transform 0.2s ease",
+        ...borderStyle,
+        ...flashStyle,
       }}
       onClick={() => navigate(to)}
     >
@@ -95,53 +141,16 @@ export default function ResourceCard({
           )}
         </Group>
 
-        <Divider />
-
-        <Stack gap={6}>
-          {meta.map((m, i) =>
-            m.href ? (
-              <Group key={i} gap={8} wrap="nowrap">
-                {m.icon && (
-                  <Box
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      color: "var(--mantine-color-dimmed)",
-                    }}
-                  >
-                    {m.icon}
-                  </Box>
-                )}
-                <Anchor
-                  href={m.href}
-                  target="_blank"
-                  size="xs"
-                  truncate
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {m.label}
-                </Anchor>
-              </Group>
-            ) : (
-              <Group key={i} gap={8} wrap="nowrap">
-                {m.icon && (
-                  <Box
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      color: "var(--mantine-color-dimmed)",
-                    }}
-                  >
-                    {m.icon}
-                  </Box>
-                )}
-                <Text size="xs" c="dimmed" truncate component="div">
-                  {m.label}
-                </Text>
-              </Group>
-            )
-          )}
-        </Stack>
+        {meta.length > 0 && (
+          <>
+            <Divider />
+            <Stack gap={6}>
+              {meta.map((m, i) => (
+                <MetaRow key={i} {...m} />
+              ))}
+            </Stack>
+          </>
+        )}
       </Stack>
     </Card>
   );
