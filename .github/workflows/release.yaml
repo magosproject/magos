@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push-images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # Upload assets
+      packages: write     # Push to ghcr.io
+      id-token: write     # Cosign signing
+    strategy:
+      matrix:
+        component:
+          - name: controller
+            dockerfile: Dockerfile
+            context: .
+          - name: ui
+            dockerfile: ui/Dockerfile
+            context: ui
+          - name: api
+            dockerfile: api/Dockerfile
+            context: .
+          - name: job
+            dockerfile: cmd/job/Dockerfile
+            context: .
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@fe104658747b27e96e4f7e80cd0a94068e53901d
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.26.1'
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.component.name }}
+          flavor: latest=true
+          tags: |
+            type=semver,pattern={{version}}
+            type=ref,event=branch
+            type=sha
+
+      - name: Build and push ${{ matrix.component.name }} image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.component.context }}
+          file: ${{ matrix.component.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with Cosign
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          set -e
+          cosign sign --yes ghcr.io/${{ github.repository }}/${{ matrix.component.name }}@${{ steps.meta.outputs.digest }}
