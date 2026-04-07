@@ -1,4 +1,4 @@
-export const apiBaseUrl = "http://localhost:8080";
+export const apiBaseUrl = "";
 
 export function apiUrl(path: string): string {
   if (/^https?:\/\//.test(path)) return path;

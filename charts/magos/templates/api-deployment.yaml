@@ -24,7 +24,12 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "magos.apiServiceAccountName" . }}
       securityContext:
-        {{- toYaml .Values.podDefaults.securityContext | nindent 8 }}
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: api
         image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
