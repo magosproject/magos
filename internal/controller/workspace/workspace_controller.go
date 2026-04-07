@@ -68,7 +68,8 @@ const (
 // WorkspaceReconciler reconciles a Workspace object
 type WorkspaceReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	JobImage string
 }
 
 // getRepoCredentials finds the Git credential Secret for a given repository
@@ -880,7 +881,7 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 					Containers: []corev1.Container{
 						{
 							Name:            "job",
-							Image:           "magos-job:local",
+							Image:           r.JobImage,
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Env:             envVars,
 							VolumeMounts: []corev1.VolumeMount{

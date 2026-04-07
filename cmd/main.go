@@ -19,6 +19,7 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
 
 	magosprojectiov1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
@@ -61,6 +62,7 @@ func main() {
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
 	var enableLeaderElection bool
+	var leaderElectionID string
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
@@ -78,6 +80,8 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.StringVar(&leaderElectionID, "leader-elect-id", "e859f84e.magosproject.io",
+		"The ID to use for leader election. Use different IDs when running multiple controller instances.")
 	flag.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
 	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
@@ -181,7 +185,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "e859f84e.magosproject.io",
+		LeaderElectionID:       leaderElectionID,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -200,9 +204,15 @@ func main() {
 	}
 
 	if enableWorkspaceController {
+		jobImage := os.Getenv("MAGOS_JOB_IMAGE")
+		if jobImage == "" {
+			setupLog.Error(fmt.Errorf("MAGOS_JOB_IMAGE must be set"), "missing required environment variable")
+			os.Exit(1)
+		}
 		if err := (&workspacecontroller.WorkspaceReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
+			Client:   mgr.GetClient(),
+			Scheme:   mgr.GetScheme(),
+			JobImage: jobImage,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Workspace")
 			os.Exit(1)
