@@ -82,6 +82,14 @@ type JobOverrides struct {
 	// spec.annotations; values here win on conflict.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// TimeoutSeconds sets the activeDeadlineSeconds on the Kubernetes Job.
+	// If the Job does not finish within this duration, Kubernetes marks it
+	// as Failed, preventing a Workspace from being stuck in Planning or
+	// Applying indefinitely. When unset, DefaultJobTimeoutSeconds (86400) is
+	// used.
+	// +optional
+	TimeoutSeconds *int64 `json:"timeoutSeconds,omitempty"`
 }
 
 // WorkspaceSpec defines the desired state of Workspace

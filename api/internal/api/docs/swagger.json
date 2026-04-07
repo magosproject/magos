@@ -377,6 +377,10 @@
                         },
                         "description": "Annotations to add to the Job's pod template. Merged on top of\nspec.annotations; values here win on conflict.\n+optional",
                         "type": "object"
+                    },
+                    "timeoutSeconds": {
+                        "description": "TimeoutSeconds sets the activeDeadlineSeconds on the Kubernetes Job.\nIf the Job does not finish within this duration, Kubernetes marks it\nas Failed, preventing a Workspace from being stuck in Planning or\nApplying indefinitely. When unset, DefaultJobTimeoutSeconds (86400) is\nused.\n+optional",
+                        "type": "integer"
                     }
                 },
                 "type": "object"

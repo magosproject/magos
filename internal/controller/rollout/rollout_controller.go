@@ -92,6 +92,7 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 	// later ones are evaluated, enforcing the sequential execution guarantee.
 	currentActiveStep := -1
 	var activeStepName string
+	activeStepWorkspaces := make(map[types.UID]struct{})
 
 	for i, step := range rollout.Spec.Strategy.Steps {
 		// Convert the step's LabelSelector to a labels.Selector so we can use
@@ -120,14 +121,16 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 			}
 		}
 
-		// If no Workspaces match this step's selector yet, the Rollout cannot
-		// make progress. This typically happens during initial setup when
-		// Workspaces haven't been created yet, or if labels were misconfigured.
-		// We park the Rollout in Pending and wait for a Workspace watch event
-		// to trigger re-evaluation.
+		// If no Workspaces match this step's selector, the Rollout cannot
+		// make progress. This is treated as a failure to prevent the Rollout
+		// from silently skipping an environment. Common causes include a
+		// Workspace YAML that failed to apply (e.g. a typo), misconfigured
+		// labels, or a Workspace that was deleted. The Rollout will
+		// automatically recover once matching Workspaces appear, since any
+		// Workspace change triggers re-evaluation via the watch.
 		if len(targetWorkspaces) == 0 {
 			rollout.Status.CurrentStep = i
-			r.updateStatus(ctx, rollout, v1alpha1.PhasePending, "WaitingForWorkspaces", "No workspaces found matching selector for step "+step.Name, metav1.ConditionUnknown)
+			r.updateStatus(ctx, rollout, v1alpha1.PhaseFailed, "NoWorkspacesFound", "No workspaces found matching selector for step "+step.Name+"; halting to prevent skipping environments", metav1.ConditionFalse)
 			return nil
 		}
 
@@ -170,6 +173,13 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 			currentActiveStep = i
 			activeStepName = step.Name
 
+			// Record all Workspaces in this step so the revocation loop below
+			// can skip them. This prevents a grant/revoke fight when a later
+			// step's selector overlaps with the active step.
+			for _, ws := range targetWorkspaces {
+				activeStepWorkspaces[ws.UID] = struct{}{}
+			}
+
 			// Grant execution permission to Workspaces in this step that still
 			// need work. The Workspace controller checks for this annotation
 			// (WorkspaceExecutionAllowedAnnotation) before starting a
@@ -207,6 +217,48 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 			}
 
 			break // Stop evaluating further steps since this one blocks the pipeline
+		}
+	}
+
+	// Revoke execution permission from Workspaces in steps after the active
+	// one. Without this, Workspaces that were granted permission in a previous
+	// rollout cycle would retain the annotation and run out of order on the
+	// next cycle.
+	if currentActiveStep >= 0 {
+		for i := currentActiveStep + 1; i < len(rollout.Spec.Strategy.Steps); i++ {
+			step := rollout.Spec.Strategy.Steps[i]
+			selector, err := metav1.LabelSelectorAsSelector(&step.Selector)
+			if err != nil {
+				continue
+			}
+
+			var workspaces v1alpha1.WorkspaceList
+			if err := r.List(ctx, &workspaces, client.InNamespace(rollout.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
+				continue
+			}
+
+			for _, ws := range workspaces.Items {
+				if ws.Spec.ProjectRef.Name != rollout.Spec.ProjectRef {
+					continue
+				}
+				// Skip Workspaces that belong to the active step. A later
+				// step's selector may overlap with the active step (e.g. both
+				// match env=dev); revoking here would undo the grant above and
+				// cause an infinite reconcile loop.
+				if _, ok := activeStepWorkspaces[ws.UID]; ok {
+					continue
+				}
+				if ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == "true" {
+					logger.Info("Revoking execution permission from workspace in later step", "workspace", ws.Name, "step", step.Name)
+					latestWS := &v1alpha1.Workspace{}
+					if err := r.Get(ctx, client.ObjectKeyFromObject(&ws), latestWS); err == nil {
+						delete(latestWS.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
+						if err := r.Update(ctx, latestWS); err != nil {
+							logger.Error(err, "Failed to revoke execution permission from workspace", "workspace", ws.Name)
+						}
+					}
+				}
+			}
 		}
 	}
 

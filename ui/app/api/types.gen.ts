@@ -1083,6 +1083,15 @@ export interface components {
             annotations?: {
                 [key: string]: string;
             };
+            /**
+             * @description TimeoutSeconds sets the activeDeadlineSeconds on the Kubernetes Job.
+             *     If the Job does not finish within this duration, Kubernetes marks it
+             *     as Failed, preventing a Workspace from being stuck in Planning or
+             *     Applying indefinitely. When unset, DefaultJobTimeoutSeconds (86400) is
+             *     used.
+             *     +optional
+             */
+            timeoutSeconds?: number;
         };
         /**
          * @description Phase represents the current phase of the Workspace

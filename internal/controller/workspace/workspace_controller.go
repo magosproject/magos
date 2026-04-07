@@ -48,6 +48,12 @@ const (
 	// reconciliations
 	DefaultReconciliationInterval = 3 * time.Minute
 
+	// DefaultJobTimeoutSeconds is the activeDeadlineSeconds applied to plan
+	// and apply Jobs when no per-phase TimeoutSeconds override is set. This
+	// prevents a Workspace from being stuck in Planning or Applying
+	// indefinitely if a Job hangs (e.g. terraform blocks on a provider call).
+	DefaultJobTimeoutSeconds int64 = 86400 // 24 hours
+
 	// Label used to identify repository credential secrets
 	RepoSecretLabelKey   = "magosproject.io/secret-type"
 	RepoSecretLabelValue = "repository"
@@ -296,21 +302,30 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// changes too, so the old Plan/Apply Jobs no longer match. We find any Jobs
 	// still owned by this Workspace that don't match the current specHash and
 	// delete them to avoid leaving stale resources in the cluster.
-	var childJobs batchv1.JobList
-	if err := r.List(ctx, &childJobs, client.InNamespace(workspace.Namespace)); err == nil {
-		for _, j := range childJobs.Items {
-			isOwned := false
-			for _, owner := range j.OwnerReferences {
-				if owner.UID == workspace.UID {
-					isOwned = true
-					break
+	//
+	// We only clean up orphaned Jobs when the Workspace is NOT actively
+	// planning or applying. Deleting a running Job mid-execution (especially
+	// during terraform apply) would corrupt Terraform state. We wait for the
+	// current Job to finish, which moves the Workspace to a terminal phase, and
+	// then the next reconcile will clean up old Jobs and start fresh with the
+	// new spec.
+	if workspace.Status.Phase != v1alpha1.PhasePlanning && workspace.Status.Phase != v1alpha1.PhaseApplying {
+		var childJobs batchv1.JobList
+		if err := r.List(ctx, &childJobs, client.InNamespace(workspace.Namespace)); err == nil {
+			for _, j := range childJobs.Items {
+				isOwned := false
+				for _, owner := range j.OwnerReferences {
+					if owner.UID == workspace.UID {
+						isOwned = true
+						break
+					}
 				}
-			}
-			// Delete Jobs that belong to this Workspace but were created for an
-			// older specHash.
-			if isOwned && j.Name != planJobName && j.Name != applyJobName {
-				logger.Info("Cleaning up orphaned job from previous run", "job", j.Name)
-				_ = r.Delete(ctx, &j, client.PropagationPolicy(metav1.DeletePropagationBackground))
+				// Delete Jobs that belong to this Workspace but were created for an
+				// older specHash.
+				if isOwned && j.Name != planJobName && j.Name != applyJobName {
+					logger.Info("Cleaning up orphaned job from previous run", "job", j.Name)
+					_ = r.Delete(ctx, &j, client.PropagationPolicy(metav1.DeletePropagationBackground))
+				}
 			}
 		}
 	}
@@ -348,12 +363,24 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	resetMessage := ""
 	var exactRequeue time.Duration
 
-	// No Jobs exist for the current specHash, yet the Workspace thinks it's
-	// past Pending. Bit of an edge-case, but it happened before.
-	// This means the spec changed (new hash) or someone manually
-	// deleted the Jobs. Either way, go back to Pending to start fresh.
+	// When the Workspace spec changes the specHash changes too, so the Plan and
+	// Apply Job names change. The GETs above will return NotFound because no
+	// Jobs with the new names exist yet. Similarly, if someone manually deletes
+	// the Jobs, both GETs return NotFound.
+	//
+	// In either case, if the phase is already past Pending (e.g. Planned,
+	// Applied, Failed) we reset back to Pending to kick off a fresh cycle.
+	//
+	// Exception: we do NOT reset when the phase is Planning or Applying. At
+	// that point a Job from the *previous* specHash may still be running. Its
+	// name no longer matches the current hash (hence the NotFound), but it is
+	// actively mutating Terraform state. Deleting it mid-run could leave state
+	// locks or partial applies (corruption). We let it finish naturally; once
+	// it completes the phase moves to a terminal state, and the next reconcile
+	// will handle the reset.
 	if planJobGetErr != nil && errors.IsNotFound(planJobGetErr) && applyJobGetErr != nil && errors.IsNotFound(applyJobGetErr) {
-		if workspace.Status.Phase != "" && workspace.Status.Phase != v1alpha1.PhasePending {
+		if workspace.Status.Phase != "" && workspace.Status.Phase != v1alpha1.PhasePending &&
+			workspace.Status.Phase != v1alpha1.PhasePlanning && workspace.Status.Phase != v1alpha1.PhaseApplying {
 			needsReset = true
 			resetReason = "ConfigurationChanged"
 			resetMessage = "Workspace spec was modified or jobs were deleted, triggering fresh execution"
@@ -428,6 +455,21 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		}
 		if applyJobGetErr == nil {
 			_ = r.Delete(ctx, &applyJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
+		}
+		// Clear the execution-allowed annotation so the Rollout controller
+		// must re-grant permission before this Workspace can run again. Each
+		// Workspace's sync interval expires based on when its own Apply Job
+		// finished, so Workspaces in earlier rollout steps reset to Pending
+		// before later ones. Without clearing this annotation, a Workspace
+		// that resets would still carry "true" from the previous cycle and
+		// immediately start planning, ignoring the rollout step order.
+		if workspace.Annotations != nil {
+			if _, ok := workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation]; ok {
+				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
+				if err := r.Update(ctx, workspace); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
 		}
 		// Delete old Jobs and go back to Pending so the Rollout controller can
 		// re-queue this Workspace for a fresh run.
@@ -769,6 +811,20 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 
 	var backoffLimit int32 = 0
 
+	// Resolve the Job timeout. Per-phase TimeoutSeconds takes precedence,
+	// otherwise fall back to the global default.
+	timeout := DefaultJobTimeoutSeconds
+	switch jobType {
+	case "plan":
+		if ws.Spec.Plan != nil && ws.Spec.Plan.TimeoutSeconds != nil {
+			timeout = *ws.Spec.Plan.TimeoutSeconds
+		}
+	case "apply":
+		if ws.Spec.Apply != nil && ws.Spec.Apply.TimeoutSeconds != nil {
+			timeout = *ws.Spec.Apply.TimeoutSeconds
+		}
+	}
+
 	// Merge shared annotations with per-phase overrides (phase wins on conflict).
 	var podAnnotations map[string]string
 	if len(ws.Spec.Annotations) > 0 {
@@ -803,7 +859,8 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 			Namespace: ws.Namespace,
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit: &backoffLimit,
+			BackoffLimit:          &backoffLimit,
+			ActiveDeadlineSeconds: &timeout,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: podAnnotations,
@@ -919,14 +976,19 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, workspace *v1alpha1.Workspace, requeueAfter time.Duration) {
 	next := metav1.NewTime(time.Now().Add(requeueAfter))
 
+	// Use a fresh context so this best-effort update isn't constrained by
+	// the reconcile context's deadline.
+	updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		latest := &v1alpha1.Workspace{}
-		if err := r.Get(ctx, client.ObjectKeyFromObject(workspace), latest); err != nil {
+		if err := r.Get(updateCtx, client.ObjectKeyFromObject(workspace), latest); err != nil {
 			return err
 		}
 
 		latest.Status.NextReconcileTime = &next
-		if err := r.Status().Update(ctx, latest); err != nil {
+		if err := r.Status().Update(updateCtx, latest); err != nil {
 			return err
 		}
 
