@@ -1,7 +1,6 @@
 import {
   AppShell,
   Anchor,
-  Avatar,
   Burger,
   ActionIcon,
   Container,
@@ -26,10 +25,10 @@ import {
   IconBraces,
   IconHexagon,
   IconArrowsShuffle,
+  IconSettings,
 } from "@tabler/icons-react";
 import { Link, Outlet, useLocation } from "react-router";
 import BlinkingCursor from "./BlinkingCursor";
-import UserAvatar from "./UserAvatar";
 
 const navItems = [
   { label: "Projects", icon: IconFolderOpen, to: "/projects" },
@@ -99,13 +98,14 @@ export default function Shell() {
     >
       <AppShell.Header style={{ borderBottom: `1px solid ${theme.colors.magos[9]}` }}>
         <Group h="100%" px="md" justify="space-between">
-          <Group gap="sm" w={navWidth - 32}>
+          <Group gap="sm">
             <Burger opened={mobileOpen} onClick={toggleMobile} hiddenFrom="sm" size="sm" />
             <Group gap="xs" wrap="nowrap" align="center">
               <IconHexagon
-                size={collapsed ? 24 : 28}
+                size={28}
                 color="var(--mantine-color-magos-5)"
                 stroke={2.5}
+                style={{ flexShrink: 0 }}
               />
               {!collapsed && (
                 <Group gap={0} align="baseline">
@@ -183,14 +183,7 @@ export default function Shell() {
           visibleFrom="sm"
           style={{ borderTop: `1px solid ${theme.colors.magos[9]}` }}
         >
-          {!collapsed && (
-            <UserAvatar name="Ramon" email="ramon@magosproject.io" />
-          )}
-          {collapsed && (
-            <Tooltip label="Ramon" position="right">
-              <Avatar size={28} color="magos" radius="xl">R</Avatar>
-            </Tooltip>
-          )}
+          {renderNavItem({ label: "Settings", icon: IconSettings, to: "/settings" })}
           <Tooltip label={collapsed ? "Expand menu" : "Collapse menu"} position="right">
             <ActionIcon
               variant="subtle"

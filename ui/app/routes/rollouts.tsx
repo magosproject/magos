@@ -1,13 +1,14 @@
 import { Box, Group, Stack, Text, Tooltip } from "@mantine/core";
 import type { CSSProperties } from "react";
 import { useLoaderData } from "react-router";
+import { resourceId, resourceName, resourceNamespace } from "../api/resource";
 import Breadcrumbs from "../components/Breadcrumbs";
 import PageTagline from "../components/PageTagline";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
 import StatusBadge from "../components/StatusBadge";
 import { statusColor, flashColorVar } from "../utils/colors";
 import apiClient from "../api/client";
-import type { Rollout } from "../api/types";
+import type { Rollout, RolloutStep } from "../api/types";
 import { useSSEList } from "../hooks/useSSEList";
 
 export function meta() {
@@ -22,7 +23,7 @@ type RolloutRow = {
   projectRef: string;
   currentStep: number;
   totalSteps: number;
-  steps: { name: string }[];
+  steps: RolloutStep[];
 };
 
 export async function clientLoader() {
@@ -32,14 +33,14 @@ export async function clientLoader() {
 
 function toRolloutRow(ro: Rollout): RolloutRow {
   return {
-    id: ro.metadata?.uid ?? `${ro.metadata?.namespace}/${ro.metadata?.name}`,
-    name: ro.metadata?.name ?? "",
-    namespace: ro.metadata?.namespace ?? "",
+    id: resourceId(ro),
+    name: resourceName(ro),
+    namespace: resourceNamespace(ro),
     phase: ro.status?.phase ?? "",
     projectRef: ro.spec?.projectRef ?? "",
     currentStep: ro.status?.currentStep ?? 0,
     totalSteps: ro.spec?.strategy?.steps?.length ?? 0,
-    steps: ro.spec?.strategy?.steps?.map((s) => ({ name: s.name ?? "" })) ?? [],
+    steps: ro.spec?.strategy?.steps ?? [],
   };
 }
 
@@ -50,6 +51,7 @@ function StepPipeline({ rollout }: { rollout: RolloutRow }) {
         const isComplete = i < rollout.currentStep || rollout.phase === "Applied";
         const isActive = rollout.phase === "Reconciling" && i === rollout.currentStep;
         const isFailed = rollout.phase === "Failed" && i === rollout.currentStep;
+        const stepName = step.name ?? `Step ${i + 1}`;
 
         let color = "var(--mantine-color-dark-4)";
         if (isComplete) color = "var(--mantine-color-green-6)";
@@ -62,11 +64,11 @@ function StepPipeline({ rollout }: { rollout: RolloutRow }) {
             : "var(--mantine-color-dark-4)";
 
         return (
-          <Group key={step.name} gap={0} wrap="nowrap" align="center">
+          <Group key={`${stepName}-${i}`} gap={0} wrap="nowrap" align="center">
             {i > 0 && (
               <Box className="step-connector" style={{ backgroundColor: connectorColor }} />
             )}
-            <Tooltip label={step.name} withArrow position="top">
+            <Tooltip label={stepName} withArrow position="top">
               <Box
                 className={`step-node${isActive ? " pulse" : ""}`}
                 style={

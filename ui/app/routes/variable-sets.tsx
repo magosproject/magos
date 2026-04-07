@@ -1,5 +1,6 @@
 import { Badge, Stack, Text } from "@mantine/core";
 import { useLoaderData } from "react-router";
+import { resourceId, resourceName, resourceNamespace } from "../api/resource";
 import Breadcrumbs from "../components/Breadcrumbs";
 import PageTagline from "../components/PageTagline";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
@@ -25,9 +26,9 @@ export async function clientLoader() {
 
 function toVariableSetRow(vs: VariableSet): VariableSetRow {
   return {
-    id: vs.metadata?.uid ?? `${vs.metadata?.namespace}/${vs.metadata?.name}`,
-    name: vs.metadata?.name ?? "",
-    namespace: vs.metadata?.namespace ?? "",
+    id: resourceId(vs),
+    name: resourceName(vs),
+    namespace: resourceNamespace(vs),
     conditionCount: vs.status?.conditions?.length ?? 0,
   };
 }

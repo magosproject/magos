@@ -2,8 +2,7 @@ import { Badge, Group } from "@mantine/core";
 import { IconRefresh } from "@tabler/icons-react";
 import { statusColor } from "../utils/colors";
 
-export const spinningStatuses = new Set([
-  "provisioning",
+export const spinningStatuses = new Set<string>([
   "Reconciling",
   "Planning",
   "Applying",

@@ -19,8 +19,7 @@ import {
   IconSelector,
 } from "@tabler/icons-react";
 import { useNavigate } from "react-router";
-import { type CSSProperties, type ReactNode } from "react";
-import ResourceCard, { type ResourceCardProps } from "./ResourceCard";
+import { type CSSProperties, Fragment, type ReactNode } from "react";
 
 type StringKeys<T> = { [K in keyof T]: T[K] extends string ? K : never }[keyof T];
 
@@ -28,17 +27,19 @@ export interface ColumnDef<T> {
   key: string;
   label: string;
   sortField?: StringKeys<T>;
+  sortValue?: (item: T) => string;
   render: (item: T) => ReactNode;
 }
 
 interface ResourceListProps<T extends { id: string }> {
   items: T[];
-  searchKey: StringKeys<T>;
+  searchKey?: StringKeys<T>;
+  getSearchText?: (item: T) => string;
   filterKey?: StringKeys<T>;
   filterColors?: Record<string, string>;
   filterLabelMap?: Record<string, string>;
   columns: ColumnDef<T>[];
-  toCard?: (item: T) => ResourceCardProps;
+  renderCard?: (item: T) => ReactNode;
   toHref: (item: T) => string;
   defaultView?: ViewMode;
   hideViewToggle?: boolean;
@@ -51,11 +52,12 @@ type ViewMode = "card" | "row";
 export default function ResourceList<T extends { id: string }>({
   items,
   searchKey,
+  getSearchText,
   filterKey,
   filterColors = {},
   filterLabelMap = {},
   columns,
-  toCard,
+  renderCard,
   toHref,
   defaultView = "card",
   hideViewToggle = false,
@@ -65,9 +67,11 @@ export default function ResourceList<T extends { id: string }>({
   const [view, setView] = useState<ViewMode>(defaultView);
   const [search, setSearch] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
-  const [sortField, setSortField] = useState<StringKeys<T> | null>(null);
+  const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const navigate = useNavigate();
+
+  const sortColumn = sortKey ? columns.find((c) => c.key === sortKey) : null;
 
   const filterValues = filterKey
     ? [...new Set(items.map((item) => item[filterKey] as string))]
@@ -76,7 +80,15 @@ export default function ResourceList<T extends { id: string }>({
   const filtered = useMemo(() => {
     const query = search.toLowerCase();
     return items
-      .filter((item) => (item[searchKey] as string).toLowerCase().includes(query))
+      .filter((item) => {
+        if (!query) return true;
+        const text = getSearchText
+          ? getSearchText(item)
+          : searchKey
+            ? (item[searchKey] as string)
+            : "";
+        return text.toLowerCase().includes(query);
+      })
       .filter(
         (item) =>
           !filterKey ||
@@ -84,23 +96,35 @@ export default function ResourceList<T extends { id: string }>({
           activeFilters.includes(item[filterKey] as string)
       )
       .sort((a, b) => {
-        if (!sortField) return 0;
-        const cmp = (a[sortField] as string).localeCompare(b[sortField] as string);
+        if (!sortColumn) return 0;
+        const aVal = sortColumn.sortValue
+          ? sortColumn.sortValue(a)
+          : sortColumn.sortField
+            ? (a[sortColumn.sortField] as string)
+            : "";
+        const bVal = sortColumn.sortValue
+          ? sortColumn.sortValue(b)
+          : sortColumn.sortField
+            ? (b[sortColumn.sortField] as string)
+            : "";
+        const cmp = aVal.localeCompare(bVal);
         return sortDir === "asc" ? cmp : -cmp;
       });
-  }, [items, search, searchKey, filterKey, activeFilters, sortField, sortDir]);
+  }, [items, search, searchKey, getSearchText, filterKey, activeFilters, sortColumn, sortDir]);
 
-  const toggleSort = (field: StringKeys<T>) => {
-    if (sortField === field) {
+  const isSortable = (col: ColumnDef<T>) => !!(col.sortField || col.sortValue);
+
+  const toggleSort = (key: string) => {
+    if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
-      setSortField(field);
+      setSortKey(key);
       setSortDir("asc");
     }
   };
 
-  const SortIcon = ({ field }: { field: StringKeys<T> }) => {
-    if (sortField !== field) return <IconSelector size={14} />;
+  const SortIcon = ({ colKey }: { colKey: string }) => {
+    if (sortKey !== colKey) return <IconSelector size={14} />;
     return sortDir === "asc" ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />;
   };
 
@@ -151,24 +175,16 @@ export default function ResourceList<T extends { id: string }>({
         )}
       </Group>
 
-      {view === "card" && toCard ? (
+      {view === "card" && renderCard ? (
         filtered.length === 0 ? (
           <Text c="dimmed" ta="center" py="xl">
             {items.length === 0 ? "Nothing here yet." : "No results match your search."}
           </Text>
         ) : (
           <SimpleGrid cols={{ base: 1, sm: 2, md: 3, lg: 4 }} spacing="md">
-            {filtered.map((item) => {
-              const isFlashing = flashIds?.has(item.id);
-              const flashStyle = isFlashing && getFlashStyle ? getFlashStyle(item) : undefined;
-              return (
-                <ResourceCard
-                  key={item.id}
-                  {...toCard(item)}
-                  flashStyle={flashStyle}
-                />
-              );
-            })}
+            {filtered.map((item) => (
+              <Fragment key={item.id}>{renderCard(item)}</Fragment>
+            ))}
           </SimpleGrid>
         )
       ) : (
@@ -178,15 +194,15 @@ export default function ResourceList<T extends { id: string }>({
               {columns.map((col) => (
                 <Table.Th
                   key={col.key}
-                  onClick={col.sortField ? () => toggleSort(col.sortField!) : undefined}
-                  style={col.sortField ? { cursor: "pointer", whiteSpace: "nowrap" } : undefined}
+                  onClick={isSortable(col) ? () => toggleSort(col.key) : undefined}
+                  style={isSortable(col) ? { cursor: "pointer", whiteSpace: "nowrap" } : undefined}
                 >
-                  {col.sortField ? (
+                  {isSortable(col) ? (
                     <Group gap={4} wrap="nowrap">
                       <Text size="sm" fw={600}>
                         {col.label}
                       </Text>
-                      <SortIcon field={col.sortField} />
+                      <SortIcon colKey={col.key} />
                     </Group>
                   ) : (
                     <Text size="sm" fw={600}>

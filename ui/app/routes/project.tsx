@@ -18,19 +18,13 @@ import StatusBadge from "~/components/StatusBadge";
 import KubeBadge from "~/components/KubeBadge";
 import ProjectLineageGraph from "~/components/ProjectLineageGraph";
 import ResourceList from "~/components/ResourceList";
+import WorkspaceCard, { toWorkspaceItem, workspaceColumns } from "~/components/WorkspaceCard";
 import apiClient from "~/api/client";
 import type { Project as ProjectType, Workspace } from "~/api/types";
 import { useSSEItem } from "~/hooks/useSSEItem";
 import { useSSEFiltered } from "~/hooks/useSSEFiltered";
 import { useFlashOnChange } from "~/hooks/useFlashOnChange";
 import { flashColorVar } from "~/utils/colors";
-import {
-  toWorkspaceRow,
-  workspaceColumns,
-  workspaceToCard,
-  workspaceToHref,
-  workspaceFlashStyle,
-} from "~/utils/workspace";
 
 export function meta({ params }: { params: { namespace: string; name: string } }) {
   return [{ title: `${params.name} – magos` }];
@@ -73,11 +67,8 @@ export default function Project() {
   );
 
   const variableSetRefs = (project.spec?.variableSetRef ?? []).map((ref) => ref.name ?? "");
-  const workspaceRows = workspaces.map(toWorkspaceRow);
+  const workspaceItems = workspaces.map(toWorkspaceItem);
 
-  const wsRowChangedIds = new Set(
-    workspaceRows.filter((r) => wsChangedIds.has(r.id)).map((r) => r.id)
-  );
   const phase = project.status?.phase ?? "";
   const flash = useFlashOnChange(phase);
   const flashStyle = { "--flash-color": flashColorVar(phase) } as CSSProperties;
@@ -142,19 +133,19 @@ export default function Project() {
         </Tabs.Panel>
 
         <Tabs.Panel value="workspaces" pt="md">
-          {workspaceRows.length === 0 ? (
+          {workspaceItems.length === 0 ? (
             <Text size="sm" c="dimmed">
               No workspaces linked to this project.
             </Text>
           ) : (
             <ResourceList
-              items={workspaceRows}
-              searchKey="name"
+              items={workspaceItems}
+              getSearchText={(ws) => ws.metadata?.name ?? ""}
               columns={workspaceColumns}
-              toCard={workspaceToCard}
-              toHref={workspaceToHref}
-              flashIds={wsRowChangedIds}
-              getFlashStyle={workspaceFlashStyle}
+              renderCard={(ws) => <WorkspaceCard workspace={ws} flash={wsChangedIds.has(ws.id)} />}
+              toHref={(ws) => `/workspaces/${ws.metadata?.namespace}/${ws.metadata?.name}`}
+              flashIds={wsChangedIds}
+              getFlashStyle={(ws) => ({ "--flash-color": flashColorVar(ws.status?.phase ?? "") }) as CSSProperties}
               defaultView="row"
             />
           )}

@@ -35,6 +35,7 @@ export interface ResourceCardProps {
   statusColor?: string;
   borderAll?: boolean;
   flashStyle?: CSSProperties;
+  width?: number | string;
 }
 
 function MetaRow({ icon, label, href, to }: ResourceCardMeta) {
@@ -82,6 +83,7 @@ export default function ResourceCard({
   statusColor,
   borderAll,
   flashStyle,
+  width,
 }: ResourceCardProps) {
   const navigate = useNavigate();
   const theme = useMantineTheme();
@@ -106,6 +108,7 @@ export default function ResourceCard({
       style={{
         cursor: "pointer",
         textDecoration: "none",
+        width,
         ...borderStyle,
         ...flashStyle,
       }}
