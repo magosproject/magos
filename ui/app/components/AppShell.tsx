@@ -19,10 +19,6 @@ import {
   IconFolderOpen,
   IconChevronsLeft,
   IconChevronsRight,
-  IconSettings,
-  IconShield,
-  IconUsers,
-  IconKey,
   IconSun,
   IconMoon,
   IconBrandGithub,
@@ -32,8 +28,8 @@ import {
   IconArrowsShuffle,
 } from "@tabler/icons-react";
 import { Link, Outlet, useLocation } from "react-router";
-import { currentUser } from "../mock-data/user";
 import BlinkingCursor from "./BlinkingCursor";
+import UserAvatar from "./UserAvatar";
 
 const navItems = [
   { label: "Projects", icon: IconFolderOpen, to: "/projects" },
@@ -42,11 +38,6 @@ const navItems = [
   { label: "Variable Sets", icon: IconBraces, to: "/variable-sets" },
 ];
 
-const adminNavItems = [
-  { label: "Users", icon: IconUsers, to: "/admin/users" },
-  { label: "Groups", icon: IconShield, to: "/admin/groups" },
-  { label: "Permissions", icon: IconKey, to: "/admin/permissions" },
-];
 
 export default function Shell() {
   const [mobileOpen, { toggle: toggleMobile }] = useDisclosure(false);
@@ -182,83 +173,24 @@ export default function Shell() {
         <Stack gap={4} p="xs" style={{ flex: 1 }}>
           {navItems.map((item) => renderNavItem(item))}
 
-          {currentUser.role === "admin" && (
-            <>
-              <div
-                style={{ borderBottom: `1px solid ${theme.colors.magos[9]}`, margin: "4px 0" }}
-              />
-              <Text
-                size="xs"
-                c="dimmed"
-                px={4}
-                style={{
-                  display: collapsed ? "none" : "block",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                }}
-              >
-                Admin
-              </Text>
-              {adminNavItems.map((item) => renderNavItem(item))}
-            </>
-          )}
+
         </Stack>
 
         <Stack
-          gap={0}
+          gap={4}
           p="xs"
-          align="stretch"
-          style={{ borderTop: `1px solid ${theme.colors.magos[9]}` }}
-        >
-          <Tooltip label={currentUser.email} position="right" disabled={!collapsed}>
-            <Group justify="space-between" px={4} py={6} wrap="nowrap" w="100%">
-              <Group gap="xs" wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
-                <Avatar size={28} color="magos" radius="xl" style={{ flexShrink: 0 }}>
-                  {currentUser.name[0]}
-                </Avatar>
-                <Stack
-                  gap={0}
-                  style={{
-                    minWidth: 0,
-                    opacity: collapsed ? 0 : 1,
-                    transition: "opacity 150ms ease",
-                    overflow: "hidden",
-                  }}
-                >
-                  <Text size="xs" fw={600} lh={1.2} truncate>
-                    {currentUser.name}
-                  </Text>
-                  <Text size="xs" c="dimmed" lh={1.2} truncate>
-                    {currentUser.email}
-                  </Text>
-                </Stack>
-              </Group>
-              <Tooltip label="Settings" disabled={collapsed}>
-                <ActionIcon
-                  component={Link}
-                  to="/settings"
-                  variant="subtle"
-                  color="magos"
-                  size="sm"
-                  style={{
-                    flexShrink: 0,
-                    opacity: collapsed ? 0 : 1,
-                    pointerEvents: collapsed ? "none" : undefined,
-                  }}
-                >
-                  <IconSettings size={16} />
-                </ActionIcon>
-              </Tooltip>
-            </Group>
-          </Tooltip>
-        </Stack>
-
-        <Stack
-          gap={0}
-          p="xs"
+          align={collapsed ? "center" : "stretch"}
           visibleFrom="sm"
           style={{ borderTop: `1px solid ${theme.colors.magos[9]}` }}
         >
+          {!collapsed && (
+            <UserAvatar name="Ramon" email="ramon@magosproject.io" />
+          )}
+          {collapsed && (
+            <Tooltip label="Ramon" position="right">
+              <Avatar size={28} color="magos" radius="xl">R</Avatar>
+            </Tooltip>
+          )}
           <Tooltip label={collapsed ? "Expand menu" : "Collapse menu"} position="right">
             <ActionIcon
               variant="subtle"

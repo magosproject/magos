@@ -12,12 +12,5 @@ export default [
     route("variable-sets", "routes/variable-sets.tsx"),
     route("variable-sets/:namespace/:name", "routes/variable-set.tsx"),
     route("settings", "routes/settings.tsx"),
-    ...prefix("admin", [
-      route("users", "routes/admin.users.tsx"),
-      route("users/:id", "routes/admin.users.$id.tsx"),
-      route("groups", "routes/admin.groups.tsx"),
-      route("groups/:id", "routes/admin.groups.$id.tsx"),
-      route("permissions", "routes/admin.permissions.tsx"),
-    ]),
   ]),
 ] satisfies RouteConfig;
