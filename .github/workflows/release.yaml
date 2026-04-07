@@ -68,6 +68,7 @@ jobs:
             type=sha
 
       - name: Build and push ${{ matrix.component.name }} image
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.component.context }}
@@ -86,4 +87,4 @@ jobs:
           COSIGN_EXPERIMENTAL: 1
         run: |
           set -e
-          cosign sign --yes ghcr.io/${{ github.repository }}/${{ matrix.component.name }}@${{ steps.meta.outputs.digest }}
+          cosign sign --yes ghcr.io/${{ github.repository }}/${{ matrix.component.name }}@${{ steps.build.outputs.digest }}
