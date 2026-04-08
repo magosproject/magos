@@ -64,7 +64,7 @@ jobs:
           images: ghcr.io/${{ github.repository }}/${{ matrix.component.name }}
           flavor: latest=true
           tags: |
-            type=semver,pattern={{version}}
+            type=semver,pattern={{raw}}
             type=ref,event=branch
             type=sha
 
@@ -119,7 +119,7 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
         run: |
-          CHART_VERSION=${VERSION#v}
+          CHART_VERSION=${VERSION}
           cd charts/magos
           helm package . --version "${CHART_VERSION}" --app-version "${VERSION}"
           helm push "magos-${CHART_VERSION}.tgz" oci://ghcr.io/${{ github.repository }}/charts
