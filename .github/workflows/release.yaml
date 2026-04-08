@@ -35,6 +35,7 @@ jobs:
         with:
           egress-policy: audit
 
+      # TODO: pin all GHA versions on sha instead of tag
       - name: Checkout code
         uses: actions/checkout@v6
 
