@@ -8,7 +8,17 @@ import {
 } from "react-router";
 import { type ReactNode } from "react";
 import type { Route } from "./+types/root";
-import { Anchor, Center, MantineProvider, Stack, Text, Title, createTheme } from "@mantine/core";
+import {
+  Anchor,
+  Center,
+  ColorSchemeScript,
+  MantineProvider,
+  Stack,
+  Text,
+  Title,
+  createTheme,
+  mantineHtmlProps,
+} from "@mantine/core";
 import "@mantine/core/styles.css";
 import "./app.css";
 
@@ -50,15 +60,16 @@ const theme = createTheme({
 
 export function Layout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" {...mantineHtmlProps} data-mantine-color-scheme="dark">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <ColorSchemeScript defaultColorScheme="dark" />
         <Meta />
         <Links />
       </head>
       <body>
-        <MantineProvider theme={theme} defaultColorScheme="auto">
+        <MantineProvider theme={theme} defaultColorScheme="dark">
           {children}
         </MantineProvider>
         <ScrollRestoration />

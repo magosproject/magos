@@ -54,7 +54,7 @@ function StepPipeline({ rollout }: { rollout: RolloutRow }) {
         const isFailed = rollout.phase === "Failed" && i === rollout.currentStep;
         const stepName = step.name ?? `Step ${i + 1}`;
 
-        let color = "var(--mantine-color-dark-4)";
+        let color = "var(--mantine-color-gray-5)";
         if (isComplete) color = "var(--mantine-color-green-6)";
         if (isActive) color = `var(--mantine-color-${statusColor[rollout.phase]}-6)`;
         if (isFailed) color = "var(--mantine-color-red-6)";
@@ -62,7 +62,7 @@ function StepPipeline({ rollout }: { rollout: RolloutRow }) {
         const connectorColor =
           i > 0 && (i <= rollout.currentStep || rollout.phase === "Applied")
             ? "var(--mantine-color-green-6)"
-            : "var(--mantine-color-dark-4)";
+            : "var(--mantine-color-gray-5)";
 
         return (
           <Group key={`${stepName}-${i}`} gap={0} wrap="nowrap" align="center">

@@ -113,7 +113,7 @@ export default function Shell() {
                     fw={900}
                     size="22px"
                     style={{
-                      color: colorScheme === "dark" ? "white" : "black",
+                      color: "var(--mantine-color-text)",
                       letterSpacing: 3,
                     }}
                   >

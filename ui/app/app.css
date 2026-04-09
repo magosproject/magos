@@ -85,7 +85,7 @@ tr.flash-highlight > td {
   font-family: var(--mantine-font-family-monospace, monospace), serif;
   font-size: 11px;
   letter-spacing: -0.3px;
-  background: var(--mantine-color-dark-7);
+  background: color-mix(in srgb, var(--mantine-color-text) 8%, var(--mantine-color-body));
   border-radius: var(--mantine-radius-sm);
   padding: 3px 8px;
   display: inline-flex;

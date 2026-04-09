@@ -153,7 +153,7 @@ function StepPipelineGraph({
               ? theme.colors.magos[5]
               : isFlowing
                 ? theme.colors.green[6]
-                : theme.colors.dark[4];
+                : theme.colors.gray[5];
           result.push({
             id: `e-${srcIdx}-${dstIdx}`,
             source: `step-${srcIdx}`,
