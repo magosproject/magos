@@ -1,0 +1,7 @@
+apiVersion: magosproject.io/v1alpha1
+kind: Project
+metadata:
+  name: test-project
+  annotations:
+    app.kubernetes.io/managed-by: chainsaw
+spec: {}

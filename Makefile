@@ -90,6 +90,10 @@ test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expect
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
+.PHONY: test-chainsaw
+test-chainsaw: chainsaw ## Run chainsaw tests.
+	$(CHAINSAW) test test/chainsaw/tests
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
@@ -254,6 +258,7 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+CHAINSAW ?= $(LOCALBIN)/chainsaw
 SWAG ?= $(LOCALBIN)/swag
 CLIENT_GEN ?= $(LOCALBIN)/client-gen
 LISTER_GEN ?= $(LOCALBIN)/lister-gen
@@ -267,6 +272,7 @@ ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v2.4.0
+CHAINSAW_VERSION ?= 93b1e3d8620313bb08dc314981bc972af7dd356a
 # see https://github.com/swaggo/swag/issues/1898
 # we are using the release-candidate version because otherwise openapi 3.0 and 3.1 are not supported
 # while for the client (react-fetch) we need openapi 3.1 support
@@ -300,6 +306,11 @@ $(ENVTEST): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+
+.PHONY: chainsaw
+chainsaw: $(CHAINSAW) ## Download chainsaw locally if necessary.
+$(CHAINSAW): $(LOCALBIN)
+	$(call go-install-tool,$(CHAINSAW),github.com/kyverno/chainsaw,$(CHAINSAW_VERSION))
 
 .PHONY: swag
 swag: $(SWAG) ## Download swag locally if necessary.

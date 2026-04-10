@@ -1,0 +1,21 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: basic-ready
+spec:
+  steps:
+  - try:
+    - apply:
+        file: project.yaml
+    - assert:
+        file: project.yaml
+    - assert:
+        resource:
+            apiVersion: magosproject.io/v1alpha1
+            kind: Project
+            metadata:
+              name: test-project
+            status:
+              conditions:
+                - type: Ready
+                  status: "True"
