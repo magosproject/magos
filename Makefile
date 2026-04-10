@@ -90,6 +90,14 @@ test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expect
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
+.PHONY: test-chainsaw
+test-chainsaw:
+	@command -v $(CHAINSAW) >/dev/null 2>&1 || { \
+		echo "chainsaw is not installed. Install via 'brew install kyverno/chainsaw/chainsaw' or see https://kyverno.github.io/chainsaw/"; \
+		exit 1; \
+	}
+	$(CHAINSAW) test test/chainsaw/tests
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
@@ -250,6 +258,7 @@ $(LOCALBIN):
 ## Tool Binaries
 KUBECTL ?= kubectl
 KIND ?= kind
+CHAINSAW ?= chainsaw
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
