@@ -18,7 +18,7 @@ documentation:
 crd:
   - changed-files:
       - any-glob-to-any-file:
-          - "charts/magos/resources/crds/**"
+          - "charts/magos/crds/**"
 
 chart:
   - changed-files:
@@ -69,4 +69,3 @@ controller/variableset:
   - changed-files:
       - any-glob-to-any-file:
           - "internal/controller/variableset/**"
-
