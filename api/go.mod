@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	github.com/magosproject/magos v0.0.0
-	golang.org/x/net v0.52.0
+	golang.org/x/net v0.53.0
 	k8s.io/apimachinery v0.35.3
 	k8s.io/client-go v0.35.3
 )
