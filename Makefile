@@ -67,12 +67,8 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # - CERT_MANAGER_INSTALL_SKIP=true
 KIND_CLUSTER ?= magos-test-e2e
 
-.PHONY: setup-test-e2e
-setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
-	@command -v $(KIND) >/dev/null 2>&1 || { \
-		echo "Kind is not installed. Please install Kind manually."; \
-		exit 1; \
-	}
+.PHONY: kind-cluster
+kind-cluster: kind ## Create a Kind cluster named $(KIND_CLUSTER) if it does not exist.
 	@case "$$($(KIND) get clusters)" in \
 		*"$(KIND_CLUSTER)"*) \
 			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
@@ -82,7 +78,7 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 	esac
 
 .PHONY: test-e2e
-test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
+test-e2e: kind-cluster manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
 	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
 	$(MAKE) cleanup-test-e2e
 
@@ -192,10 +188,10 @@ docker-push: ## Push docker images for all components.
 
 .PHONY: kind-load
 kind-load: ## load locally built docker image(s) into kind cluster.
-	$(KIND) load docker-image ${IMG} --name kind
-	$(KIND) load docker-image ${UI_IMG} --name kind
-	$(KIND) load docker-image ${JOB_IMG} --name kind
-	$(KIND) load docker-image ${API_IMG} --name kind
+	$(KIND) load docker-image ${IMG} --name $(KIND_CLUSTER)
+	$(KIND) load docker-image ${UI_IMG} --name $(KIND_CLUSTER)
+	$(KIND) load docker-image ${JOB_IMG} --name $(KIND_CLUSTER)
+	$(KIND) load docker-image ${API_IMG} --name $(KIND_CLUSTER)
 
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
 # - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
@@ -253,7 +249,7 @@ $(LOCALBIN):
 
 ## Tool Binaries
 KUBECTL ?= kubectl
-KIND ?= kind
+KIND ?= $(LOCALBIN)/kind
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
@@ -272,6 +268,7 @@ ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v2.4.0
+KIND_VERSION ?= v0.31.0
 CHAINSAW_VERSION ?= 93b1e3d8620313bb08dc314981bc972af7dd356a
 # see https://github.com/swaggo/swag/issues/1898
 # we are using the release-candidate version because otherwise openapi 3.0 and 3.1 are not supported
@@ -311,6 +308,11 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 chainsaw: $(CHAINSAW) ## Download chainsaw locally if necessary.
 $(CHAINSAW): $(LOCALBIN)
 	$(call go-install-tool,$(CHAINSAW),github.com/kyverno/chainsaw,$(CHAINSAW_VERSION))
+
+.PHONY: kind
+kind: $(KIND) ## Download kind locally if necessary.
+$(KIND): $(LOCALBIN)
+	$(call go-install-tool,$(KIND),sigs.k8s.io/kind,$(KIND_VERSION))
 
 .PHONY: swag
 swag: $(SWAG) ## Download swag locally if necessary.
