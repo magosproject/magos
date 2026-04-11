@@ -1,0 +1,92 @@
+name: CI - Chainsaw
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "ui/**"
+      - "api/**"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "ui/**"
+      - "api/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  chainsaw:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.4.0
+        with:
+          path: bin
+          key: ${{ runner.os }}-tools-${{ hashFiles('Makefile', 'go.mod', 'go.sum') }}
+
+      # TODO: pin all GHA versions on sha instead of tag
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build controller image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          tags: controller:local
+          load: true
+          cache-from: type=gha,scope=chainsaw-controller
+          cache-to: type=gha,mode=max,scope=chainsaw-controller
+
+      - name: Build job image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: cmd/job/Dockerfile
+          tags: magos-job:local
+          load: true
+          cache-from: type=gha,scope=chainsaw-job
+          cache-to: type=gha,mode=max,scope=chainsaw-job
+
+      - name: Create kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          cluster_name: magos-chainsaw
+          wait: 120s
+
+      - name: Load images into kind
+        run: |
+          kind load docker-image controller:local --name magos-chainsaw
+          kind load docker-image magos-job:local --name magos-chainsaw
+
+      - name: Install magos chart
+        run: |
+          helm upgrade --install magos charts/magos/ \
+            --namespace magos-system --create-namespace \
+            --set image.repository=controller \
+            --set image.tag=local \
+            --set image.pullPolicy=Never \
+            --set jobImage.repository=magos-job \
+            --set jobImage.tag=local \
+            --set jobImage.pullPolicy=Never \
+            --set ui.enabled=false \
+            --set api.enabled=false \
+            --wait --timeout=5m
+
+      - name: Install chainsaw
+        run: make chainsaw
+
+      - name: Run chainsaw tests
+        run: make test-chainsaw
