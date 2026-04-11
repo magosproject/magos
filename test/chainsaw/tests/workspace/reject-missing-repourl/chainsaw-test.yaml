@@ -1,0 +1,33 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: reject-missing-repourl
+spec:
+  description: |
+    source.repoURL has no default and no sensible fallback, and
+    without it we do not know where to clone from: the Job container
+    would simply crash at startup with an empty REPO_URL env var. We
+    push this check up to admission so users get a synchronous
+    validation error at `kubectl apply` time instead of discovering
+    the problem via a Failed phase ten seconds later in a Pod log.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: missing-repourl
+          spec:
+            projectRef:
+              name: some-project
+            source:
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+        expect:
+        - match:
+            apiVersion: magosproject.io/v1alpha1
+            kind: Workspace
+          check:
+            ($error != null): true

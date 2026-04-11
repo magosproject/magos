@@ -1,0 +1,38 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: empty-steps
+spec:
+  description: |
+    An empty strategy is not an error, it is simply a noop: the Rollout
+    still exists as the logical handle the Project controller defers
+    to, there is just nothing to schedule yet. We assert phase=Ready
+    with reason=NoSteps rather than Failed because treating it as an
+    error would make Rollout a footgun while users are iterating on a
+    strategy and happen to save an empty array in the middle of an
+    edit.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: empty-steps-rollout
+          spec:
+            projectRef: empty-steps-rollout
+            strategy:
+              steps: []
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: empty-steps-rollout
+          status:
+            phase: Ready
+            reason: NoSteps
+            conditions:
+            - type: Ready
+              status: "True"
+              reason: NoSteps

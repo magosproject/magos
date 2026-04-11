@@ -1,0 +1,58 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: default-parallel
+spec:
+  description: |
+    When no Rollout exists with a matching name, the Project is the
+    orchestrator of last resort: it grants execution permission to every
+    Workspace pointing back at it and reports reason=DefaultParallel so
+    operators can tell at a glance that no staged rollout is in play.
+    This test pins that fallback behaviour, because without it a user
+    who simply creates a Project plus a Workspace and expects `terraform
+    apply` to run would be stuck in AwaitingRollout forever with no
+    indication why.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: default-parallel-project
+          spec: {}
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: default-parallel-ws
+          spec:
+            projectRef:
+              name: default-parallel-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: default-parallel-project
+          status:
+            phase: Ready
+            reason: DefaultParallel
+            conditions:
+            - type: Ready
+              status: "True"
+              reason: DefaultParallel
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: default-parallel-ws
+            annotations:
+              magosproject.io/execution-allowed: "true"

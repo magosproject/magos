@@ -3,6 +3,13 @@ kind: Test
 metadata:
   name: basic-ready
 spec:
+  description: |
+    Sanity check that proves the Project reconcile loop reaches a Ready
+    state on the minimum possible spec, with no description, no variable
+    set refs, and nothing else configured. If this test breaks, nothing
+    downstream works: Workspaces never get their DefaultParallel grant,
+    Rollouts cannot attach to a Project, and the whole orchestration
+    model falls over at its cheapest entry point.
   steps:
   - try:
     - apply:

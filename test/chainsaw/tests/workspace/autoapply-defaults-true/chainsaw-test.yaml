@@ -1,0 +1,36 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: autoapply-defaults-true
+spec:
+  description: |
+    The default for spec.autoApply lives in the CRD schema, not in the
+    controller, and that distinction matters because changing it would
+    be a silent API break for every user who currently relies on
+    omitting the field and expecting automatic apply behaviour. This
+    test is the canary that catches a CRD regeneration accidentally
+    flipping or dropping that default value before it ships to users.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: autoapply-default
+          spec:
+            projectRef:
+              name: no-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: autoapply-default
+          spec:
+            autoApply: true

@@ -1,0 +1,128 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: basic-orchestration
+spec:
+  description: |
+    Full happy path for the Rollout state machine: three Workspaces
+    labelled by environment, three sequential steps, and the
+    expectation that only the step 0 cohort is unlocked at first while
+    staging and prod remain parked. The revocation branch is exercised
+    implicitly here because the Project controller briefly grants
+    DefaultParallel before the Rollout races in and reclaims permission
+    from the later steps, which is exactly the scenario the revoke
+    execution permission block in rollout_controller.go was written
+    for. If this test regresses, sequential rollouts have silently
+    become parallel rollouts and the safety guarantee we promise users
+    is gone.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: seq-project
+          spec: {}
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: seq-dev
+            labels:
+              env: dev
+          spec:
+            projectRef:
+              name: seq-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: seq-staging
+            labels:
+              env: staging
+          spec:
+            projectRef:
+              name: seq-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: seq-prod
+            labels:
+              env: prod
+          spec:
+            projectRef:
+              name: seq-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: seq-project
+          spec:
+            projectRef: seq-project
+            strategy:
+              steps:
+              - name: dev
+                selector:
+                  matchLabels:
+                    env: dev
+              - name: staging
+                selector:
+                  matchLabels:
+                    env: staging
+              - name: prod
+                selector:
+                  matchLabels:
+                    env: prod
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: seq-project
+          status:
+            currentStep: 0
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: seq-dev
+            annotations:
+              magosproject.io/execution-allowed: "true"
+    - error:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: seq-staging
+            annotations:
+              magosproject.io/execution-allowed: "true"
+    - error:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: seq-prod
+            annotations:
+              magosproject.io/execution-allowed: "true"
