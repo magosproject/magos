@@ -449,21 +449,70 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		}
 	}
 
+	// The RefWatcher controller runs in a separate goroutine and polls Git
+	// remotes on a configurable interval. When it discovers that a branch or
+	// tag (e.g. "main") now points to a different commit, it patches the
+	// detected-revision annotation on the Workspace with the new SHA. That
+	// annotation is the handoff signal between the two controllers: the
+	// RefWatcher writes it, and we consume it here by starting a fresh
+	// plan/apply cycle immediately rather than waiting for the sync interval.
+	//
+	// The phase guard is critical. The reset path below deliberately preserves
+	// the detected-revision annotation so that Step 8 can read the exact
+	// commit SHA and record it as status.observedRevision after a successful
+	// apply. If we allowed the check to fire from in-progress phases (Pending,
+	// Planning, Planned, Applying) the annotation would trigger a reset on
+	// every reconcile — an infinite loop, because it is never cleared until
+	// Step 8. By restricting to terminal phases (Applied, Failed) and the
+	// initial empty phase, we guarantee the reset fires exactly once per new
+	// commit: the Workspace resets, progresses through its plan/apply cycle,
+	// and only then is the annotation consumed.
+	if !needsReset && workspace.Annotations != nil &&
+		(workspace.Status.Phase == "" || workspace.Status.Phase == v1alpha1.PhaseApplied || workspace.Status.Phase == v1alpha1.PhaseFailed) {
+		if detected, ok := workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation]; ok && detected != workspace.Status.ObservedRevision {
+			needsReset = true
+			resetReason = "NewRevisionDetected"
+			resetMessage = fmt.Sprintf("RefWatcher detected new revision %s", detected)
+		}
+	}
+
 	if needsReset {
-		logger.Info("Sync interval reached. Cleaning up jobs to trigger a fresh run.", "reason", resetReason)
+		logger.Info("Cleaning up jobs to trigger a fresh run.", "reason", resetReason)
 		if planJobGetErr == nil {
 			_ = r.Delete(ctx, &planJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
 		}
 		if applyJobGetErr == nil {
 			_ = r.Delete(ctx, &applyJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
 		}
-		// Clear the execution-allowed annotation so the Rollout controller
-		// must re-grant permission before this Workspace can run again. Each
-		// Workspace's sync interval expires based on when its own Apply Job
-		// finished, so Workspaces in earlier rollout steps reset to Pending
-		// before later ones. Without clearing this annotation, a Workspace
-		// that resets would still carry "true" from the previous cycle and
-		// immediately start planning, ignoring the rollout step order.
+		// The status update to Pending MUST happen before we clear annotations.
+		// The Rollout controller watches Workspace objects and uses
+		// workspaceFullyApplied() to decide whether a level has completed.
+		// That function returns true when phase == Applied AND the
+		// detected-revision annotation is absent. If we cleared annotations
+		// first, there would be a brief window where the Workspace is still
+		// PhaseApplied but has no detected-revision — the Rollout would see
+		// it as "done" and advance to the next level, granting execution
+		// permission to later Workspaces (e.g. prod) before earlier ones
+		// (e.g. dev) have even started their new cycle. Writing Pending first
+		// closes that window: the Rollout sees PhasePending and knows the
+		// Workspace still has work to do.
+		r.updateStatus(ctx, workspace, v1alpha1.PhasePending, resetReason, resetMessage, metav1.ConditionUnknown)
+
+		// Clear execution-allowed so the Rollout controller must re-grant
+		// permission before this Workspace can proceed. The Rollout decides
+		// when each Workspace runs based on level ordering; without clearing
+		// this annotation the Workspace would skip the gate in Step 4 and
+		// start planning immediately, ignoring the rollout sequence.
+		//
+		// We intentionally keep detected-revision alive through the cycle.
+		// The RefWatcher wrote the exact commit SHA into that annotation, and
+		// Step 8 reads it after a successful apply to populate
+		// status.observedRevision with the SHA (e.g. "a1b2c3d") instead of
+		// the branch name (e.g. "main"). Clearing it here would discard the
+		// SHA and Step 8 would fall back to spec.source.targetRevision. The
+		// phase guard on the detected-revision check above ensures the
+		// annotation does not re-trigger a reset while the Workspace is
+		// progressing through Pending → Planning → Applying.
 		if workspace.Annotations != nil {
 			if _, ok := workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation]; ok {
 				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
@@ -472,9 +521,6 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 				}
 			}
 		}
-		// Delete old Jobs and go back to Pending so the Rollout controller can
-		// re-queue this Workspace for a fresh run.
-		r.updateStatus(ctx, workspace, v1alpha1.PhasePending, resetReason, resetMessage, metav1.ConditionUnknown)
 		return ctrl.Result{}, nil
 	}
 
@@ -650,28 +696,73 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 
 	// Step 8: The Apply succeeded. Record the result and release the execution lock.
 	//
-	// We write the Git revision that was just applied into the status so that
-	// external consumers (Magos UI, the Rollout controller, etc)
-	// can see exactly which revision is live for this Workspace. After that we
-	// remove the execution-allowed annotation to hand control back to the Rollout
-	// controller, completing this Workspace's execution cycle. The next cycle
-	// will start when Step 3's reset evaluation fires after the sync interval.
+	// This is the final step in the Workspace lifecycle and the point where
+	// the detected-revision annotation completes its journey across three
+	// controllers:
+	//
+	//   1. The RefWatcher writes detected-revision with the commit SHA when
+	//      it discovers that a branch or tag moved.
+	//   2. Step 3 sees the annotation, resets the Workspace to Pending, and
+	//      intentionally preserves the annotation so the SHA survives the
+	//      plan/apply cycle.
+	//   3. Here in Step 8 we read the SHA from the annotation and record it
+	//      as status.observedRevision, then delete the annotation so it does
+	//      not trigger another reset. The Rollout controller's
+	//      workspaceFullyApplied() also checks for the absence of this
+	//      annotation, so deleting it signals that the Workspace has fully
+	//      processed the new commit.
+	//
+	// If the RefWatcher did not trigger this cycle (e.g. periodic drift
+	// detection or manual reconcile), the annotation won't be present and
+	// we fall back to spec.source.targetRevision (the branch/tag name).
+	//
+	// After recording the revision we remove both execution-allowed and
+	// detected-revision to hand control back to the Rollout controller,
+	// completing this Workspace's turn in the rollout sequence. The next
+	// cycle will start when Step 3's reset evaluation fires after the sync
+	// interval, or when the RefWatcher detects another new commit.
 	logger.Info("Apply Job completed successfully", "job", applyJobName)
 
-	// Record the observed revision before the status update so it's included
-	// in the same write.
-	workspace.Status.ObservedRevision = workspace.Spec.Source.TargetRevision
+	// Record the observed revision before the status update so it is included
+	// in the same write. When the RefWatcher triggered this cycle the
+	// detected-revision annotation carries the full 40-character commit SHA;
+	// otherwise we fall back to the branch/tag name from the spec.
+	if workspace.Annotations != nil {
+		if sha := workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation]; sha != "" {
+			workspace.Status.ObservedRevision = sha
+		} else {
+			workspace.Status.ObservedRevision = workspace.Spec.Source.TargetRevision
+		}
+	} else {
+		workspace.Status.ObservedRevision = workspace.Spec.Source.TargetRevision
+	}
 	r.updateStatus(ctx, workspace, v1alpha1.PhaseApplied, "ApplySucceeded", "Terraform Apply completed successfully", metav1.ConditionTrue)
 
-	// Remove the execution lock. We use Patch rather than Update because the
-	// status update above may have bumped the resourceVersion, and a full
-	// Update would conflict.
-	if workspace.Annotations != nil && workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
+	// Remove execution-allowed and detected-revision now that the cycle is
+	// complete. We use Patch rather than Update because the status update
+	// above may have bumped the resourceVersion, and a full Update would
+	// conflict. Deleting execution-allowed tells the Rollout controller this
+	// Workspace is done with its turn. Deleting detected-revision tells both
+	// the Rollout controller (via workspaceFullyApplied) and Step 3 (via the
+	// phase-guarded reset check) that the new commit has been fully processed.
+	{
 		patch := client.MergeFrom(workspace.DeepCopy())
-		delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
-		if err := r.Patch(ctx, workspace, patch); err != nil {
-			logger.Error(err, "Failed to consume execution annotations via Patch")
-			return ctrl.Result{}, err
+		changed := false
+		if workspace.Annotations != nil {
+			if workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
+				changed = true
+			}
+			if workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceDetectedRevisionAnnotation)
+				changed = true
+			}
+		}
+		if changed {
+			if err := r.Patch(ctx, workspace, patch); err != nil {
+				logger.Error(err, "Failed to consume execution annotations via Patch")
+				return ctrl.Result{}, err
+			}
 		}
 	}
 

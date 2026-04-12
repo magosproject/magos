@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -78,7 +79,7 @@ func (r *RolloutReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alpha1.Rollout) error {
 	logger := log.FromContext(ctx)
-	logger.Info("Reconciling Rollout", "name", rollout.Name)
+	logger.V(1).Info("Reconciling Rollout", "name", rollout.Name)
 
 	// If no steps are defined, there is nothing to orchestrate. Mark the
 	// Rollout as Ready so the Project controller knows it is active but idle.
@@ -87,37 +88,64 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 		return nil
 	}
 
-	// Walk through steps sequentially to find the first step that has pending
-	// work. This linear scan is intentional: earlier steps must complete before
-	// later ones are evaluated, enforcing the sequential execution guarantee.
-	currentActiveStep := -1
-	var activeStepName string
-	activeStepWorkspaces := make(map[types.UID]struct{})
+	// Step 1: Compute execution levels.
+	//
+	// Steps are the user-facing unit of ordering, but execution happens at
+	// the level of "levels". Consecutive steps that resolve to the exact
+	// same set of Workspace UIDs are merged into a single level and their
+	// Workspaces execute in parallel. A level boundary is created whenever
+	// the resolved workspace set changes. This is effectively Kahn's
+	// algorithm applied to a linear dependency chain: steps with identical
+	// inputs have no data dependency between them and can safely run
+	// concurrently, while a change in the workspace set implies a new
+	// dependency and requires the previous level to complete first.
+	//
+	// For example, given the following steps:
+	//   step 0 "deploy-dev"     env:dev  → {ws-dev, ws-staging}
+	//   step 1 "deploy-staging" env:dev  → {ws-dev, ws-staging}
+	//   step 2 "deploy-prod"    env:prod → {ws-prod}
+	//
+	// Steps 0 and 1 resolve to the same workspace set, so they collapse
+	// into level 0. Step 2 resolves to a different set, forming level 1.
+	// Level 0 runs ws-dev and ws-staging in parallel; level 1 only starts
+	// after both have reached Applied.
+	type level struct {
+		startIdx   int
+		endIdx     int
+		names      string
+		workspaces []v1alpha1.Workspace
+		wsUIDs     map[types.UID]struct{}
+	}
+
+	var levels []level
+	var prevUIDs map[types.UID]struct{}
 
 	for i, step := range rollout.Spec.Strategy.Steps {
-		// Convert the step's LabelSelector to a labels.Selector so we can use
-		// it with the client.MatchingLabelsSelector list option.
+		// Convert the step's LabelSelector to a labels.Selector so we can
+		// use it with the client.MatchingLabelsSelector list option.
 		selector, err := metav1.LabelSelectorAsSelector(&step.Selector)
 		if err != nil {
 			logger.Error(err, "Invalid label selector in step", "step", step.Name)
 			return err
 		}
 
-		// List all Workspaces in the same namespace that match the step's label
-		// selector. This is a broad query; we filter by project below.
-		var workspaces v1alpha1.WorkspaceList
-		if err := r.List(ctx, &workspaces, client.InNamespace(rollout.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
-			logger.Error(err, "Failed to list workspaces for step")
+		// List all Workspaces in the same namespace that match the step's
+		// label selector. This is a broad query; we filter by project below.
+		var wsList v1alpha1.WorkspaceList
+		if err := r.List(ctx, &wsList, client.InNamespace(rollout.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
+			logger.Error(err, "Failed to list workspaces for step", "step", step.Name)
 			return err
 		}
 
-		// Filter Workspaces to only those belonging to this Rollout's Project.
-		// The label selector alone might match Workspaces from other Projects
-		// that happen to share the same labels.
-		var targetWorkspaces []v1alpha1.Workspace
-		for _, ws := range workspaces.Items {
+		// Filter Workspaces to only those belonging to this Rollout's
+		// Project. The label selector alone might match Workspaces from
+		// other Projects that happen to share the same labels.
+		var target []v1alpha1.Workspace
+		uids := make(map[types.UID]struct{})
+		for _, ws := range wsList.Items {
 			if ws.Spec.ProjectRef.Name == rollout.Spec.ProjectRef {
-				targetWorkspaces = append(targetWorkspaces, ws)
+				target = append(target, ws)
+				uids[ws.UID] = struct{}{}
 			}
 		}
 
@@ -128,150 +156,153 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 		// labels, or a Workspace that was deleted. The Rollout will
 		// automatically recover once matching Workspaces appear, since any
 		// Workspace change triggers re-evaluation via the watch.
-		if len(targetWorkspaces) == 0 {
+		if len(target) == 0 {
 			rollout.Status.CurrentStep = i
-			r.updateStatus(ctx, rollout, v1alpha1.PhaseFailed, "NoWorkspacesFound", "No workspaces found matching selector for step "+step.Name+"; halting to prevent skipping environments", metav1.ConditionFalse)
+			r.updateStatus(ctx, rollout, v1alpha1.PhaseFailed, "NoWorkspacesFound",
+				"No workspaces found matching selector for step "+step.Name+"; halting to prevent skipping environments", metav1.ConditionFalse)
 			return nil
 		}
 
-		// Evaluate the Workspaces in this step to determine whether the step
-		// still has pending work or whether any Workspace has failed.
-		stepNeedsWork := false
-		anyFailed := false
+		// Merge into the current level if the resolved workspace set is
+		// identical to the previous step's set. Otherwise start a new level.
+		sameSet := len(uids) == len(prevUIDs)
+		if sameSet {
+			for uid := range uids {
+				if _, ok := prevUIDs[uid]; !ok {
+					sameSet = false
+					break
+				}
+			}
+		}
 
-		for _, ws := range targetWorkspaces {
-			// A single failed Workspace halts the entire Rollout. This is a
-			// deliberate safety mechanism: applying later steps on top of a
-			// broken earlier step could compound failures, and probably
-			// conflicts with what
-			if ws.Status.Phase == v1alpha1.PhaseFailed {
-				anyFailed = true
-				logger.Info("Workspace failed, halting rollout", "workspace", ws.Name)
+		if sameSet && len(levels) > 0 {
+			cur := &levels[len(levels)-1]
+			cur.endIdx = i
+			cur.names += ", " + step.Name
+		} else {
+			levels = append(levels, level{
+				startIdx:   i,
+				endIdx:     i,
+				names:      step.Name,
+				workspaces: target,
+				wsUIDs:     uids,
+			})
+		}
+		prevUIDs = uids
+	}
+
+	// Step 2: Find the earliest level that still has pending work.
+	//
+	// Rather than trusting the persisted CurrentStep index, we always scan
+	// levels from the beginning. This handles forward progress (the first
+	// incomplete level is the next one to execute), rewinds (an earlier
+	// level gained new work from a RefWatcher commit or manual reconcile
+	// request), and stale state (CurrentStep carried a value from a
+	// previous controller version or a completed rollout cycle). If no
+	// level has pending work, the rollout has completed.
+	var currentLevel *level
+	var currentLevelIdx int
+	for li := range levels {
+		lvl := &levels[li]
+		for _, ws := range lvl.workspaces {
+			isFullyApplied := workspaceFullyApplied(&ws)
+			hasReconcileRequest := ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != ""
+			if !isFullyApplied || hasReconcileRequest || ws.Status.Phase == "" || ws.Status.Phase == v1alpha1.PhasePending {
+				currentLevel = lvl
+				currentLevelIdx = li
 				break
 			}
-
-			// A Workspace needs work if it hasn't applied successfully, if its
-			// target revision has changed (meaning there's new infrastructure
-			// to plan), or if a manual reconcile was requested via annotation.
-			isFullyApplied := ws.Status.Phase == v1alpha1.PhaseApplied && ws.Status.ObservedRevision == ws.Spec.Source.TargetRevision
-			hasReconcileRequest := ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != ""
-
-			if !isFullyApplied || hasReconcileRequest || ws.Status.Phase == "" || ws.Status.Phase == v1alpha1.PhasePending {
-				stepNeedsWork = true
-			}
 		}
-
-		if anyFailed {
-			rollout.Status.CurrentStep = i
-			r.updateStatus(ctx, rollout, v1alpha1.PhaseFailed, "StepFailed", "One or more workspaces failed in step "+step.Name, metav1.ConditionFalse)
-			return nil
-		}
-
-		if stepNeedsWork {
-			// This is our current active step. We stop evaluating further steps
-			// because the pipeline is blocked until this one completes.
-			currentActiveStep = i
-			activeStepName = step.Name
-
-			// Record all Workspaces in this step so the revocation loop below
-			// can skip them. This prevents a grant/revoke fight when a later
-			// step's selector overlaps with the active step.
-			for _, ws := range targetWorkspaces {
-				activeStepWorkspaces[ws.UID] = struct{}{}
-			}
-
-			// Grant execution permission to Workspaces in this step that still
-			// need work. The Workspace controller checks for this annotation
-			// (WorkspaceExecutionAllowedAnnotation) before starting a
-			// plan/apply cycle. Without it, the Workspace stays in Pending.
-			for _, ws := range targetWorkspaces {
-				isFullyApplied := ws.Status.Phase == v1alpha1.PhaseApplied && ws.Status.ObservedRevision == ws.Spec.Source.TargetRevision
-				hasReconcileRequest := ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != ""
-
-				if !isFullyApplied || hasReconcileRequest || ws.Status.Phase == "" || ws.Status.Phase == v1alpha1.PhasePending {
-					hasPermission := false
-					if ws.Annotations != nil {
-						hasPermission = ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == v1alpha1.AnnotationValueTrue
-					}
-
-					if !hasPermission {
-						logger.Info("Granting execution permission to workspace", "workspace", ws.Name, "step", step.Name)
-
-						// Fetch the latest version of the Workspace before
-						// updating to concurrency conflicts. Workspaces
-						// frequently update their own status, which increments
-						// the ResourceVersion rapidly. Using a stale version
-						// would cause the Update to fail with a conflict error.
-						latestWS := &v1alpha1.Workspace{}
-						if err := r.Get(ctx, client.ObjectKeyFromObject(&ws), latestWS); err == nil {
-							if latestWS.Annotations == nil {
-								latestWS.Annotations = make(map[string]string)
-							}
-							latestWS.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] = v1alpha1.AnnotationValueTrue
-							if err := r.Update(ctx, latestWS); err != nil {
-								logger.Error(err, "Failed to update workspace with execution permission", "workspace", ws.Name)
-							}
-						}
-					}
-				}
-			}
-
-			break // Stop evaluating further steps since this one blocks the pipeline
+		if currentLevel != nil {
+			break
 		}
 	}
-
-	// Revoke execution permission from Workspaces in steps after the active
-	// one. Without this, Workspaces that were granted permission in a previous
-	// rollout cycle would retain the annotation and run out of order on the
-	// next cycle.
-	if currentActiveStep >= 0 {
-		for i := currentActiveStep + 1; i < len(rollout.Spec.Strategy.Steps); i++ {
-			step := rollout.Spec.Strategy.Steps[i]
-			selector, err := metav1.LabelSelectorAsSelector(&step.Selector)
-			if err != nil {
-				continue
-			}
-
-			var workspaces v1alpha1.WorkspaceList
-			if err := r.List(ctx, &workspaces, client.InNamespace(rollout.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
-				continue
-			}
-
-			for _, ws := range workspaces.Items {
-				if ws.Spec.ProjectRef.Name != rollout.Spec.ProjectRef {
-					continue
-				}
-				// Skip Workspaces that belong to the active step. A later
-				// step's selector may overlap with the active step (e.g. both
-				// match env=dev); revoking here would undo the grant above and
-				// cause an infinite reconcile loop.
-				if _, ok := activeStepWorkspaces[ws.UID]; ok {
-					continue
-				}
-				if ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == v1alpha1.AnnotationValueTrue {
-					logger.Info("Revoking execution permission from workspace in later step", "workspace", ws.Name, "step", step.Name)
-					latestWS := &v1alpha1.Workspace{}
-					if err := r.Get(ctx, client.ObjectKeyFromObject(&ws), latestWS); err == nil {
-						delete(latestWS.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
-						if err := r.Update(ctx, latestWS); err != nil {
-							logger.Error(err, "Failed to revoke execution permission from workspace", "workspace", ws.Name)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	if currentActiveStep == -1 {
-		// All steps evaluated and none need work. The entire pipeline has
-		// completed successfully.
+	// If no level has pending work, all steps have completed successfully.
+	if currentLevel == nil {
 		rollout.Status.CurrentStep = len(rollout.Spec.Strategy.Steps)
 		r.updateStatus(ctx, rollout, v1alpha1.PhaseApplied, "RolloutCompleted", "All steps completed successfully", metav1.ConditionTrue)
 		return nil
 	}
 
-	rollout.Status.CurrentStep = currentActiveStep
-	r.updateStatus(ctx, rollout, v1alpha1.PhaseReconciling, "StepProgressing", "Executing step "+activeStepName, metav1.ConditionUnknown)
+	// Update CurrentStep to reflect the level we are actually evaluating.
+	// This may differ from the stored value if we rewound to an earlier
+	// level.
+	rollout.Status.CurrentStep = currentLevel.startIdx
+
+	// Step 3: Check for failures in the current level.
+	//
+	// A single failed Workspace halts the entire Rollout. This is a
+	// deliberate safety mechanism: applying later steps on top of a broken
+	// earlier step could compound failures.
+	for _, ws := range currentLevel.workspaces {
+		if ws.Status.Phase == v1alpha1.PhaseFailed {
+			logger.Info("Workspace failed, halting rollout", "workspace", ws.Name)
+			r.updateStatus(ctx, rollout, v1alpha1.PhaseFailed, "StepFailed",
+				"One or more workspaces failed in level ["+currentLevel.names+"]", metav1.ConditionFalse)
+			return nil
+		}
+	}
+
+	// Step 4: Grant execution permission to Workspaces in the current level.
+	//
+	// The Workspace controller checks for WorkspaceExecutionAllowedAnnotation
+	// before starting a plan/apply cycle. Without it, the Workspace stays in
+	// Pending. We only grant permission to Workspaces that actually need work
+	// to avoid unnecessary API updates and redundant reconciles.
+	for _, ws := range currentLevel.workspaces {
+		isFullyApplied := workspaceFullyApplied(&ws)
+		hasReconcileRequest := ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != ""
+
+		if !isFullyApplied || hasReconcileRequest || ws.Status.Phase == "" || ws.Status.Phase == v1alpha1.PhasePending {
+			hasPermission := ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == v1alpha1.AnnotationValueTrue
+			if !hasPermission {
+				logger.Info("Granting execution permission to workspace", "workspace", ws.Name, "level", currentLevel.names)
+
+				// Fetch the latest version of the Workspace before updating to
+				// avoid concurrency conflicts. Workspaces frequently update their
+				// own status, which increments the ResourceVersion rapidly. Using
+				// a stale version would cause the Update to fail with a conflict
+				// error.
+				latestWS := &v1alpha1.Workspace{}
+				if err := r.Get(ctx, client.ObjectKeyFromObject(&ws), latestWS); err == nil {
+					if latestWS.Annotations == nil {
+						latestWS.Annotations = make(map[string]string)
+					}
+					latestWS.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] = v1alpha1.AnnotationValueTrue
+					if err := r.Update(ctx, latestWS); err != nil {
+						logger.Error(err, "Failed to grant execution permission", "workspace", ws.Name)
+					}
+				}
+			}
+		}
+	}
+
+	// Step 5: Revoke execution permission from Workspaces in later levels.
+	//
+	// Without this, Workspaces that were granted permission in a previous
+	// rollout cycle would retain the annotation and run out of order on
+	// the next cycle. We skip Workspaces that also appear in the active
+	// level to prevent a grant/revoke fight when selectors overlap.
+	for li := currentLevelIdx + 1; li < len(levels); li++ {
+		for _, ws := range levels[li].workspaces {
+			if _, ok := currentLevel.wsUIDs[ws.UID]; ok {
+				continue
+			}
+			if ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == v1alpha1.AnnotationValueTrue {
+				logger.Info("Revoking execution permission from workspace in later level", "workspace", ws.Name, "level", levels[li].names)
+				latestWS := &v1alpha1.Workspace{}
+				if err := r.Get(ctx, client.ObjectKeyFromObject(&ws), latestWS); err == nil {
+					delete(latestWS.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
+					if err := r.Update(ctx, latestWS); err != nil {
+						logger.Error(err, "Failed to revoke execution permission", "workspace", ws.Name)
+					}
+				}
+			}
+		}
+	}
+
+	r.updateStatus(ctx, rollout, v1alpha1.PhaseReconciling, "LevelProgressing",
+		"Executing level ["+currentLevel.names+"]", metav1.ConditionUnknown)
 	return nil
 }
 
@@ -282,56 +313,61 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 // in-place so subsequent logic in the same reconcile pass sees the fresh
 // resourceVersion and status.
 func (r *RolloutReconciler) updateStatus(ctx context.Context, rollout *v1alpha1.Rollout, phase v1alpha1.Phase, reason, message string, status metav1.ConditionStatus) {
-	// Fetch the latest version of the rollout to avoid conflict errors
-	latest := &v1alpha1.Rollout{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(rollout), latest); err != nil {
-		log.FromContext(ctx).Error(err, "Failed to get latest rollout for status update")
-		return
-	}
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Fetch the latest version of the rollout to avoid conflict errors
+		latest := &v1alpha1.Rollout{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(rollout), latest); err != nil {
+			return err
+		}
 
-	needsUpdate := false
+		needsUpdate := false
 
-	if latest.Status.Phase != phase || latest.Status.Reason != reason || latest.Status.Message != message {
-		latest.Status.Phase = phase
-		latest.Status.Reason = reason
-		latest.Status.Message = message
-		needsUpdate = true
-	}
+		if latest.Status.Phase != phase || latest.Status.Reason != reason || latest.Status.Message != message {
+			latest.Status.Phase = phase
+			latest.Status.Reason = reason
+			latest.Status.Message = message
+			needsUpdate = true
+		}
 
-	// Sync the currentStep from the caller's rollout object, which may have
-	// been updated during reconcileRollout before this function was called.
-	if latest.Status.CurrentStep != rollout.Status.CurrentStep {
-		latest.Status.CurrentStep = rollout.Status.CurrentStep
-		needsUpdate = true
-	}
+		// Sync the currentStep from the caller's rollout object, which may have
+		// been updated during reconcileRollout before this function was called.
+		if latest.Status.CurrentStep != rollout.Status.CurrentStep {
+			latest.Status.CurrentStep = rollout.Status.CurrentStep
+			needsUpdate = true
+		}
 
-	now := metav1.Now()
-	condition := metav1.Condition{
-		Type:               v1alpha1.ConditionTypeReady,
-		Status:             status,
-		Reason:             reason,
-		Message:            message,
-		LastTransitionTime: now,
-	}
+		now := metav1.Now()
+		condition := metav1.Condition{
+			Type:               v1alpha1.ConditionTypeReady,
+			Status:             status,
+			Reason:             reason,
+			Message:            message,
+			LastTransitionTime: now,
+		}
 
-	if meta.SetStatusCondition(&latest.Status.Conditions, condition) {
-		needsUpdate = true
-	}
+		if meta.SetStatusCondition(&latest.Status.Conditions, condition) {
+			needsUpdate = true
+		}
 
-	if !needsUpdate {
-		return
-	}
+		if !needsUpdate {
+			return nil
+		}
 
-	latest.Status.LastReconcileTime = &now
+		latest.Status.LastReconcileTime = &now
 
-	if err := r.Status().Update(ctx, latest); err != nil {
+		if err := r.Status().Update(ctx, latest); err != nil {
+			return err
+		}
+
+		// Update the original object so the caller has the latest state
+		rollout.Status = latest.Status
+		rollout.ResourceVersion = latest.ResourceVersion
+		return nil
+	})
+
+	if err != nil {
 		log.FromContext(ctx).Error(err, "Failed to update rollout status")
-		return
 	}
-
-	// Update the original object so the caller has the latest state
-	rollout.Status = latest.Status
-	rollout.ResourceVersion = latest.ResourceVersion
 }
 
 // findRolloutsForWorkspace maps Workspace watch events to Rollout reconcile
@@ -369,6 +405,40 @@ func (r *RolloutReconciler) findRolloutsForWorkspace(ctx context.Context, o clie
 		}
 	}
 	return requests
+}
+
+// workspaceFullyApplied returns true when a Workspace has completed its
+// plan/apply cycle and there is no newer revision waiting to be applied.
+//
+// This function is the Rollout controller's primary signal for deciding
+// whether a level has finished. It checks two things:
+//
+//  1. The Workspace must be in PhaseApplied, meaning its most recent apply
+//     Job succeeded.
+//  2. The detected-revision annotation must be absent. The RefWatcher sets
+//     this annotation when it discovers that a branch or tag now points to
+//     a new commit. The Workspace controller preserves the annotation
+//     throughout the plan/apply cycle and only deletes it in Step 8 after
+//     recording the commit SHA in status.observedRevision. So the presence
+//     of detected-revision means either the Workspace hasn't started
+//     processing the new commit yet, or it is still mid-cycle.
+//
+// The ordering of writes in the Workspace controller matters here. When
+// the Workspace controller resets for a new commit, it writes PhasePending
+// to the status subresource before clearing any annotations. This ensures
+// we never observe a transient state of PhaseApplied + no annotation, which
+// would cause us to incorrectly report the Workspace as fully applied and
+// advance the Rollout to the next level.
+func workspaceFullyApplied(ws *v1alpha1.Workspace) bool {
+	if ws.Status.Phase != v1alpha1.PhaseApplied {
+		return false
+	}
+	if ws.Annotations != nil {
+		if _, ok := ws.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation]; ok {
+			return false
+		}
+	}
+	return true
 }
 
 // SetupWithManager registers the Rollout controller with the Manager and
