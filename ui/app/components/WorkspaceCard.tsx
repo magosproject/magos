@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { Anchor, Text } from "@mantine/core";
-import { IconBox, IconClock, IconFolder } from "@tabler/icons-react";
+import { IconBox, IconClock, IconFolder, IconGitBranch } from "@tabler/icons-react";
 import { resourceId, resourceName, resourceNamespace } from "../api/resource";
 import type { Workspace } from "../api/types";
 import type { ColumnDef } from "./ResourceList";
@@ -8,6 +8,22 @@ import ResourceCard from "./ResourceCard";
 import StatusBadge, { spinningStatuses } from "./StatusBadge";
 import { statusColor, flashColorVar } from "../utils/colors";
 import { repoIcon } from "../utils/repoIcon";
+
+function commitURL(repoURL: string, sha: string): string {
+  const base = repoURL.replace(/\.git$/, "");
+  if (base.includes("gitlab")) return `${base}/-/commit/${sha}`;
+  if (base.includes("bitbucket")) return `${base}/commits/${sha}`;
+  return `${base}/commit/${sha}`;
+}
+
+function revisionURL(repoURL: string, revision: string): string | undefined {
+  if (!repoURL || !revision) return undefined;
+  const base = repoURL.replace(/\.git$/, "");
+  if (base.includes("github.com") || base.includes("gitlab.com") || base.includes("gitlab."))
+    return `${base}/tree/${revision}`;
+  if (base.includes("bitbucket.org")) return `${base}/src/${revision}`;
+  return undefined;
+}
 
 export type WorkspaceItem = Workspace & { id: string };
 
@@ -31,8 +47,35 @@ export default function WorkspaceCard({ workspace, borderAll, flash }: Workspace
   const projectRef = workspace.spec?.projectRef?.name ?? "";
   const wsRepoURL = workspace.spec?.source?.repoURL ?? "";
   const wsPath = workspace.spec?.source?.path ?? "";
+  const observedRevision = workspace.status?.observedRevision ?? "";
+  const isSHA = observedRevision.length === 40;
+  const appliedRef = isSHA ? observedRevision.slice(0, 7) : observedRevision;
   const syncInterval =
     workspace.metadata?.annotations?.["magosproject.io/reconcile-interval"] ?? "3m";
+
+  const meta = [
+    {
+      icon: <IconBox size={16} color="gray" />,
+      label: projectRef || "No Project",
+      to: projectRef ? `/projects/${ns}/${projectRef}` : undefined,
+    },
+    {
+      icon: repoIcon(wsRepoURL),
+      label: wsRepoURL.replace(/^https?:\/\//, ""),
+      href: wsRepoURL,
+    },
+    {
+      icon: <IconGitBranch size={16} color="gray" />,
+      label: appliedRef || "—",
+      href: appliedRef
+        ? isSHA
+          ? commitURL(wsRepoURL, observedRevision)
+          : revisionURL(wsRepoURL, observedRevision)
+        : undefined,
+    },
+    { icon: <IconFolder size={16} color="gray" />, label: wsPath },
+    { icon: <IconClock size={16} color="gray" />, label: `Sync every ${syncInterval}` },
+  ];
 
   return (
     <ResourceCard
@@ -44,20 +87,7 @@ export default function WorkspaceCard({ workspace, borderAll, flash }: Workspace
           ? [{ label: phase, color: statusColor[phase] ?? "gray", spinning: spinningStatuses.has(phase) }]
           : []
       }
-      meta={[
-        {
-          icon: <IconBox size={16} color="gray" />,
-          label: projectRef || "No Project",
-          to: projectRef ? `/projects/${ns}/${projectRef}` : undefined,
-        },
-        {
-          icon: repoIcon(wsRepoURL),
-          label: wsRepoURL.replace(/^https?:\/\//, ""),
-          href: wsRepoURL,
-        },
-        { icon: <IconFolder size={16} color="gray" />, label: wsPath },
-        { icon: <IconClock size={16} color="gray" />, label: `Sync every ${syncInterval}` },
-      ]}
+      meta={meta}
       borderAll={borderAll}
       flashStyle={
         flash ? ({ "--flash-color": flashColorVar(phase) } as CSSProperties) : undefined

@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	magosprojectiov1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -38,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	projectcontroller "github.com/magosproject/magos/internal/controller/project"
+	refwatchercontroller "github.com/magosproject/magos/internal/controller/refwatcher"
 	rolloutcontroller "github.com/magosproject/magos/internal/controller/rollout"
 	variablesetcontroller "github.com/magosproject/magos/internal/controller/variableset"
 	workspacecontroller "github.com/magosproject/magos/internal/controller/workspace"
@@ -73,6 +75,12 @@ func main() {
 	var enableProjectController bool
 	var enableVariableSetController bool
 	var enableRolloutController bool
+	var enableRefWatcherController bool
+
+	// RefWatcher flags
+	var defaultPollInterval time.Duration
+	var refWatcherWorkerCount int
+	var refWatcherWorkQueueSize int
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -103,9 +111,17 @@ func main() {
 		"Enable the VariableSet controller.")
 	flag.BoolVar(&enableRolloutController, "enable-rollout-controller", false,
 		"Enable the Rollout controller.")
+	flag.BoolVar(&enableRefWatcherController, "enable-refwatcher-controller", false,
+		"Enable the RefWatcher controller.")
+	flag.DurationVar(&defaultPollInterval, "default-poll-interval", 30*time.Second,
+		"Default git remote poll interval for RefWatcher.")
+	flag.IntVar(&refWatcherWorkerCount, "worker-count", 20,
+		"Number of RefWatcher worker goroutines.")
+	flag.IntVar(&refWatcherWorkQueueSize, "work-queue-size", 200,
+		"Size of the RefWatcher work queue buffer.")
 
 	opts := zap.Options{
-		Development: true,
+		Development: false,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -251,6 +267,19 @@ func main() {
 			os.Exit(1)
 		}
 		setupLog.Info("Rollout controller enabled")
+	}
+
+	if enableRefWatcherController {
+		if err := (&refwatchercontroller.RefWatcherReconciler{
+			Client:              mgr.GetClient(),
+			DefaultPollInterval: defaultPollInterval,
+			WorkerCount:         refWatcherWorkerCount,
+			WorkQueueSize:       refWatcherWorkQueueSize,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "RefWatcher")
+			os.Exit(1)
+		}
+		setupLog.Info("RefWatcher controller enabled")
 	}
 	// +kubebuilder:scaffold:builder
 

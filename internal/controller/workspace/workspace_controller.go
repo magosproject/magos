@@ -48,8 +48,8 @@ const (
 	// reconciliations
 	DefaultReconciliationInterval = 3 * time.Minute
 
-	// DefaultJobTimeoutSeconds is the activeDeadlineSeconds applied to plan
-	// and apply Jobs when no per-phase TimeoutSeconds override is set. This
+	// DefaultJobTimeoutSeconds is the activeDeadlineSeconds applied to plan and
+	// apply Jobs when no per-phase TimeoutSeconds override is set. This
 	// prevents a Workspace from being stuck in Planning or Applying
 	// indefinitely if a Job hangs (e.g. terraform blocks on a provider call).
 	DefaultJobTimeoutSeconds int64 = 86400 // 24 hours
@@ -263,8 +263,8 @@ func (r *WorkspaceReconciler) getSpecHash(ws *v1alpha1.Workspace) string {
 }
 
 // getSyncInterval returns the reconciliation interval for this Workspace. If
-// the user set the magosproject.io/reconcile-interval annotation to a valid
-// Go duration (e.g. "5m", "1h"), we use that. Otherwise we fall back to
+// the user set the magosproject.io/reconcile-interval annotation to a valid Go
+// duration (e.g. "5m", "1h"), we use that. Otherwise we fall back to
 // DefaultReconciliationInterval (3 minutes). This interval controls how often
 // we re-plan for drift detection and how long we wait before retrying after a
 // failure.
@@ -290,8 +290,8 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// given Apply always runs against the exact plan file that was generated
 	// for the same spec. When someone changes the spec, the hash changes and we
 	// get a new pair of Jobs. Importantly, approving a plan does not change the
-	// hash (the approval annotation is not part of the spec) so the Apply
-	// Job is guaranteed to execute the plan that was reviewed and approved.
+	// hash (the approval annotation is not part of the spec) so the Apply Job
+	// is guaranteed to execute the plan that was reviewed and approved.
 	specHash := r.getSpecHash(workspace)
 	planJobName := fmt.Sprintf("%s-plan-%s", workspace.Name, specHash)
 	applyJobName := fmt.Sprintf("%s-apply-%s", workspace.Name, specHash)
@@ -321,8 +321,8 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 						break
 					}
 				}
-				// Delete Jobs that belong to this Workspace but were created for an
-				// older specHash.
+				// Delete Jobs that belong to this Workspace but were created
+				// for an older specHash.
 				if isOwned && j.Name != planJobName && j.Name != applyJobName {
 					logger.Info("Cleaning up orphaned job from previous run", "job", j.Name)
 					_ = r.Delete(ctx, &j, client.PropagationPolicy(metav1.DeletePropagationBackground))
@@ -350,14 +350,14 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	//   - Spec change: the specHash shifted so the old Jobs no longer exist.
 	//
 	// This logic must run before Step 4. Step 4 evaluates the Rollout execution
-	// lock annotation (magosproject.io/execution-allowed). The Rollout controller
-	// adds that annotation to allow a Workspace to execute, and removes it again
-	// once the Workspace finishes.
+	// lock annotation (magosproject.io/execution-allowed). The Rollout
+	// controller adds that annotation to allow a Workspace to execute, and
+	// removes it again once the Workspace finishes.
 	//
-	// If we checked the execution lock first, a completed Workspace could appear
-	// "not allowed" and we would never reach this reset path. That would leave the
-	// Workspace stuck in a terminal(?) phase with no way to clean up old Jobs or
-	// start a new cycle.
+	// If we checked the execution lock first, a completed Workspace could
+	// appear "not allowed" and we would never reach this reset path. That would
+	// leave the Workspace stuck in a terminal(?) phase with no way to clean up
+	// old Jobs or start a new cycle.
 	syncInterval := r.getSyncInterval(workspace)
 	needsReset := false
 	resetReason := ""
@@ -410,8 +410,8 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// away. We wait for the sync interval to elapse first. On success that
 	// gives us periodic drift detection, on failure it acts as a backoff before
 	// retrying. When the interval hasn't fully elapsed yet we requeue for
-	// exactly the remaining duration to avoid waking up on every reconcile
-	// loop in the meantime.
+	// exactly the remaining duration to avoid waking up on every reconcile loop
+	// in the meantime.
 	if !applyFinishedTime.IsZero() {
 		elapsed := time.Since(applyFinishedTime)
 		if elapsed >= syncInterval {
@@ -449,21 +449,70 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		}
 	}
 
+	// The RefWatcher controller runs in a separate goroutine and polls Git
+	// remotes on a configurable interval. When it discovers that a branch or
+	// tag (e.g. "main") now points to a different commit, it patches the
+	// detected-revision annotation on the Workspace with the new SHA. That
+	// annotation is the handoff signal between the two controllers: the
+	// RefWatcher writes it, and we consume it here by starting a fresh
+	// plan/apply cycle immediately rather than waiting for the sync interval.
+	//
+	// The phase guard below is critical. The reset path deliberately preserves
+	// the detected-revision annotation so that Step 8 can read the exact commit
+	// SHA and record it as status.observedRevision after a successful apply. If
+	// we allowed the check to fire from in-progress phases (Pending, Planning,
+	// Planned, Applying) the annotation would trigger a reset on every
+	// reconcile, creating an infinite loop because it is never cleared until
+	// Step 8. By restricting to terminal phases (Applied, Failed) and the
+	// initial empty phase, we guarantee the reset fires exactly once per new
+	// commit: the Workspace resets, progresses through its plan/apply cycle,
+	// and only then is the annotation consumed.
+	if !needsReset && workspace.Annotations != nil &&
+		(workspace.Status.Phase == "" || workspace.Status.Phase == v1alpha1.PhaseApplied || workspace.Status.Phase == v1alpha1.PhaseFailed) {
+		if detected, ok := workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation]; ok && detected != workspace.Status.ObservedRevision {
+			needsReset = true
+			resetReason = "NewRevisionDetected"
+			resetMessage = fmt.Sprintf("RefWatcher detected new revision %s", detected)
+		}
+	}
+
 	if needsReset {
-		logger.Info("Sync interval reached. Cleaning up jobs to trigger a fresh run.", "reason", resetReason)
+		logger.Info("Cleaning up jobs to trigger a fresh run.", "reason", resetReason)
 		if planJobGetErr == nil {
 			_ = r.Delete(ctx, &planJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
 		}
 		if applyJobGetErr == nil {
 			_ = r.Delete(ctx, &applyJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
 		}
-		// Clear the execution-allowed annotation so the Rollout controller
-		// must re-grant permission before this Workspace can run again. Each
-		// Workspace's sync interval expires based on when its own Apply Job
-		// finished, so Workspaces in earlier rollout steps reset to Pending
-		// before later ones. Without clearing this annotation, a Workspace
-		// that resets would still carry "true" from the previous cycle and
-		// immediately start planning, ignoring the rollout step order.
+		// The status update to Pending must happen before we clear any
+		// annotations. The Rollout controller watches Workspace objects and
+		// uses workspaceFullyApplied() to decide whether a level has completed.
+		// That function returns true when phase is Applied and the
+		// detected-revision annotation is absent. If we cleared annotations
+		// first, there would be a brief window where the Workspace is still in
+		// PhaseApplied but has no detected-revision. The Rollout would observe
+		// that state, conclude the Workspace is done, and advance to the next
+		// level, granting execution permission to later Workspaces (e.g. prod)
+		// before earlier ones (e.g. dev) have even started their new cycle.
+		// Writing Pending first closes that window: the Rollout sees
+		// PhasePending and knows the Workspace still has work to do.
+		r.updateStatus(ctx, workspace, v1alpha1.PhasePending, resetReason, resetMessage, metav1.ConditionUnknown)
+
+		// Clear execution-allowed so the Rollout controller must re-grant
+		// permission before this Workspace can proceed. The Rollout decides
+		// when each Workspace runs based on level ordering; without clearing
+		// this annotation the Workspace would skip the gate in Step 4 and start
+		// planning immediately, ignoring the rollout sequence.
+		//
+		// We intentionally keep detected-revision alive through the cycle. The
+		// RefWatcher wrote the exact commit SHA into that annotation, and Step
+		// 8 reads it after a successful apply to populate
+		// status.observedRevision with the SHA (e.g. "a1b2c3d") instead of the
+		// branch name (e.g. "main"). Clearing it here would discard the SHA and
+		// Step 8 would fall back to spec.source.targetRevision. The phase guard
+		// on the detected-revision check above prevents the annotation from
+		// re-triggering a reset while the Workspace progresses through Pending,
+		// Planning, and Applying.
 		if workspace.Annotations != nil {
 			if _, ok := workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation]; ok {
 				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
@@ -472,9 +521,6 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 				}
 			}
 		}
-		// Delete old Jobs and go back to Pending so the Rollout controller can
-		// re-queue this Workspace for a fresh run.
-		r.updateStatus(ctx, workspace, v1alpha1.PhasePending, resetReason, resetMessage, metav1.ConditionUnknown)
 		return ctrl.Result{}, nil
 	}
 
@@ -483,11 +529,11 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	//
 	// A Rollout groups multiple Workspaces and controls the order they run in
 	// (e.g. "dev must succeed before prod starts"). It does this by setting the
-	// execution-allowed annotation on each Workspace when it is that Workspace's
-	// turn. If the annotation is absent or not "true", it means the Rollout
-	// controller hasn't reached that Workspace yet, so we stay in Pending and
-	// return early. The Rollout controller will trigger a new reconcile once it
-	// sets the annotation.
+	// execution-allowed annotation on each Workspace when it is that
+	// Workspace's turn. If the annotation is absent or not "true", it means the
+	// Rollout controller hasn't reached that Workspace yet, so we stay in
+	// Pending and return early. The Rollout controller will trigger a new
+	// reconcile once it sets the annotation.
 	isAllowed := false
 	if workspace.Annotations != nil {
 		isAllowed = workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == v1alpha1.AnnotationValueTrue
@@ -648,30 +694,74 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		return ctrl.Result{}, nil
 	}
 
-	// Step 8: The Apply succeeded. Record the result and release the execution lock.
+	// Step 8: The Apply succeeded. Record the result and release the execution
+	// lock.
 	//
-	// We write the Git revision that was just applied into the status so that
-	// external consumers (Magos UI, the Rollout controller, etc)
-	// can see exactly which revision is live for this Workspace. After that we
-	// remove the execution-allowed annotation to hand control back to the Rollout
-	// controller, completing this Workspace's execution cycle. The next cycle
-	// will start when Step 3's reset evaluation fires after the sync interval.
+	// This is the final step in the Workspace lifecycle and the point where the
+	// detected-revision annotation is consumed. The annotation flows through
+	// three controllers. The RefWatcher writes it with the commit SHA when it
+	// discovers that a branch or tag moved. Step 3 sees the annotation, resets
+	// the Workspace to Pending, and intentionally preserves the annotation so
+	// the SHA survives the plan/apply cycle. Here in Step 8 we read the SHA
+	// from the annotation and record it as status.observedRevision, then delete
+	// the annotation so it does not trigger another reset. The Rollout
+	// controller's workspaceFullyApplied() also checks for the absence of this
+	// annotation, so deleting it signals that the Workspace has fully processed
+	// the new commit.
+	//
+	// If the RefWatcher did not trigger this cycle (e.g. periodic drift
+	// detection or a manual reconcile request), the annotation will not be
+	// present and we fall back to spec.source.targetRevision (the branch or tag
+	// name).
+	//
+	// After recording the revision we remove both the execution-allowed and
+	// detected-revision annotations to hand control back to the Rollout
+	// controller, completing this Workspace's turn in the rollout sequence. The
+	// next cycle will start when Step 3's reset evaluation fires after the sync
+	// interval, or when the RefWatcher detects another new commit.
 	logger.Info("Apply Job completed successfully", "job", applyJobName)
 
-	// Record the observed revision before the status update so it's included
-	// in the same write.
-	workspace.Status.ObservedRevision = workspace.Spec.Source.TargetRevision
+	// Record the observed revision before the status update so it is included
+	// in the same write. When the RefWatcher triggered this cycle the
+	// detected-revision annotation carries the full 40 character commit SHA.
+	// Otherwise we fall back to the branch or tag name from the spec.
+	if workspace.Annotations != nil {
+		if sha := workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation]; sha != "" {
+			workspace.Status.ObservedRevision = sha
+		} else {
+			workspace.Status.ObservedRevision = workspace.Spec.Source.TargetRevision
+		}
+	} else {
+		workspace.Status.ObservedRevision = workspace.Spec.Source.TargetRevision
+	}
 	r.updateStatus(ctx, workspace, v1alpha1.PhaseApplied, "ApplySucceeded", "Terraform Apply completed successfully", metav1.ConditionTrue)
 
-	// Remove the execution lock. We use Patch rather than Update because the
-	// status update above may have bumped the resourceVersion, and a full
-	// Update would conflict.
-	if workspace.Annotations != nil && workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
+	// Remove the execution-allowed and detected-revision annotations now that
+	// the cycle is complete. We use Patch rather than Update because the status
+	// update above may have bumped the resourceVersion, and a full Update would
+	// conflict. Deleting execution-allowed tells the Rollout controller that
+	// this Workspace is done with its turn. Deleting detected-revision tells
+	// both the Rollout controller (via workspaceFullyApplied) and Step 3 (via
+	// the phase guarded reset check) that the new commit has been fully
+	// processed.
+	{
 		patch := client.MergeFrom(workspace.DeepCopy())
-		delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
-		if err := r.Patch(ctx, workspace, patch); err != nil {
-			logger.Error(err, "Failed to consume execution annotations via Patch")
-			return ctrl.Result{}, err
+		changed := false
+		if workspace.Annotations != nil {
+			if workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
+				changed = true
+			}
+			if workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceDetectedRevisionAnnotation)
+				changed = true
+			}
+		}
+		if changed {
+			if err := r.Patch(ctx, workspace, patch); err != nil {
+				logger.Error(err, "Failed to consume execution annotations via Patch")
+				return ctrl.Result{}, err
+			}
 		}
 	}
 
@@ -724,10 +814,10 @@ func (r *WorkspaceReconciler) ensurePVC(ctx context.Context, ws *v1alpha1.Worksp
 // requested operation.
 //
 // We pass all configuration to the container through environment variables.
-// Plain values (repo URL, revision, terraform version, etc.) are set as
-// literal env vars. Sensitive values (Git credentials) are injected via
-// secretKeyRef so that Kubernetes resolves them at Pod startup from the
-// referenced Secret, and we never have to copy secret data into the Job spec.
+// Plain values (repo URL, revision, terraform version, etc.) are set as literal
+// env vars. Sensitive values (Git credentials) are injected via secretKeyRef so
+// that Kubernetes resolves them at Pod startup from the referenced Secret, and
+// we never have to copy secret data into the Job spec.
 //
 // The Job mounts the Workspace's shared PVC at /workspace-data. The Plan Job
 // writes the .tfplan file there, and the Apply Job reads it back from the same
@@ -735,15 +825,15 @@ func (r *WorkspaceReconciler) ensurePVC(ctx context.Context, ws *v1alpha1.Worksp
 //
 // We set backoffLimit to 0 so Kubernetes does not automatically retry a failed
 // Job. Terraform failures (bad HCL, provider errors, state locks) are unlikely
-// to resolve on a blind retry, and Step 3 in reconcileWorkspace already
-// handles retries after a cooldown period.
+// to resolve on a blind retry, and Step 3 in reconcileWorkspace already handles
+// retries after a cooldown period.
 //
 // The Job is owned by the Workspace via SetControllerReference, so Kubernetes
 // garbage collection will delete it when the Workspace is removed.
 func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *v1alpha1.Workspace, jobName, jobType, planFile, pvcName string) (*batchv1.Job, error) {
-	// The below map holds configuration that every Job needs: where to clone from, which
-	// revision to check out, which Terraform version to use, and whether this
-	// is a "plan" or "apply" run.
+	// The below map holds configuration that every Job needs: where to clone
+	// from, which revision to check out, which Terraform version to use, and
+	// whether this is a "plan" or "apply" run.
 	envVars := []corev1.EnvVar{
 		{Name: "REPO_URL", Value: ws.Spec.Source.RepoURL},
 		{Name: "TARGET_REVISION", Value: ws.Spec.Source.TargetRevision},
@@ -762,10 +852,10 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 		envVars = append(envVars, corev1.EnvVar{Name: "TF_VAR_FILE", Value: ws.Spec.Terraform.TfvarsPath})
 	}
 
-	// Look up Git credentials for this repo URL. If a matching Secret exists
-	// in the namespace we inject its values via secretKeyRef. This means the
-	// actual secret data never appears in the Job spec; Kubernetes resolves
-	// it at Pod startup.
+	// Look up Git credentials for this repo URL. If a matching Secret exists in
+	// the namespace we inject its values via secretKeyRef. This means the
+	// actual secret data never appears in the Job spec; Kubernetes resolves it
+	// at Pod startup.
 	authSecret, err := r.getRepoCredentials(ctx, ws.Namespace, ws.Spec.Source.RepoURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve repository credentials: %w", err)
@@ -826,7 +916,8 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 		}
 	}
 
-	// Merge shared annotations with per-phase overrides (phase wins on conflict).
+	// Merge shared annotations with per-phase overrides (phase wins on
+	// conflict).
 	var podAnnotations map[string]string
 	if len(ws.Spec.Annotations) > 0 {
 		podAnnotations = make(map[string]string, len(ws.Spec.Annotations))
@@ -971,14 +1062,13 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 	}
 }
 
-// updateNextReconcileTime writes the expected next reconciliation time into
-// the Workspace status so that the UI can display when the next sync will
-// happen.
+// updateNextReconcileTime writes the expected next reconciliation time into the
+// Workspace status so that the UI can display when the next sync will happen.
 func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, workspace *v1alpha1.Workspace, requeueAfter time.Duration) {
 	next := metav1.NewTime(time.Now().Add(requeueAfter))
 
-	// Use a fresh context so this best-effort update isn't constrained by
-	// the reconcile context's deadline.
+	// Use a fresh context so this best-effort update isn't constrained by the
+	// reconcile context's deadline.
 	updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
