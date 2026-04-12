@@ -1,0 +1,96 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cross-project-isolation
+spec:
+  description: |
+    The rollout reconcile loop lists Workspaces by label selector and
+    then filters by spec.projectRef, because on a busy namespace the
+    initial list can easily match Workspaces that belong to entirely
+    different Projects. This test sets up exactly that collision: two
+    Workspaces with identical labels, one owned by the Rollout's
+    Project and one orphaned under a projectRef that does not exist.
+    If the projectRef filter is ever removed or bypassed the orphan
+    would incorrectly be granted execution permission, and a Rollout
+    for Project A could start running Project B's Terraform, which is
+    the single worst regression in the entire orchestration model.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: owned-project
+          spec: {}
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: owned-ws
+            labels:
+              env: shared
+          spec:
+            projectRef:
+              name: owned-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: stranger-ws
+            labels:
+              env: shared
+          spec:
+            projectRef:
+              name: unknown-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: owned-project
+          spec:
+            projectRef: owned-project
+            strategy:
+              steps:
+              - name: shared
+                selector:
+                  matchLabels:
+                    env: shared
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: owned-ws
+            annotations:
+              magosproject.io/execution-allowed: "true"
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: stranger-ws
+          status:
+            phase: Pending
+            reason: AwaitingRollout
+    - error:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: stranger-ws
+            annotations:
+              magosproject.io/execution-allowed: "true"

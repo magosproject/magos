@@ -1,0 +1,52 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: pvc-created
+spec:
+  description: |
+    Plan and Apply run as two independent Kubernetes Jobs, which means
+    the .tfplan file Plan writes has to live somewhere that Apply can
+    read it back, and that "somewhere" is a PersistentVolumeClaim owned
+    by the Workspace and named after it with a data suffix. We assert
+    both the naming convention (the Apply Job builder reconstructs the
+    PVC name by string concat) and the controller owner reference (so
+    Kubernetes GC sweeps the PVC when the Workspace is deleted). If
+    either regresses, Apply either cannot find its plan or leaks a PVC
+    on every Workspace deletion.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: pvc-project
+          spec: {}
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: pvc-ws
+          spec:
+            projectRef:
+              name: pvc-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: pvc-ws-data
+            ownerReferences:
+            - apiVersion: magosproject.io/v1alpha1
+              kind: Workspace
+              name: pvc-ws
+              controller: true
+          spec:
+            accessModes:
+            - ReadWriteOnce

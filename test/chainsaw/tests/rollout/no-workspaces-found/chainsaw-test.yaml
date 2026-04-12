@@ -1,0 +1,45 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: no-workspaces-found
+spec:
+  description: |
+    A selector that matches zero Workspaces is treated as a hard Failed
+    state, not silently skipped. This is a deliberate safety property:
+    the most common cause of zero matches is either a typo in the
+    selector or a Workspace that failed to apply upstream, and silently
+    advancing past that step would mean skipping a production
+    environment entirely. The test pins us to "fail loud" so that
+    nobody ever weakens this to a soft warning. A single broken label
+    key must never let a Rollout walk straight past prod without
+    touching it.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: no-ws-rollout
+          spec:
+            projectRef: no-ws-rollout
+            strategy:
+              steps:
+              - name: dev
+                selector:
+                  matchLabels:
+                    env: dev
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: no-ws-rollout
+          status:
+            phase: Failed
+            reason: NoWorkspacesFound
+            currentStep: 0
+            conditions:
+            - type: Ready
+              status: "False"
+              reason: NoWorkspacesFound

@@ -1,0 +1,37 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: name-must-match-projectref
+spec:
+  description: |
+    The Rollout CRD enforces a CEL rule that metadata.name must equal
+    spec.projectRef, a one to one binding the Project controller relies
+    on so it can find "its" Rollout with a single Get instead of a List
+    plus a filter in memory. This test lives entirely at admission
+    time: we hand a mismatched Rollout to the API server and expect it
+    to bounce. Without this invariant two Rollouts could claim the same
+    Project by spec and the Project controller would quietly pick
+    whichever one its Get hit first, which is the kind of
+    nondeterministic behaviour you can never debug after the fact.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: wrong-name
+          spec:
+            projectRef: some-other-project
+            strategy:
+              steps:
+              - name: dev
+                selector:
+                  matchLabels:
+                    env: dev
+        expect:
+        - match:
+            apiVersion: magosproject.io/v1alpha1
+            kind: Rollout
+          check:
+            ($error != null): true

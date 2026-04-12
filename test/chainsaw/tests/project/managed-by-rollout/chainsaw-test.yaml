@@ -1,0 +1,45 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: managed-by-rollout
+spec:
+  description: |
+    As soon as a Rollout exists with the same name as the Project, the
+    Project controller bows out of orchestration entirely and flips its
+    reason to ManagedByRollout. This is the handshake that prevents the
+    Project and Rollout controllers from fighting over execution
+    permission on the same set of Workspaces, and the strict one to one
+    name coupling is the whole reason the Rollout CRD carries its CEL
+    validation rule.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: managed-project
+          spec: {}
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: managed-project
+          spec:
+            projectRef: managed-project
+            strategy:
+              steps: []
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: managed-project
+          status:
+            phase: Ready
+            reason: ManagedByRollout
+            conditions:
+            - type: Ready
+              status: "True"
+              reason: ManagedByRollout

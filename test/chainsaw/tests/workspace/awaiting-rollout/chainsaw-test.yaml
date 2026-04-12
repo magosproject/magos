@@ -1,0 +1,39 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: awaiting-rollout
+spec:
+  description: |
+    A Workspace on its own, with no Project around to grant
+    DefaultParallel and no Rollout around to include it in a step, must
+    sit idle in Pending rather than charging ahead and running
+    Terraform with no orchestration context behind it. The
+    reason=AwaitingRollout string is what operators and the UI key off
+    to distinguish "blocked on policy" from "blocked on an error", so
+    it is worth pinning down explicitly even though the phase alone
+    would catch a regression.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: orphan-ws
+          spec:
+            projectRef:
+              name: nonexistent-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: orphan-ws
+          status:
+            phase: Pending
+            reason: AwaitingRollout

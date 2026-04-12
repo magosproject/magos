@@ -1,0 +1,38 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: finalizer-added
+spec:
+  description: |
+    Same principle as Project: the Workspace controller installs its
+    finalizer at the very top of Reconcile, before it touches PVCs or
+    Jobs, so that `kubectl delete` is always routed through
+    handleDeletion. Without the finalizer an Apply that is still in
+    flight could be torn down by Kubernetes garbage collection while
+    Terraform is in the middle of mutating state, and we would be one
+    crash away from a corrupted tfstate, exactly the class of bug we
+    built this controller to prevent.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: finalizer-ws
+          spec:
+            projectRef:
+              name: does-not-exist
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: finalizer-ws
+            finalizers:
+            - magosproject.io/finalizer

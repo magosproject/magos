@@ -1,0 +1,34 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: reject-missing-terraform-version
+spec:
+  description: |
+    terraform.version is what the Job image consumes at runtime to
+    install the right Terraform binary, and unlike source.path there
+    is no reasonable default: silently picking "latest" would expose
+    every user to breaking releases and state format upgrades they
+    never asked for. Admission rejection is the right escalation
+    path: fail fast, fail loud, and make the user state their intent
+    explicitly.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: missing-tf-version
+          spec:
+            projectRef:
+              name: some-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform: {}
+        expect:
+        - match:
+            apiVersion: magosproject.io/v1alpha1
+            kind: Workspace
+          check:
+            ($error != null): true

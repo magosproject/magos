@@ -1,0 +1,97 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: step-ordering
+spec:
+  description: |
+    A minimal ordering test, one Workspace per step, that asserts the
+    Rollout controller never reaches ahead of its currently active
+    step. Step 0's Workspace is granted execution permission, step 1's
+    is not, and status.currentStep stays pinned at 0 until step 0
+    completes. The basic orchestration test already covers this
+    property across three tiers, but the ordering invariant deserves
+    its own small, fast test that you can point to when bisecting a
+    regression.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: ordering-project
+          spec: {}
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: first
+            labels:
+              tier: one
+          spec:
+            projectRef:
+              name: ordering-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: second
+            labels:
+              tier: two
+          spec:
+            projectRef:
+              name: ordering-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: ordering-project
+          spec:
+            projectRef: ordering-project
+            strategy:
+              steps:
+              - name: one
+                selector:
+                  matchLabels:
+                    tier: one
+              - name: two
+                selector:
+                  matchLabels:
+                    tier: two
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: ordering-project
+          status:
+            currentStep: 0
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: first
+            annotations:
+              magosproject.io/execution-allowed: "true"
+    - error:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: second
+            annotations:
+              magosproject.io/execution-allowed: "true"

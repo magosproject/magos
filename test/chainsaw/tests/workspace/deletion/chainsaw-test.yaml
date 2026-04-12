@@ -1,0 +1,48 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: deletion
+spec:
+  description: |
+    Mirror of project/deletion: delete the Workspace, confirm the
+    finalizer is removed, and confirm the object is actually gone. All
+    cleanup of owned resources (Jobs, PVCs) is delegated to Kubernetes
+    garbage collection via owner references, so if the finalizer ever
+    fails to be removed we also stop cleaning up every piece of child
+    state the Workspace had produced. One regression here leaks both
+    the parent object and everything underneath it.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: delete-ws
+          spec:
+            projectRef:
+              name: ghost-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: delete-ws
+            finalizers:
+            - magosproject.io/finalizer
+    - delete:
+        ref:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          name: delete-ws
+    - error:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: delete-ws

@@ -1,0 +1,36 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: reject-empty-projectref
+spec:
+  description: |
+    projectRef.name has minLength: 1 because every Workspace must
+    belong to exactly one Project: the Project controller discovers
+    its Workspaces by exact string match on this field, and the
+    Rollout's projectRef filter does the same. Allowing an empty
+    string would let Workspaces float in limbo, never granted
+    permission by anything and invisible to any orchestrator, so we
+    reject them at the admission boundary instead of letting them
+    silently rot.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: empty-projectref
+          spec:
+            projectRef:
+              name: ""
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.13.0"
+        expect:
+        - match:
+            apiVersion: magosproject.io/v1alpha1
+            kind: Workspace
+          check:
+            ($error != null): true
