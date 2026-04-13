@@ -9,7 +9,7 @@ import {
   Title,
 } from "@mantine/core";
 import { IconFolder, IconRefresh } from "@tabler/icons-react";
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { Link, useLoaderData, useParams } from "react-router";
 import { resourceId } from "../api/resource";
 import Breadcrumbs from "../components/Breadcrumbs";
@@ -21,10 +21,12 @@ import ProjectLineageGraph from "../components/ProjectLineageGraph";
 import { repoIcon } from "../utils/repoIcon";
 import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
-import type { Project, Workspace as WorkspaceType } from "../api/types";
+import type { Phase, Project, Workspace as WorkspaceType } from "../api/types";
 import { useSSEItem } from "../hooks/useSSEItem";
 import { useFlashOnChange } from "../hooks/useFlashOnChange";
 import { flashColorVar } from "../utils/colors";
+
+const reconcileablePhases: Phase[] = ["Applied", "Failed", "Idle"];
 
 export function meta({ params }: { params: { namespace: string; name: string } }) {
   return [{ title: `${params.name} – magos` }];
@@ -75,6 +77,7 @@ function terraformReleaseUrl(version: string): string | null {
 export default function Workspace() {
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const initial = useLoaderData<typeof clientLoader>();
+  const [isSubmittingReconcile, setIsSubmittingReconcile] = useState(false);
   const ws = useSSEItem<WorkspaceType>(
     apiUrl("/apis/magosproject.io/v1alpha1/workspaces/events"),
     initial.workspace,
@@ -88,11 +91,28 @@ export default function Workspace() {
   const revision = ws.spec?.source?.targetRevision ?? "";
   const tfVersion = ws.spec?.terraform?.version ?? "";
   const projectName = ws.spec?.projectRef?.name ?? "";
-  const phase = ws.status?.phase ?? "";
+  const phase: Phase | undefined = ws.status?.phase;
+  const phaseLabel = phase ?? "";
   const flash = useFlashOnChange(phase);
-  const flashStyle = { "--flash-color": flashColorVar(phase) } as CSSProperties;
+  const flashStyle = { "--flash-color": flashColorVar(phaseLabel) } as CSSProperties;
   const wsId = resourceId(ws);
   const lineageFlashIds = useMemo(() => (flash ? new Set([wsId]) : new Set<string>()), [flash, wsId]);
+  const canReconcile = phase ? reconcileablePhases.includes(phase) : false;
+  const reconcileDisabled = isSubmittingReconcile || !canReconcile || !namespace || !name;
+  const reconcileLabel = isSubmittingReconcile || phase === "Reconciling" ? "Reconciling..." : "Reconcile";
+
+  async function handleReconcile() {
+    if (!namespace || !name || reconcileDisabled) return;
+
+    setIsSubmittingReconcile(true);
+    try {
+      await apiClient.POST("/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile", {
+        params: { path: { namespace, name } },
+      });
+    } finally {
+      setIsSubmittingReconcile(false);
+    }
+  }
 
   return (
     <Stack gap="lg">
@@ -103,8 +123,15 @@ export default function Workspace() {
           <Title order={2}>{name}</Title>
           <KubeBadge label={namespace!} />
         </Group>
-        <Button leftSection={<IconRefresh size={16} />} variant="default" size="sm">
-          Reconcile
+        <Button
+          leftSection={<IconRefresh size={16} />}
+          variant="default"
+          size="sm"
+          disabled={reconcileDisabled}
+          loading={isSubmittingReconcile}
+          onClick={handleReconcile}
+        >
+          {reconcileLabel}
         </Button>
       </Group>
 
@@ -114,7 +141,7 @@ export default function Workspace() {
           className={flash ? "flash-highlight" : undefined}
           style={flashStyle}
         >
-          <StatusBadge status={phase} size="md" />
+          <StatusBadge status={phaseLabel} size="md" />
         </InfoCard>
 
         <InfoCard label="Project">

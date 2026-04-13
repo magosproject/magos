@@ -2,12 +2,17 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"time"
 
+	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
 	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/magosproject/v1alpha1"
 	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
 )
@@ -23,20 +28,23 @@ type WorkspaceService interface {
 	Watch(ctx context.Context) <-chan WorkspaceEvent
 	List(ctx context.Context) ([]*apiv1alpha1.Workspace, error)
 	Get(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
+	RequestReconcile(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
 }
 
 type workspaceService struct {
 	logger   *slog.Logger
+	client   versioned.Interface
 	informer cache.SharedIndexInformer
 	lister   listerv1alpha1.WorkspaceLister
 	events   *Broadcaster[WorkspaceEvent]
 }
 
-func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory) WorkspaceService {
+func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory, client versioned.Interface) WorkspaceService {
 	workspaceInformer := factory.Magosproject().V1alpha1().Workspaces()
 
 	svc := &workspaceService{
 		logger:   logger,
+		client:   client,
 		lister:   workspaceInformer.Lister(),
 		informer: workspaceInformer.Informer(),
 		events:   NewBroadcaster[WorkspaceEvent](),
@@ -92,5 +100,37 @@ func (s *workspaceService) Get(_ context.Context, namespace, name string) (*apiv
 		s.logger.Error("failed to get Workspace", "error", err, "namespace", namespace, "name", name)
 		return nil, err
 	}
+	return workspace, nil
+}
+
+func (s *workspaceService) RequestReconcile(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error) {
+	patch := map[string]any{
+		"metadata": map[string]any{
+			"annotations": map[string]string{
+				// todo(ramon): replace with `apiv1alpha1.WorkspaceReconcileRequestAtAnnotation` after PR bruno
+				"magosproject.io/reconcile-request-at": time.Now().UTC().Format(time.RFC3339Nano),
+				// todo(ramon): replace with `apiv1alpha1.WorkspaceForceReconcileAnnotation` after PR bruno
+				"magosproject.io/force-reconcile": "true",
+			},
+		},
+	}
+
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return nil, err
+	}
+
+	workspace, err := s.client.MagosprojectV1alpha1().Workspaces(namespace).Patch(
+		ctx,
+		name,
+		types.MergePatchType,
+		patchBytes,
+		metav1.PatchOptions{},
+	)
+	if err != nil {
+		s.logger.Error("failed to request Workspace reconcile", "error", err, "namespace", namespace, "name", name)
+		return nil, err
+	}
+
 	return workspace, nil
 }
