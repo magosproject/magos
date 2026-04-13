@@ -40,6 +40,15 @@ const (
 
 	// WorkspaceReconcileIntervalAnnotation overrides the default drift detection interval
 	WorkspaceReconcileIntervalAnnotation = "magosproject.io/reconcile-interval"
+
+	// WorkspaceDetectedRevisionAnnotation is set by RefWatcher when it detects
+	// that spec.source.targetRevision has resolved to a new commit SHA.
+	// The workspace controller reconciles when this value diverges from
+	// status.observedRevision.
+	WorkspaceDetectedRevisionAnnotation = "magosproject.io/detected-revision"
+
+	// WorkspaceGitPollIntervalAnnotation overrides the default git remote poll interval for this workspace.
+	WorkspaceGitPollIntervalAnnotation = "magosproject.io/git-poll-interval"
 )
 
 // ProjectReference references a Project resource
@@ -142,7 +151,9 @@ type WorkspaceStatus struct {
 	// +optional
 	Message string `json:"message,omitempty"`
 
-	// ObservedRevision is the git revision that was most recently observed/applied
+	// ObservedRevision is the git revision that was most recently observed/applied.
+	// When the RefWatcher detects a new commit, this is the full commit SHA.
+	// Otherwise it is the spec.source.targetRevision value (e.g. a branch name).
 	// +optional
 	ObservedRevision string `json:"observedRevision,omitempty"`
 

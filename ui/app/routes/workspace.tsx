@@ -8,7 +8,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { IconFolder, IconRefresh } from "@tabler/icons-react";
+import { IconFolder, IconGitBranch, IconRefresh } from "@tabler/icons-react";
 import { useMemo, useState, type CSSProperties } from "react";
 import { Link, useLoaderData, useParams } from "react-router";
 import { resourceId } from "../api/resource";
@@ -69,6 +69,14 @@ function revisionUrl(repoURL: string, revision: string): string | null {
   return null;
 }
 
+function commitUrl(repoURL: string, sha: string): string | null {
+  if (!repoURL || !sha) return null;
+  const base = repoURL.replace(/\.git$/, "");
+  if (base.includes("gitlab")) return `${base}/-/commit/${sha}`;
+  if (base.includes("bitbucket")) return `${base}/commits/${sha}`;
+  return `${base}/commit/${sha}`;
+}
+
 function terraformReleaseUrl(version: string): string | null {
   if (!version) return null;
   return `https://releases.hashicorp.com/terraform/${version}`;
@@ -90,6 +98,7 @@ export default function Workspace() {
   const repoURL = ws.spec?.source?.repoURL ?? "";
   const revision = ws.spec?.source?.targetRevision ?? "";
   const tfVersion = ws.spec?.terraform?.version ?? "";
+  const observedRevision = ws.status?.observedRevision ?? "";
   const projectName = ws.spec?.projectRef?.name ?? "";
   const phase: Phase | undefined = ws.status?.phase;
   const phaseLabel = phase ?? "";
@@ -174,21 +183,32 @@ export default function Workspace() {
           </Group>
         </InfoCard>
 
-        <InfoCard label="Revision">
-          {revision ? (
-            (() => {
-              const href = revisionUrl(repoURL, revision);
+        <InfoCard label="Applied Ref">
+          <Group gap={6} wrap="nowrap">
+            <IconGitBranch size={14} />
+            {(() => {
+              if (!observedRevision) return <Text size="sm" c="dimmed">—</Text>;
+              const isSHA = observedRevision.length === 40;
+              if (isSHA) {
+                const href = commitUrl(repoURL, observedRevision);
+                return href ? (
+                  <Anchor href={href} target="_blank" size="sm" ff="monospace">
+                    {observedRevision.slice(0, 7)}
+                  </Anchor>
+                ) : (
+                  <Text size="sm" c="dimmed" ff="monospace">{observedRevision.slice(0, 7)}</Text>
+                );
+              }
+              const href = revisionUrl(repoURL, observedRevision);
               return href ? (
-                <Anchor href={href} target="_blank" size="sm" truncate>
-                  {revision}
+                <Anchor href={href} target="_blank" size="sm">
+                  {observedRevision}
                 </Anchor>
               ) : (
-                <Text size="sm" c="dimmed" truncate>{revision}</Text>
+                <Text size="sm" c="dimmed">{observedRevision}</Text>
               );
-            })()
-          ) : (
-            <Text size="sm" c="dimmed">—</Text>
-          )}
+            })()}
+          </Group>
         </InfoCard>
 
         <InfoCard label="Terraform Version">

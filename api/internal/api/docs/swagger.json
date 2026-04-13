@@ -719,7 +719,7 @@
                         "type": "string"
                     },
                     "observedRevision": {
-                        "description": "ObservedRevision is the git revision that was most recently observed/applied\n+optional",
+                        "description": "ObservedRevision is the git revision that was most recently observed/applied.\nWhen the RefWatcher detects a new commit, this is the full commit SHA.\nOtherwise it is the spec.source.targetRevision value (e.g. a branch name).\n+optional",
                         "type": "string"
                     },
                     "phase": {

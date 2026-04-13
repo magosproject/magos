@@ -1456,7 +1456,9 @@ export interface components {
              */
             nextReconcileTime?: string;
             /**
-             * @description ObservedRevision is the git revision that was most recently observed/applied
+             * @description ObservedRevision is the git revision that was most recently observed/applied.
+             *     When the RefWatcher detects a new commit, this is the full commit SHA.
+             *     Otherwise it is the spec.source.targetRevision value (e.g. a branch name).
              *     +optional
              */
             observedRevision?: string;
