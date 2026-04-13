@@ -70,16 +70,33 @@ func (r *RolloutReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	err := r.reconcileRollout(ctx, rollout)
 	if err != nil {
+		reconcileTotal.WithLabelValues(req.Namespace, req.Name, "error").Inc()
 		r.updateStatus(ctx, rollout, v1alpha1.PhaseFailed, "ReconcileError", err.Error(), metav1.ConditionFalse)
 		return ctrl.Result{}, err
 	}
 
+	reconcileTotal.WithLabelValues(req.Namespace, req.Name, "success").Inc()
 	return ctrl.Result{}, nil
 }
 
 func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alpha1.Rollout) error {
 	logger := log.FromContext(ctx)
 	logger.V(1).Info("Reconciling Rollout", "name", rollout.Name)
+
+	// Track active rollout count at the end of reconciliation based on phase.
+	defer func() {
+		// Count all rollouts in non-terminal phases across the namespace.
+		var allRollouts v1alpha1.RolloutList
+		if err := r.List(ctx, &allRollouts); err == nil {
+			var active float64
+			for _, ro := range allRollouts.Items {
+				if ro.Status.Phase == v1alpha1.PhaseReconciling {
+					active++
+				}
+			}
+			activeCount.Set(active)
+		}
+	}()
 
 	// If no steps are defined, there is nothing to orchestrate. Mark the
 	// Rollout as Ready so the Project controller knows it is active but idle.
@@ -227,7 +244,13 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 	// Update CurrentStep to reflect the level we are actually evaluating.
 	// This may differ from the stored value if we rewound to an earlier
 	// level.
+	previousStep := rollout.Status.CurrentStep
 	rollout.Status.CurrentStep = currentLevel.startIdx
+
+	currentLevelMetric.WithLabelValues(rollout.Namespace, rollout.Name).Set(float64(currentLevelIdx))
+	if currentLevel.startIdx != previousStep {
+		levelTransitionsTotal.WithLabelValues(rollout.Namespace, rollout.Name).Inc()
+	}
 
 	// Step 3: Check for failures in the current level.
 	//

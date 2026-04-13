@@ -199,9 +199,12 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	res, err := r.reconcileWorkspace(ctx, workspace)
 	if err != nil {
+		reconcileTotal.WithLabelValues(req.Namespace, req.Name, "error").Inc()
 		r.updateStatus(ctx, workspace, v1alpha1.PhaseFailed, "ReconcileError", err.Error(), metav1.ConditionFalse)
 		return ctrl.Result{}, err
 	}
+
+	reconcileTotal.WithLabelValues(req.Namespace, req.Name, "success").Inc()
 
 	// Always requeue on the sync interval so we periodically re-plan even when
 	// nothing in the cluster changes. This is how we detect infrastructure
@@ -282,6 +285,20 @@ func (r *WorkspaceReconciler) getSyncInterval(ws *v1alpha1.Workspace) time.Durat
 func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace *v1alpha1.Workspace) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Workspace", "name", workspace.Name, "namespace", workspace.Namespace)
+
+	// Track active workspace count at the end of reconciliation.
+	defer func() {
+		var allWorkspaces v1alpha1.WorkspaceList
+		if err := r.List(ctx, &allWorkspaces); err == nil {
+			var active float64
+			for _, ws := range allWorkspaces.Items {
+				if ws.Status.Phase == v1alpha1.PhasePlanning || ws.Status.Phase == v1alpha1.PhaseApplying {
+					active++
+				}
+			}
+			activeCount.Set(active)
+		}
+	}()
 
 	// Step 1: Build Job names from a hash of the Workspace spec.
 	//
@@ -615,6 +632,12 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		return ctrl.Result{}, nil
 	}
 
+	// Record plan job duration if both start and completion times are available.
+	if planJob.Status.StartTime != nil && planJob.Status.CompletionTime != nil {
+		duration := planJob.Status.CompletionTime.Time.Sub(planJob.Status.StartTime.Time).Seconds()
+		jobDurationSeconds.WithLabelValues(workspace.Namespace, workspace.Name, "plan").Observe(duration)
+	}
+
 	// Step 7: Run "terraform apply" (requires approval).
 	//
 	// The Plan succeeded so the .tfplan file is available on the PVC. Before we
@@ -720,6 +743,12 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// next cycle will start when Step 3's reset evaluation fires after the sync
 	// interval, or when the RefWatcher detects another new commit.
 	logger.Info("Apply Job completed successfully", "job", applyJobName)
+
+	// Record apply job duration if both start and completion times are available.
+	if applyJob.Status.StartTime != nil && applyJob.Status.CompletionTime != nil {
+		duration := applyJob.Status.CompletionTime.Time.Sub(applyJob.Status.StartTime.Time).Seconds()
+		jobDurationSeconds.WithLabelValues(workspace.Namespace, workspace.Name, "apply").Observe(duration)
+	}
 
 	// Record the observed revision before the status update so it is included
 	// in the same write. When the RefWatcher triggered this cycle the
@@ -1016,6 +1045,9 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 		needsUpdate := false
 
 		if latest.Status.Phase != phase || latest.Status.Reason != reason || latest.Status.Message != message {
+			if latest.Status.Phase != phase {
+				phaseTransitionsTotal.WithLabelValues(workspace.Namespace, workspace.Name, string(phase)).Inc()
+			}
 			latest.Status.Phase = phase
 			latest.Status.Reason = reason
 			latest.Status.Message = message

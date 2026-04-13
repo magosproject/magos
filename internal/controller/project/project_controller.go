@@ -90,10 +90,12 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	err := r.reconcileProject(ctx, project)
 	if err != nil {
+		reconcileTotal.WithLabelValues(req.Namespace, req.Name, "error").Inc()
 		r.updateStatus(ctx, project, v1alpha1.PhaseFailed, "ReconcileError", err.Error(), metav1.ConditionFalse)
 		return ctrl.Result{}, err
 	}
 
+	reconcileTotal.WithLabelValues(req.Namespace, req.Name, "success").Inc()
 	return ctrl.Result{}, nil
 }
 
@@ -152,6 +154,7 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *v1alp
 	// annotation on Workspaces according to its defined strategy.
 	if hasRollout {
 		logger.V(1).Info("Project is managed by a Rollout. Deferring workspace orchestration.", "rollout", rollout.Name)
+		managedByRollout.WithLabelValues(project.Namespace, project.Name).Set(1)
 		r.updateStatus(ctx, project, v1alpha1.PhaseReady, "ManagedByRollout", fmt.Sprintf("Project orchestration is deferred to Rollout %s", rollout.Name), metav1.ConditionTrue)
 
 		// Since the Rollout controller is now responsible for granting
@@ -162,6 +165,7 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *v1alp
 		return nil
 	}
 
+	managedByRollout.WithLabelValues(project.Namespace, project.Name).Set(0)
 	r.updateStatus(ctx, project, v1alpha1.PhaseReady, "DefaultParallel", "Project is orchestrating workspaces in parallel", metav1.ConditionTrue)
 
 	// Step 3: Enforce default parallel execution.
@@ -176,6 +180,15 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *v1alp
 		logger.Error(err, "Failed to list workspaces")
 		return err
 	}
+
+	// Count workspaces that reference this project for the gauge.
+	var wsCount float64
+	for i := range workspaces.Items {
+		if workspaces.Items[i].Spec.ProjectRef.Name == project.Name {
+			wsCount++
+		}
+	}
+	workspaceCount.WithLabelValues(project.Namespace, project.Name).Set(wsCount)
 
 	for i := range workspaces.Items {
 		ws := &workspaces.Items[i]
