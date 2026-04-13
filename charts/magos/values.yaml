@@ -115,6 +115,24 @@ controllers:
       requests:
         cpu: 100m
         memory: 128Mi
+  refwatcher:
+    enabled: true
+    replicaCount: 1
+    defaultPollInterval: 30s
+    workerCount: 20
+    workQueueSize: 200
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      name: ""
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
 
 ui:
   enabled: true

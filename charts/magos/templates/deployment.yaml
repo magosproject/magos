@@ -54,6 +54,11 @@ spec:
         - --metrics-secure={{ $root.Values.metricsService.secure }}
         {{- end }}
         - --enable-{{ $name }}-controller
+        {{- if eq $name "refwatcher" }}
+        - --default-poll-interval={{ $controller.defaultPollInterval | default "30s" }}
+        - --worker-count={{ $controller.workerCount | default 20 }}
+        - --work-queue-size={{ $controller.workQueueSize | default 200 }}
+        {{- end }}
         image: "{{ $root.Values.image.repository }}:{{ $root.Values.image.tag | default $root.Chart.AppVersion }}"
         imagePullPolicy: {{ $root.Values.image.pullPolicy }}
         ports:
