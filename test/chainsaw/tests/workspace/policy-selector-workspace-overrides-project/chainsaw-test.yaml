@@ -1,0 +1,64 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: policy-selector-workspace-overrides-project
+spec:
+  description: |
+    When both the Project and the Workspace define a policySelector, the
+    Workspace selector must win. This lets individual Workspaces narrow or
+    expand the set of policies applied to them without changing the
+    project-wide default. If the override logic regresses, Workspaces
+    silently evaluate against the wrong set of policies.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: selector-override-project
+          spec:
+            validation:
+              policySelector:
+                matchLabels:
+                  policy.magosproject.io/category: project-level
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: selector-override-ws
+          spec:
+            projectRef:
+              name: selector-override-project
+            validation:
+              policySelector:
+                matchLabels:
+                  policy.magosproject.io/category: workspace-level
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.14.8"
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: selector-override-ws
+            annotations:
+              magosproject.io/execution-allowed: "true"
+    - assert:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            labels:
+              magosproject.io/workspace: selector-override-ws
+              magosproject.io/job-type: plan
+    - script:
+        content: |
+          kubectl get jobs -n "$NAMESPACE" \
+            -l magosproject.io/workspace=selector-override-ws,magosproject.io/job-type=plan \
+            -o jsonpath='{range .items[0].spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' \
+            | grep -qF "MAGOS_POLICY_SELECTOR=policy.magosproject.io/category=workspace-level"

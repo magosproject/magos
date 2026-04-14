@@ -1,0 +1,65 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: policy-selector-matchexpressions
+spec:
+  description: |
+    A policySelector with matchExpressions and multiple values in a single
+    In expression is the correct way to match policies from more than one
+    category (e.g. security and compliance). Multiple matchExpressions
+    entries for the same key are ANDed, which can never match, so this
+    test pins the correct single-expression form and verifies the selector
+    is serialized as "key in (v1,v2)" on the plan Job.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: selector-matchexpr-project
+          spec: {}
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: selector-matchexpr-ws
+          spec:
+            projectRef:
+              name: selector-matchexpr-project
+            validation:
+              policySelector:
+                matchExpressions:
+                  - key: policy.magosproject.io/category
+                    operator: In
+                    values:
+                      - security-1
+                      - security-2
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.14.8"
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: selector-matchexpr-ws
+            annotations:
+              magosproject.io/execution-allowed: "true"
+    - assert:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            labels:
+              magosproject.io/workspace: selector-matchexpr-ws
+              magosproject.io/job-type: plan
+    - script:
+        content: |
+          kubectl get jobs -n "$NAMESPACE" \
+            -l magosproject.io/workspace=selector-matchexpr-ws,magosproject.io/job-type=plan \
+            -o jsonpath='{range .items[0].spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' \
+            | grep -qF "MAGOS_POLICY_SELECTOR=policy.magosproject.io/category in (security-1,security-2)"

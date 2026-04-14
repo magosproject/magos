@@ -16,8 +16,27 @@ limitations under the License.
 
 package v1alpha1
 
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// ValidationSpec configures how Terraform plans are evaluated against
+// Kyverno ValidatingPolicy resources before apply. The same shape is used on
+// both Project (where it defines the default for member Workspaces) and
+// Workspace (where it overrides the Project default).
+type ValidationSpec struct {
+	// PolicySelector selects Kyverno ValidatingPolicy resources
+	// (policies.kyverno.io) by label. When nil, no policy validation is
+	// performed. An empty selector ({}) matches every ValidatingPolicy in
+	// the cluster. On a Project this acts as the default for any Workspace
+	// that does not set its own Validation; on a Workspace this fully
+	// overrides the Project default.
+	// +optional
+	PolicySelector *metav1.LabelSelector `json:"policySelector,omitempty"`
+}
+
 // Phase represents the current lifecycle phase of a resource.
-// +kubebuilder:validation:Enum=Pending;Reconciling;Ready;Idle;Planning;Planned;Applying;Applied;Failed;Deleting
+// +kubebuilder:validation:Enum=Pending;Reconciling;Ready;Idle;Planning;Planned;Applying;Applied;Failed;ValidationFailed;Deleting
 type Phase string
 
 const (
@@ -47,6 +66,11 @@ const (
 
 	// PhaseFailed indicates the resource has failed
 	PhaseFailed Phase = "Failed"
+
+	// PhaseValidationFailed indicates that the plan violated one or more
+	// ValidatingPolicy rules. Apply is blocked until the violations are
+	// resolved and a new plan cycle succeeds.
+	PhaseValidationFailed Phase = "ValidationFailed"
 
 	// PhaseDeleting indicates the resource is being deleted and cleanup is in progress
 	PhaseDeleting Phase = "Deleting"

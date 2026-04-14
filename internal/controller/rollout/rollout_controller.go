@@ -258,7 +258,7 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 	// deliberate safety mechanism: applying later steps on top of a broken
 	// earlier step could compound failures.
 	for _, ws := range currentLevel.workspaces {
-		if ws.Status.Phase == v1alpha1.PhaseFailed {
+		if ws.Status.Phase == v1alpha1.PhaseFailed || ws.Status.Phase == v1alpha1.PhaseValidationFailed {
 			logger.Info("Workspace failed, halting rollout", "workspace", ws.Name)
 			r.updateStatus(ctx, rollout, v1alpha1.PhaseFailed, "StepFailed",
 				"One or more workspaces failed in level ["+currentLevel.names+"]", metav1.ConditionFalse)
@@ -272,7 +272,16 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 	// before starting a plan/apply cycle. Without it, the Workspace stays in
 	// Pending. We only grant permission to Workspaces that actually need work
 	// to avoid unnecessary API updates and redundant reconciles.
+	//
+	// Workspaces in a terminal failed state (PhaseFailed, PhaseValidationFailed)
+	// are never re-granted permission: Step 3 already halted the Rollout for
+	// them, and re-granting would create an annotation-remove cycle between the
+	// two controllers.
 	for _, ws := range currentLevel.workspaces {
+		if ws.Status.Phase == v1alpha1.PhaseFailed || ws.Status.Phase == v1alpha1.PhaseValidationFailed {
+			continue
+		}
+
 		isFullyApplied := workspaceFullyApplied(&ws)
 		hasReconcileRequest := ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != ""
 
@@ -302,15 +311,20 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 
 	// Step 5: Revoke execution permission from Workspaces in later levels.
 	//
-	// Without this, Workspaces that were granted permission in a previous
-	// rollout cycle would retain the annotation and run out of order on
-	// the next cycle. We skip Workspaces that also appear in the active
-	// level to prevent a grant/revoke fight when selectors overlap.
-	for li := currentLevelIdx + 1; li < len(levels); li++ {
+	// Rollouts enforce a strict level ordering where only Workspaces in the current
+	// level are allowed to execute. Any Workspace belonging to a later level must
+	// not be able to proceed while an earlier level is still active.
+	//
+	// Workspaces in higher levels are intentionally blocked from executing until
+	// all preceding levels have completed, ensuring that execution always follows
+	// the defined order of the rollout. This is why the execution-allowed
+	// annotation is removed from those Workspaces: it is the mechanism that
+	// prevents them from continuing or starting work out of order.
+	for li := 0; li < len(levels); li++ {
+		if li == currentLevelIdx {
+			continue // Skip the current level since we want those Workspaces to execute
+		}
 		for _, ws := range levels[li].workspaces {
-			if _, ok := currentLevel.wsUIDs[ws.UID]; ok {
-				continue
-			}
 			if ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == v1alpha1.AnnotationValueTrue {
 				logger.Info("Revoking execution permission from workspace in later level", "workspace", ws.Name, "level", levels[li].names)
 				latestWS := &v1alpha1.Workspace{}

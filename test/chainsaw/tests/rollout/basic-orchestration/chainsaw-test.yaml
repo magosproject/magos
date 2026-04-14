@@ -39,7 +39,7 @@ spec:
               repoURL: https://example.invalid/repo.git
               targetRevision: main
             terraform:
-              version: "1.13.0"
+              version: "1.14.8"
     - apply:
         resource:
           apiVersion: magosproject.io/v1alpha1
@@ -55,7 +55,7 @@ spec:
               repoURL: https://example.invalid/repo.git
               targetRevision: main
             terraform:
-              version: "1.13.0"
+              version: "1.14.8"
     - apply:
         resource:
           apiVersion: magosproject.io/v1alpha1
@@ -71,7 +71,7 @@ spec:
               repoURL: https://example.invalid/repo.git
               targetRevision: main
             terraform:
-              version: "1.13.0"
+              version: "1.14.8"
     - apply:
         resource:
           apiVersion: magosproject.io/v1alpha1

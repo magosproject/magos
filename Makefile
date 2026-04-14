@@ -87,8 +87,12 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
 .PHONY: test-chainsaw
-test-chainsaw: chainsaw ## Run chainsaw tests.
-	$(CHAINSAW) test test/chainsaw/tests
+test-chainsaw: chainsaw ## Run controller behavior chainsaw tests (no helm install required).
+	$(CHAINSAW) test test/chainsaw/tests/workspace test/chainsaw/tests/rollout test/chainsaw/tests/project
+
+.PHONY: test-chainsaw-chart
+test-chainsaw-chart: chainsaw ## Run chart installation chainsaw tests (requires helm install of magos in magos-system).
+	$(CHAINSAW) test test/chainsaw/tests/chart
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -145,6 +149,7 @@ generate-controller: controller-gen ## Generate deepcopy, conversion and default
 
 .PHONY: generate-api-client
 generate-api-client: client-gen lister-gen informer-gen ## Generate typed Kubernetes clientset, informers and listers.
+	cd hack/tools && go mod download
 	CODE_GENERATOR_VERSION=$(CODE_GENERATOR_VERSION) LOCALBIN=$(LOCALBIN) hack/update-codegen.sh
 
 .PHONY: generate-swagger
@@ -187,7 +192,7 @@ docker-push: ## Push docker images for all components.
 	$(CONTAINER_TOOL) push ${API_IMG}
 
 .PHONY: kind-load
-kind-load: ## load locally built docker image(s) into kind cluster.
+kind-load: kind ## load locally built docker image(s) into kind cluster.
 	$(KIND) load docker-image ${IMG} --name $(KIND_CLUSTER)
 	$(KIND) load docker-image ${UI_IMG} --name $(KIND_CLUSTER)
 	$(KIND) load docker-image ${JOB_IMG} --name $(KIND_CLUSTER)
@@ -216,11 +221,29 @@ ifndef ignore-not-found
 endif
 
 .PHONY: install
-install: manifests ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+install: manifests install-validatingpolicy-crd install-job-rbac ## Install CRDs into the K8s cluster specified in ~/.kube/config.
 	$(KUBECTL) apply -f charts/magos/crds/
 
+.PHONY: install-job-rbac
+install-job-rbac: ## Install the magos-job ServiceAccount and RBAC for local development (default namespace).
+	$(KUBECTL) apply -f hack/local-job-rbac.yaml
+
+.PHONY: install-validatingpolicy-crd
+install-validatingpolicy-crd: ## Install the Kyverno ValidatingPolicy CRD if not already present (skips when Kyverno is already installed).
+	@$(KUBECTL) get crd validatingpolicies.policies.kyverno.io >/dev/null 2>&1 && \
+		echo "ValidatingPolicy CRD already installed, skipping" || \
+		helm template magos charts/magos/ --set policy.kyverno.installCRD=true \
+		  --show-only templates/kyverno-validatingpolicy-crd.yaml | $(KUBECTL) apply -f -
+
+.PHONY: uninstall-validatingpolicy-crd
+uninstall-validatingpolicy-crd: ## Remove the Kyverno ValidatingPolicy CRD (skips when Kyverno is installed, as it owns the CRD).
+	@$(KUBECTL) get pods --all-namespaces -l app.kubernetes.io/part-of=kyverno --no-headers 2>/dev/null | grep -q . && \
+		echo "Kyverno is running, skipping CRD removal to avoid breaking it" || \
+		helm template magos charts/magos/ --set policy.kyverno.installCRD=true \
+		  --show-only templates/kyverno-validatingpolicy-crd.yaml | $(KUBECTL) delete --ignore-not-found -f -
+
 .PHONY: uninstall
-uninstall: ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+uninstall: uninstall-validatingpolicy-crd ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f charts/magos/crds/
 
 ##@ Dependencies

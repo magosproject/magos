@@ -1,6 +1,6 @@
 # Magos
 
-Magos is a Kubernetes-native operator for the declarative management of Terraform and OpenTofu infrastructure.
+Magos is a Kubernetes-native operator for the declarative management of Terraform configurations.
 
 ## Overview
 
@@ -28,13 +28,25 @@ The Magos operator manages the lifecycle of your infrastructure directly from Ku
 Create a local Kind cluster:
 
 ```bash
-kind create cluster
+make kind-cluster
+```
+
+Install the CRDs into the cluster:
+
+```bash
+make install
+```
+
+Build the Magos job image and load it into the cluster:
+
+```bash
+make docker-build && make kind-load
 ```
 
 Build and locally run the operator:
 
 ```bash
-make run-controller
+make run
 ```
 
 Apply the sample resources:
@@ -52,27 +64,7 @@ kubectl get jobs
 kubectl rollouts
 ```
 
-## Running E2E Tests Locally
-
-E2E tests deploy the operator to a Kind cluster and run Workspace reconciliation.
-
-### Run the Tests
-
-```bash
-# Run all E2E tests
-make test-e2e
-
-# Run with cleanup skipped (for debugging)
-SKIP_CLEANUP=true make test-e2e
-
-# Skip infrastructure installation if already installed
-SKIP_INFRA_INSTALL=true make test-e2e
-
-# Skip credential validation (for basic deployment tests)
-SKIP_CREDENTIAL_CHECK=true make test-e2e
-```
-
-By default all the test resources will be run. However, we can filter scenarios with the `SCENARIO_FILTER` flag. This filters based on the ginkgo labels. This can be used to e.g. only run tests for specific Workspaces with `SCENARIO_FILTER=workspaces make test-e2e`. The filters are additive.
+Visit the Magos UI at `http://localhost:5713` to see your Workspaces in action!
 
 ## Contributing
 

@@ -42,6 +42,12 @@ type ProjectSpec struct {
 	// VariableSetRef references one or more VariableSets to be applied to all Workspaces within this Project.
 	// +optional
 	VariableSetRef []VariableSetReference `json:"variableSetRef,omitempty"`
+
+	// Validation is the default plan-time validation configuration applied to
+	// Workspaces in this Project that do not define their own. A Workspace
+	// with an explicit Validation fully overrides this default.
+	// +optional
+	Validation *ValidationSpec `json:"validation,omitempty"`
 }
 
 // ProjectStatus defines the observed state of Project.

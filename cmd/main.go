@@ -30,6 +30,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -225,10 +226,16 @@ func main() {
 			setupLog.Error(fmt.Errorf("MAGOS_JOB_IMAGE must be set"), "missing required environment variable")
 			os.Exit(1)
 		}
+		clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
+		if err != nil {
+			setupLog.Error(err, "unable to create kubernetes clientset")
+			os.Exit(1)
+		}
 		if err := (&workspacecontroller.WorkspaceReconciler{
-			Client:   mgr.GetClient(),
-			Scheme:   mgr.GetScheme(),
-			JobImage: jobImage,
+			Client:    mgr.GetClient(),
+			Scheme:    mgr.GetScheme(),
+			JobImage:  jobImage,
+			Clientset: clientset,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Workspace")
 			os.Exit(1)

@@ -2,14 +2,16 @@ package terraform
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 
-	version "github.com/hashicorp/go-version"
-	tfexec "github.com/hashicorp/terraform-exec/tfexec"
+	version "github.com/magosproject/go-version"
+	tfexec "github.com/magosproject/terraform-exec/tfexec"
 )
 
 type TerraformClient struct {
@@ -223,15 +225,42 @@ func (c *TerraformClient) WorkspaceSelectOrNew(ctx context.Context, name string)
 	if err != nil {
 		return fmt.Errorf("failed to list workspaces: %w", err)
 	}
-	for _, w := range list {
-		if w == name {
-			return c.tf.WorkspaceSelect(ctx, name)
-		}
+	if slices.Contains(list, name) {
+		return c.tf.WorkspaceSelect(ctx, name)
 	}
 	if err := c.tf.WorkspaceNew(ctx, name); err != nil {
 		return fmt.Errorf("failed to create workspace %s: %w", name, err)
 	}
 	return nil
+}
+
+// ShowPlanFileRaw returns the JSON representation of a saved plan file,
+// equivalent to running `terraform show -json <planFile>`.
+//
+// Note: tfexec.ShowPlanFileRaw despite its name runs `terraform show` without
+// `-json`, returning human-readable text. We call tfexec.ShowPlanFile (which
+// does produce structured JSON) and marshal it ourselves so callers get real
+// JSON to feed into downstream tools like the kyverno-json engine.
+func (c *TerraformClient) ShowPlanFileRaw(ctx context.Context, planFile string) (string, error) {
+	if err := c.Ensure(ctx); err != nil {
+		return "", err
+	}
+	// tfexec tees the child process stdout to the writer we set via SetStdout,
+	// which is os.Stdout by default. For show -json that means the full plan
+	// JSON is dumped into pod logs on every run. We already capture the parsed
+	// plan below, so silence stdout for this call and restore it after.
+	c.tf.SetStdout(io.Discard)
+	defer c.tf.SetStdout(c.stdout)
+
+	plan, err := c.tf.ShowPlanFile(ctx, planFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to run terraform show -json: %w", err)
+	}
+	b, err := json.Marshal(plan)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal plan JSON: %w", err)
+	}
+	return string(b), nil
 }
 
 // SetEnv replaces environment variables for future terraform commands.

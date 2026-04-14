@@ -16,11 +16,14 @@ specific language governing permissions and limitations under the License.
 package workspace
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"strings"
 	"time"
 
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
@@ -32,6 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -54,6 +58,13 @@ const (
 	// indefinitely if a Job hangs (e.g. terraform blocks on a provider call).
 	DefaultJobTimeoutSeconds int64 = 86400 // 24 hours
 
+	// jobTypePlan and jobTypeApply are the two values the workspace controller
+	// uses when launching a Kubernetes Job. The value is written into the
+	// MAGOS_JOB_TYPE environment variable so the job knows whether to run
+	// terraform plan or terraform apply.
+	jobTypePlan  = "plan"
+	jobTypeApply = "apply"
+
 	// Label used to identify repository credential secrets
 	RepoSecretLabelKey   = "magosproject.io/secret-type"
 	RepoSecretLabelValue = "repository"
@@ -68,8 +79,9 @@ const (
 // WorkspaceReconciler reconciles a Workspace object
 type WorkspaceReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	JobImage string
+	Scheme    *runtime.Scheme
+	JobImage  string
+	Clientset kubernetes.Interface // for reading pod logs
 }
 
 // getRepoCredentials finds the Git credential Secret for a given repository
@@ -156,6 +168,8 @@ func (r *WorkspaceReconciler) findWorkspacesForSecret(ctx context.Context, o cli
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods/log,verbs=get
 
 // Reconcile is the top-level entry point invoked by controller-runtime whenever
 // a Workspace or one of its watched dependents (Jobs, PVCs, Secrets) changes.
@@ -595,7 +609,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	if planJobGetErr != nil {
 		if errors.IsNotFound(planJobGetErr) {
 			logger.Info("Creating a new Plan Job", "job", planJobName)
-			newJob, err := r.constructJobForWorkspace(ctx, workspace, planJobName, "plan", planFile, pvcName)
+			newJob, err := r.constructJobForWorkspace(ctx, workspace, planJobName, jobTypePlan, planFile, pvcName)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -610,7 +624,29 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 
 	if planJob.Status.Failed > 0 {
 		logger.Info("Plan Job failed", "job", planJobName)
-		r.updateStatus(ctx, workspace, v1alpha1.PhaseFailed, "PlanFailed", "Terraform Plan execution failed", metav1.ConditionFalse)
+
+		// Check whether the failure was due to policy validation. The plan job
+		// emits a MAGOS_RESULT line when kyverno-json evaluation runs. If we
+		// find violations in the pod logs, this is a policy failure (not a
+		// terraform error) and we surface it as ValidationFailed with the
+		// specific rule violations in the status.
+		phase := v1alpha1.PhaseFailed
+		reason := "PlanFailed"
+		message := "Terraform Plan execution failed"
+
+		if r.Clientset != nil {
+			violations, err := r.readPolicyViolations(ctx, workspace.Namespace, planJobName)
+			if err != nil {
+				logger.Error(err, "Failed to read policy violations from pod logs")
+			} else if len(violations) > 0 {
+				phase = v1alpha1.PhaseValidationFailed
+				reason = "PolicyViolation"
+				message = fmt.Sprintf("Plan violated %d policy rule(s)", len(violations))
+				workspace.Status.PolicyViolations = violations
+			}
+		}
+
+		r.updateStatus(ctx, workspace, phase, reason, message, metav1.ConditionFalse)
 
 		// Release the execution lock so the Rollout controller knows this
 		// Workspace is done with its turn, even though it failed. Without this
@@ -632,10 +668,11 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		return ctrl.Result{}, nil
 	}
 
-	// Record plan job duration if both start and completion times are available.
+	// Record plan job duration if both start and completion times are
+	// available.
 	if planJob.Status.StartTime != nil && planJob.Status.CompletionTime != nil {
 		duration := planJob.Status.CompletionTime.Time.Sub(planJob.Status.StartTime.Time).Seconds()
-		jobDurationSeconds.WithLabelValues(workspace.Namespace, workspace.Name, "plan").Observe(duration)
+		jobDurationSeconds.WithLabelValues(workspace.Namespace, workspace.Name, jobTypePlan).Observe(duration)
 	}
 
 	// Step 7: Run "terraform apply" (requires approval).
@@ -682,7 +719,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			}
 
 			logger.Info("Creating a new Apply Job", "job", applyJobName)
-			newJob, err := r.constructJobForWorkspace(ctx, workspace, applyJobName, "apply", planFile, pvcName)
+			newJob, err := r.constructJobForWorkspace(ctx, workspace, applyJobName, jobTypeApply, planFile, pvcName)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -744,10 +781,11 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// interval, or when the RefWatcher detects another new commit.
 	logger.Info("Apply Job completed successfully", "job", applyJobName)
 
-	// Record apply job duration if both start and completion times are available.
+	// Record apply job duration if both start and completion times are
+	// available.
 	if applyJob.Status.StartTime != nil && applyJob.Status.CompletionTime != nil {
 		duration := applyJob.Status.CompletionTime.Time.Sub(applyJob.Status.StartTime.Time).Seconds()
-		jobDurationSeconds.WithLabelValues(workspace.Namespace, workspace.Name, "apply").Observe(duration)
+		jobDurationSeconds.WithLabelValues(workspace.Namespace, workspace.Name, jobTypeApply).Observe(duration)
 	}
 
 	// Record the observed revision before the status update so it is included
@@ -837,6 +875,93 @@ func (r *WorkspaceReconciler) ensurePVC(ctx context.Context, ws *v1alpha1.Worksp
 	return err
 }
 
+// resolveEffectivePolicySelector determines the label selector string for
+// ValidatingPolicy resources. The Workspace-level validation block takes
+// precedence over the Project-level default. Returns an empty string when no
+// policy validation should be performed.
+func (r *WorkspaceReconciler) resolveEffectivePolicySelector(ctx context.Context, ws *v1alpha1.Workspace) string {
+	if ws.Spec.Validation != nil && ws.Spec.Validation.PolicySelector != nil {
+		sel, err := metav1.LabelSelectorAsSelector(ws.Spec.Validation.PolicySelector)
+		if err != nil {
+			log.FromContext(ctx).Error(err, "Invalid workspace validation.policySelector, skipping validation")
+			return ""
+		}
+		return sel.String()
+	}
+
+	// Fall back to the parent Project's default.
+	project := &v1alpha1.Project{}
+	if err := r.Get(ctx, types.NamespacedName{Name: ws.Spec.ProjectRef.Name, Namespace: ws.Namespace}, project); err != nil {
+		if !errors.IsNotFound(err) {
+			log.FromContext(ctx).Error(err, "Failed to get parent Project for policy selector")
+		}
+		return ""
+	}
+
+	if project.Spec.Validation != nil && project.Spec.Validation.PolicySelector != nil {
+		sel, err := metav1.LabelSelectorAsSelector(project.Spec.Validation.PolicySelector)
+		if err != nil {
+			log.FromContext(ctx).Error(err, "Invalid project validation.policySelector, skipping validation")
+			return ""
+		}
+		return sel.String()
+	}
+
+	return ""
+}
+
+// policyResult mirrors the structured output emitted by the plan job when
+// policy validation runs. The workspace controller parses this from pod logs.
+type policyResult struct {
+	Passed     bool                       `json:"passed"`
+	Violations []v1alpha1.PolicyViolation `json:"violations"`
+}
+
+// readPolicyViolations reads the pod logs for a completed plan job and extracts
+// the MAGOS_RESULT line emitted by the kyverno-json validation step.
+func (r *WorkspaceReconciler) readPolicyViolations(ctx context.Context, namespace, jobName string) ([]v1alpha1.PolicyViolation, error) {
+	// Find the pod for this job.
+	var podList corev1.PodList
+	if err := r.List(ctx, &podList,
+		client.InNamespace(namespace),
+		client.MatchingLabels{"job-name": jobName},
+	); err != nil {
+		return nil, fmt.Errorf("failed to list pods for job %s: %w", jobName, err)
+	}
+	if len(podList.Items) == 0 {
+		return nil, fmt.Errorf("no pods found for job %s", jobName)
+	}
+
+	pod := &podList.Items[0]
+	logStream, err := r.Clientset.CoreV1().Pods(namespace).GetLogs(pod.Name, &corev1.PodLogOptions{}).Stream(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stream logs for pod %s: %w", pod.Name, err)
+	}
+	defer func() {
+		if err := logStream.Close(); err != nil {
+			log.FromContext(ctx).Error(err, "Failed to close pod log stream")
+		}
+	}()
+
+	scanner := bufio.NewScanner(logStream)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "MAGOS_RESULT:") {
+			resultJSON := strings.TrimPrefix(line, "MAGOS_RESULT:")
+			var result policyResult
+			if err := json.Unmarshal([]byte(resultJSON), &result); err != nil {
+				return nil, fmt.Errorf("failed to parse MAGOS_RESULT: %w", err)
+			}
+			return result.Violations, nil
+		}
+	}
+	if err := scanner.Err(); err != nil && err != io.EOF {
+		return nil, fmt.Errorf("error reading pod logs: %w", err)
+	}
+
+	return nil, nil
+}
+
 // constructJobForWorkspace builds a Kubernetes Job spec for either a "plan" or
 // "apply" operation. The Job runs the magos-job container image which knows how
 // to clone a Git repo, install the right Terraform version, and execute the
@@ -879,6 +1004,14 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 	}
 	if ws.Spec.Terraform.TfvarsPath != "" {
 		envVars = append(envVars, corev1.EnvVar{Name: "TF_VAR_FILE", Value: ws.Spec.Terraform.TfvarsPath})
+	}
+
+	// For plan jobs, resolve and pass the policy selector so the job can list
+	// matching ValidatingPolicy resources and evaluate them against the plan.
+	if jobType == jobTypePlan {
+		if policySelector := r.resolveEffectivePolicySelector(ctx, ws); policySelector != "" {
+			envVars = append(envVars, corev1.EnvVar{Name: "MAGOS_POLICY_SELECTOR", Value: policySelector})
+		}
 	}
 
 	// Look up Git credentials for this repo URL. If a matching Secret exists in
@@ -935,11 +1068,11 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 	// otherwise fall back to the global default.
 	timeout := DefaultJobTimeoutSeconds
 	switch jobType {
-	case "plan":
+	case jobTypePlan:
 		if ws.Spec.Plan != nil && ws.Spec.Plan.TimeoutSeconds != nil {
 			timeout = *ws.Spec.Plan.TimeoutSeconds
 		}
-	case "apply":
+	case jobTypeApply:
 		if ws.Spec.Apply != nil && ws.Spec.Apply.TimeoutSeconds != nil {
 			timeout = *ws.Spec.Apply.TimeoutSeconds
 		}
@@ -956,11 +1089,11 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 	}
 	var overrides map[string]string
 	switch jobType {
-	case "plan":
+	case jobTypePlan:
 		if ws.Spec.Plan != nil {
 			overrides = ws.Spec.Plan.Annotations
 		}
-	case "apply":
+	case jobTypeApply:
 		if ws.Spec.Apply != nil {
 			overrides = ws.Spec.Apply.Annotations
 		}
@@ -978,6 +1111,10 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
 			Namespace: ws.Namespace,
+			Labels: map[string]string{
+				"magosproject.io/workspace": ws.Name,
+				"magosproject.io/job-type":  jobType,
+			},
 		},
 		Spec: batchv1.JobSpec{
 			BackoffLimit:          &backoffLimit,
@@ -987,7 +1124,8 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 					Annotations: podAnnotations,
 				},
 				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyNever,
+					RestartPolicy:      corev1.RestartPolicyNever,
+					ServiceAccountName: ws.Spec.ServiceAccountName,
 					Volumes: []corev1.Volume{
 						{
 							Name: "workspace-data",
@@ -1027,13 +1165,11 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 }
 
 // updateStatus writes the phase, reason, message, and Ready condition to the
-// Workspace's status subresource. To prevent conflicts from concurrent updates,
-// it always fetches the latest version of the Workspace before writing.
-//
-// After a successful update, the Workspace object passed into updateStatus is
-// updated in-place with the new resourceVersion and status. This guarantees
-// that any subsequent logic in the same reconcile loop sees the latest state
-// and avoids operating on stale data.
+// Workspace status. workspace is the object the reconcile loop has
+// been working with; latest is a fresh re-fetch of the same resource used as
+// the write target to avoid conflict errors from stale resourceVersions.
+// After a successful write, workspace is updated in-place from latest so that
+// any subsequent logic in the same reconcile sees the current state.
 func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alpha1.Workspace, phase v1alpha1.Phase, reason, message string, status metav1.ConditionStatus) {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Fetch the latest version to avoid conflict errors
@@ -1057,6 +1193,24 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 		// Preserve observed revision if it was set
 		if workspace.Status.ObservedRevision != "" && latest.Status.ObservedRevision != workspace.Status.ObservedRevision {
 			latest.Status.ObservedRevision = workspace.Status.ObservedRevision
+			needsUpdate = true
+		}
+
+		// Policy violations belong to the plan run that produced them. On
+		// Pending or Planning a new job is starting, so we clear latest to
+		// avoid showing stale failures next to a running job. Otherwise,
+		// workspace.Status.PolicyViolations is only non-nil when
+		// readPolicyViolations just populated it with failures from the plan
+		// job that just finished, so we copy those into latest so they get
+		// saved to the Kubernetes API and show up in kubectl describe and the
+		// UI.
+		if phase == v1alpha1.PhasePending || phase == v1alpha1.PhasePlanning {
+			if len(latest.Status.PolicyViolations) > 0 {
+				latest.Status.PolicyViolations = nil
+				needsUpdate = true
+			}
+		} else if workspace.Status.PolicyViolations != nil {
+			latest.Status.PolicyViolations = workspace.Status.PolicyViolations
 			needsUpdate = true
 		}
 
