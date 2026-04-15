@@ -107,10 +107,7 @@ func (s *workspaceService) RequestReconcile(ctx context.Context, namespace, name
 	patch := map[string]any{
 		"metadata": map[string]any{
 			"annotations": map[string]string{
-				// todo(ramon): replace with `apiv1alpha1.WorkspaceReconcileRequestAtAnnotation` after PR bruno
-				"magosproject.io/reconcile-request-at": time.Now().UTC().Format(time.RFC3339Nano),
-				// todo(ramon): replace with `apiv1alpha1.WorkspaceForceReconcileAnnotation` after PR bruno
-				"magosproject.io/force-reconcile": "true",
+				apiv1alpha1.WorkspaceReconcileRequestAnnotation: time.Now().UTC().Format(time.RFC3339Nano),
 			},
 		},
 	}
