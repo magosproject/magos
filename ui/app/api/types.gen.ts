@@ -1098,7 +1098,15 @@ export interface components {
          *     +optional
          * @enum {string}
          */
-        "v1alpha1.Phase": "Pending" | "Reconciling" | "Ready" | "Idle" | "Planning" | "Planned" | "Applying" | "Applied" | "Failed" | "Deleting";
+        "v1alpha1.Phase": "Pending" | "Reconciling" | "Ready" | "Idle" | "Planning" | "Planned" | "Applying" | "Applied" | "Failed" | "ValidationFailed" | "Deleting";
+        "v1alpha1.PolicyViolation": {
+            /** @description Message is the human-readable violation message from the rule definition. */
+            message?: string;
+            /** @description Policy is the name of the ValidatingPolicy that produced this violation. */
+            policy?: string;
+            /** @description Rule is the name of the rule within the policy that failed. */
+            rule?: string;
+        };
         "v1alpha1.Project": {
             metadata?: components["schemas"]["v1.ObjectMeta"];
             spec?: components["schemas"]["v1alpha1.ProjectSpec"];
@@ -1126,6 +1134,7 @@ export interface components {
              *     +optional
              */
             description?: string;
+            validation?: components["schemas"]["v1alpha1.ValidationSpec"];
             /**
              * @description VariableSetRef references one or more VariableSets to be applied to all Workspaces within this Project.
              *     +optional
@@ -1277,6 +1286,15 @@ export interface components {
              */
             version?: string;
         };
+        /**
+         * @description Validation configures plan-time policy validation for this Workspace.
+         *     When nil, the parent Project's Validation applies if set. When non-nil,
+         *     this fully overrides the Project default rather than merging with it.
+         *     +optional
+         */
+        "v1alpha1.ValidationSpec": {
+            policySelector?: components["schemas"]["v1.LabelSelector"];
+        };
         "v1alpha1.VariableSet": {
             metadata?: components["schemas"]["v1.ObjectMeta"];
             spec?: components["schemas"]["v1alpha1.VariableSetSpec"];
@@ -1349,8 +1367,24 @@ export interface components {
             autoApply?: boolean;
             plan?: components["schemas"]["v1alpha1.JobOverrides"];
             projectRef?: components["schemas"]["v1alpha1.ProjectReference"];
+            /**
+             * @description ServiceAccountName is the ServiceAccount that plan and apply Job pods
+             *     run under. The ServiceAccount must exist in the same namespace as the
+             *     Workspace. When empty, pods use that namespace's default
+             *     ServiceAccount, which typically has no cluster-level permissions.
+             *
+             *     Policy validation requires the chosen ServiceAccount to have
+             *     get;list;watch on validatingpolicies.json.kyverno.io. The Helm chart
+             *     can create such a ServiceAccount in the release namespace; see
+             *     values.yaml under jobServiceAccount. Workspaces in other namespaces
+             *     either need to bring their own pre-configured ServiceAccount or
+             *     replicate that RBAC wiring locally.
+             *     +optional
+             */
+            serviceAccountName?: string;
             source?: components["schemas"]["v1alpha1.SourceSpec"];
             terraform?: components["schemas"]["v1alpha1.TerraformSpec"];
+            validation?: components["schemas"]["v1alpha1.ValidationSpec"];
         };
         /**
          * @description status defines the observed state of Workspace
@@ -1395,6 +1429,13 @@ export interface components {
              */
             observedRevision?: string;
             phase?: components["schemas"]["v1alpha1.Phase"];
+            /**
+             * @description PolicyViolations records violations from the most recent policy validation
+             *     run. Populated when the plan job evaluates ValidatingPolicy resources and
+             *     one or more rules fail. Cleared at the start of each new plan cycle.
+             *     +optional
+             */
+            policyViolations?: components["schemas"]["v1alpha1.PolicyViolation"][];
             /**
              * @description Reason is a brief CamelCase string explaining the current phase
              *     +optional

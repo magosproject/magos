@@ -1,0 +1,18 @@
+apiVersion: json.kyverno.io/v1alpha1
+kind: ValidatingPolicy
+metadata:
+  name: require-random-id
+  labels:
+    policy.magosproject.io/category: security
+spec:
+  rules:
+    - name: require-random-id
+      assert:
+        all:
+        - message: "byte_length must be 16"
+          check:
+            planned_values:
+              root_module:
+                ~.resources:
+                  values:
+                    byte_length: 16

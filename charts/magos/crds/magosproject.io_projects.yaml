@@ -50,6 +50,64 @@ spec:
                 description: Description provides a human-readable description of
                   the project's purpose.
                 type: string
+              validation:
+                description: |-
+                  Validation is the default plan-time validation configuration applied to
+                  Workspaces in this Project that do not define their own. A Workspace
+                  with an explicit Validation fully overrides this default.
+                properties:
+                  policySelector:
+                    description: |-
+                      PolicySelector selects ValidatingPolicy resources (json.kyverno.io) by
+                      label. When nil, no policy validation is performed. An empty selector
+                      ({}) matches every ValidatingPolicy in the cluster. On a Project this
+                      acts as the default for any Workspace that does not set its own
+                      Validation; on a Workspace this fully overrides the Project default.
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
               variableSetRef:
                 description: VariableSetRef references one or more VariableSets to
                   be applied to all Workspaces within this Project.
@@ -157,6 +215,7 @@ spec:
                 - Applying
                 - Applied
                 - Failed
+                - ValidationFailed
                 - Deleting
                 type: string
               reason:

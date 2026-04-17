@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -15,12 +17,23 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/hashicorp/terraform-exec/tfexec"
+	kyvernov1alpha1 "github.com/kyverno/kyverno-json/pkg/apis/policy/v1alpha1"
+	kyvernoclient "github.com/kyverno/kyverno-json/pkg/client/clientset/versioned"
+	jsonengine "github.com/kyverno/kyverno-json/pkg/json-engine"
 	gossh "golang.org/x/crypto/ssh"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
 
 	"github.com/magosproject/magos/internal/terraform"
 )
 
-// Config holds the job configuration derived from environment variables.
+// Config holds every input this job needs to run a terraform plan or apply
+// inside a Kubernetes pod. All fields are populated from environment variables
+// that the workspace controller sets when it creates the Job, which is why
+// the struct stays flat: a reader debugging a failed pod should be able to
+// see every relevant input in one place without chasing nested structures.
+// Required fields are enforced in loadConfig so a misconfigured Job fails
+// immediately rather than part way through.
 type Config struct {
 	RepoURL        string
 	TargetRevision string
@@ -32,9 +45,15 @@ type Config struct {
 	GitSSHKey      string
 	JobType        string
 	PlanFile       string
+	PolicySelector string // label selector for ValidatingPolicy resources (e.g. "category=security")
 }
 
-// loadConfig reads and validates the required environment variables.
+// loadConfig reads the job configuration from environment variables. The
+// workspace controller sets these when it constructs the Job spec, so env
+// vars are the only supported source. We deliberately fail fast when a
+// required field is missing or when JobType is not "plan" or "apply",
+// because a misconfigured Job will otherwise waste time and make its
+// eventual failure harder to diagnose from pod logs.
 func loadConfig() (*Config, error) {
 	cfg := &Config{
 		RepoURL:        os.Getenv("REPO_URL"),
@@ -47,6 +66,7 @@ func loadConfig() (*Config, error) {
 		GitSSHKey:      os.Getenv("GIT_SSH_PRIVATE_KEY"),
 		JobType:        os.Getenv("MAGOS_JOB_TYPE"),
 		PlanFile:       os.Getenv("MAGOS_PLAN_FILE"),
+		PolicySelector: os.Getenv("MAGOS_POLICY_SELECTOR"),
 	}
 
 	if cfg.RepoURL == "" || cfg.TargetRevision == "" || cfg.TFVersion == "" || cfg.JobType == "" || cfg.PlanFile == "" {
@@ -60,17 +80,24 @@ func loadConfig() (*Config, error) {
 	return cfg, nil
 }
 
-// getAuthMethod resolves the git authentication strategy based on provided
-// credentials.
+// getAuthMethod picks the right Git authentication based on which credentials
+// the controller injected through the environment. An SSH private key wins
+// when present and uses public key authentication. A username and password
+// fall back to HTTPS basic auth, which covers both personal access tokens and
+// classic password flows. When neither is set we assume the repository is
+// public and return nil, which tells go-git to clone without authentication.
+//
+// Host key checking is intentionally disabled for SSH. The job runs in a
+// throwaway pod with no persisted known_hosts file, and the alternative would
+// be shipping a known_hosts bundle inside the image. Clusters that need
+// stricter guarantees should layer that in through the pod spec rather than
+// here.
 func getAuthMethod(cfg *Config) (transport.AuthMethod, error) {
 	if cfg.GitSSHKey != "" {
 		publicKeys, err := ssh.NewPublicKeys("git", []byte(cfg.GitSSHKey), "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse SSH private key: %w", err)
 		}
-		// In a highly sandboxed, ephemeral Kubernetes pod, we bypass strict
-		// host key checking by default unless a known_hosts mechanism is
-		// explicitly provided.
 		publicKeys.HostKeyCallback = gossh.InsecureIgnoreHostKey()
 		return publicKeys, nil
 	}
@@ -85,8 +112,13 @@ func getAuthMethod(cfg *Config) (transport.AuthMethod, error) {
 	return nil, nil // Public repository fallback
 }
 
-// cloneRepository clones the target repository and checks out the specific
-// revision.
+// cloneRepository performs a shallow clone of the configured repository into
+// dest and checks out the exact revision the controller asked for. The
+// shallow clone keeps pod startup fast and avoids pulling years of history
+// the job is never going to read. Resolving the revision explicitly (rather
+// than relying on the clone's default branch) means a branch moving between
+// the plan and apply phases cannot silently change what we are about to
+// apply.
 func cloneRepository(ctx context.Context, cfg *Config, dest string) error {
 	auth, err := getAuthMethod(cfg)
 	if err != nil {
@@ -121,7 +153,21 @@ func cloneRepository(ctx context.Context, cfg *Config, dest string) error {
 	return nil
 }
 
-// execTerraform orchestrates the terraform init, plan, and apply lifecycle.
+// execTerraform runs the terraform workflow for a single job, either "plan"
+// or "apply". It is the main body of work the pod performs.
+//
+// For a plan, we run terraform init followed by terraform plan and write the
+// binary plan file to a known path on the shared PVC. When the controller
+// configured a policy selector we also export the plan as JSON and hand it
+// to validatePolicies so the workspace controller can gate apply on the
+// outcome.
+//
+// For an apply, we expect that a previous plan job already wrote the plan
+// file to the PVC. Because the plan pod and the apply pod can be scheduled
+// back to back on nodes with different filesystem semantics, we poll for the
+// plan file briefly before giving up. Once terraform apply succeeds we delete
+// the plan file so it cannot be reused and cannot leak sensitive values from
+// the state diff.
 func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 	workDir := cloneDir
 	if cfg.TFPath != "" && cfg.TFPath != "." {
@@ -154,6 +200,26 @@ func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 			return fmt.Errorf("terraform plan failed: %w", err)
 		}
 		log.Printf("Terraform plan completed successfully. Changes present: %v", hasChanges)
+
+		// If a policy selector is configured, export the plan as JSON and
+		// evaluate it against matching ValidatingPolicy resources.
+		if cfg.PolicySelector != "" {
+			log.Println("Running 'terraform show -json' to produce plan JSON...")
+			planJSON, err := tfClient.ShowPlanFileRaw(ctx, cfg.PlanFile)
+			if err != nil {
+				return fmt.Errorf("terraform show -json failed: %w", err)
+			}
+
+			planJSONFile := strings.TrimSuffix(cfg.PlanFile, ".tfplan") + ".plan.json"
+			if err := os.WriteFile(planJSONFile, []byte(planJSON), 0600); err != nil {
+				return fmt.Errorf("failed to write plan JSON: %w", err)
+			}
+			log.Printf("Plan JSON written to %s", planJSONFile)
+
+			if err := validatePolicies(ctx, cfg, planJSON); err != nil {
+				return err
+			}
+		}
 
 	case "apply":
 		log.Printf("Running 'terraform apply' using plan %s...", cfg.PlanFile)
@@ -188,8 +254,9 @@ func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 		}
 		log.Println("Terraform apply completed successfully.")
 
-		// Secure cleanup of the plan file post-apply to prevent state/secret
-		// leakage
+		// Delete the plan file once apply succeeds. It contains the full state
+		// diff, including any sensitive attributes surfaced during planning,
+		// and there is no reason to leave it on the PVC for a later job.
 		log.Printf("Cleaning up plan file %s...", cfg.PlanFile)
 		if err := os.Remove(cfg.PlanFile); err != nil && !os.IsNotExist(err) {
 			log.Printf("Warning: failed to delete plan file: %v", err)
@@ -199,8 +266,127 @@ func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 	return nil
 }
 
+// policyViolation is one rule failure surfaced by the kyverno-json engine
+// when it evaluates a plan against a ValidatingPolicy. We emit these as
+// structured JSON so the workspace controller can parse them from pod logs
+// and record them on the Workspace status.
+type policyViolation struct {
+	Policy  string `json:"policy"`
+	Rule    string `json:"rule"`
+	Message string `json:"message"`
+}
+
+// policyResult is the full validation outcome for a plan, printed once at
+// the end of validatePolicies as a MAGOS_RESULT line. The workspace
+// controller scans pod logs for that prefix, parses this struct, and exposes
+// the passed flag and violations on the Workspace status.
+type policyResult struct {
+	Passed     bool              `json:"passed"`
+	Violations []policyViolation `json:"violations"`
+}
+
+// validatePolicies runs the kyverno-json engine over the plan JSON and fails
+// the job when any ValidatingPolicy produces a violation. The policies are
+// fetched from the cluster using the label selector the controller passed
+// in, which means cluster admins can add or remove policies without
+// rebuilding or redeploying the job image.
+//
+// We never attempt to remediate a violation. The job's only role is to
+// report: each violation is logged individually and the full result is
+// emitted as a single MAGOS_RESULT line for the workspace controller to
+// parse. A failing validation returns an error so the pod exits non zero,
+// which the workspace controller surfaces as the ValidationFailed phase.
+func validatePolicies(ctx context.Context, cfg *Config, planJSON string) error {
+	log.Printf("Evaluating policies with selector %q", cfg.PolicySelector)
+
+	// Build an in-cluster client for the kyverno-json ValidatingPolicy CRD.
+	restCfg, err := rest.InClusterConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get in-cluster config: %w", err)
+	}
+	client, err := kyvernoclient.NewForConfig(restCfg)
+	if err != nil {
+		return fmt.Errorf("failed to create kyverno-json client: %w", err)
+	}
+
+	// List ValidatingPolicy resources matching the label selector.
+	policyList, err := client.JsonV1alpha1().ValidatingPolicies().List(ctx, metav1.ListOptions{
+		LabelSelector: cfg.PolicySelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list ValidatingPolicy resources: %w", err)
+	}
+	if len(policyList.Items) == 0 {
+		log.Println("No ValidatingPolicy resources match the selector, skipping validation")
+		return nil
+	}
+	log.Printf("Found %d ValidatingPolicy resource(s) to evaluate", len(policyList.Items))
+
+	// Parse the plan JSON into a generic structure for the engine.
+	var payload any
+	if err := json.Unmarshal([]byte(planJSON), &payload); err != nil {
+		return fmt.Errorf("failed to parse plan JSON: %w", err)
+	}
+
+	// Convert to pointer slice for the engine request.
+	policies := make([]*kyvernov1alpha1.ValidatingPolicy, len(policyList.Items))
+	for i := range policyList.Items {
+		policies[i] = &policyList.Items[i]
+	}
+
+	// Run the kyverno-json engine.
+	engine := jsonengine.New()
+	response := engine.Run(ctx, jsonengine.Request{
+		Resource: payload,
+		Policies: policies,
+	})
+
+	// Collect violations across all policies and rules.
+	var violations []policyViolation
+	for _, policyResp := range response.Policies {
+		for _, ruleResp := range policyResp.Rules {
+			if ruleResp.Error != nil {
+				return fmt.Errorf("policy engine error in %s/%s: %w",
+					policyResp.Policy.Name, ruleResp.Rule.Name, ruleResp.Error)
+			}
+			for _, v := range ruleResp.Violations {
+				violations = append(violations, policyViolation{
+					Policy:  policyResp.Policy.Name,
+					Rule:    ruleResp.Rule.Name,
+					Message: v.Error(),
+				})
+			}
+		}
+	}
+
+	// Emit structured results for the workspace controller to parse.
+	result := policyResult{
+		Passed:     len(violations) == 0,
+		Violations: violations,
+	}
+	resultJSON, _ := json.Marshal(result)
+	fmt.Printf("MAGOS_RESULT:%s\n", resultJSON)
+
+	if len(violations) > 0 {
+		log.Printf("Policy validation failed with %d violation(s):", len(violations))
+		for _, v := range violations {
+			log.Printf("  - %s / %s: %s", v.Policy, v.Rule, v.Message)
+		}
+		return fmt.Errorf("policy validation failed: %d violation(s)", len(violations))
+	}
+
+	log.Println("Policy validation passed")
+	return nil
+}
+
+// run drives a single job from start to finish. It configures logging, loads
+// and validates the environment configuration, creates a per pod temporary
+// workspace under /tmp, clones the repository into it, and then hands off to
+// execTerraform. Each pod gets its own temp directory so concurrent jobs
+// cannot see each other's files, and the deferred RemoveAll makes sure we do
+// not leave stale clones behind when the pod terminates.
 func run() error {
-	// Configure logging for better observability in Kubernetes pods
+	// Prefix every log line with [magos-job] so pod logs are easy to scan.
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 	log.SetPrefix("[magos-job] ")
 
@@ -232,6 +418,11 @@ func run() error {
 	return nil
 }
 
+// main is the job entry point. It runs the job and converts any error into a
+// log.Fatalf call, which writes the prefixed error to stderr and exits non
+// zero. Kubernetes treats a non zero exit as a failed Job, which is the
+// signal the workspace controller watches for when it reconciles a plan or
+// apply phase.
 func main() {
 	if err := run(); err != nil {
 		log.Fatalf("Error: %v", err)

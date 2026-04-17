@@ -1,0 +1,17 @@
+{{- if and .Values.rbac.create .Values.jobServiceAccount.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "magos.fullname" . }}-job
+  labels:
+    {{- include "magos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: job
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "magos.fullname" . }}-job
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.jobServiceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

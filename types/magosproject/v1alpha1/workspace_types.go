@@ -135,6 +135,26 @@ type WorkspaceSpec struct {
 	// Terraform defines the Terraform or OpenTofu configuration
 	// +required
 	Terraform TerraformSpec `json:"terraform"`
+
+	// Validation configures plan-time policy validation for this Workspace.
+	// When nil, the parent Project's Validation applies if set. When non-nil,
+	// this fully overrides the Project default rather than merging with it.
+	// +optional
+	Validation *ValidationSpec `json:"validation,omitempty"`
+
+	// ServiceAccountName is the ServiceAccount that plan and apply Job pods
+	// run under. The ServiceAccount must exist in the same namespace as the
+	// Workspace. When empty, pods use that namespace's default
+	// ServiceAccount, which typically has no cluster-level permissions.
+	//
+	// Policy validation requires the chosen ServiceAccount to have
+	// get;list;watch on validatingpolicies.json.kyverno.io. The Helm chart
+	// can create such a ServiceAccount in the release namespace; see
+	// values.yaml under jobServiceAccount. Workspaces in other namespaces
+	// either need to bring their own pre-configured ServiceAccount or
+	// replicate that RBAC wiring locally.
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 }
 
 // WorkspaceStatus defines the observed state of Workspace.
@@ -165,6 +185,12 @@ type WorkspaceStatus struct {
 	// +optional
 	NextReconcileTime *metav1.Time `json:"nextReconcileTime,omitempty"`
 
+	// PolicyViolations records violations from the most recent policy validation
+	// run. Populated when the plan job evaluates ValidatingPolicy resources and
+	// one or more rules fail. Cleared at the start of each new plan cycle.
+	// +optional
+	PolicyViolations []PolicyViolation `json:"policyViolations,omitempty"`
+
 	// conditions represent the current state of the Workspace resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
 	//
@@ -178,6 +204,17 @@ type WorkspaceStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// PolicyViolation records a single failed policy assertion from a
+// ValidatingPolicy evaluation against a Terraform plan.
+type PolicyViolation struct {
+	// Policy is the name of the ValidatingPolicy that produced this violation.
+	Policy string `json:"policy"`
+	// Rule is the name of the rule within the policy that failed.
+	Rule string `json:"rule"`
+	// Message is the human-readable violation message from the rule definition.
+	Message string `json:"message"`
 }
 
 // +genclient

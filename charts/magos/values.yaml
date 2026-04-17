@@ -152,6 +152,26 @@ ui:
       cpu: 50m
       memory: 64Mi
 
+jobServiceAccount:
+  # When true, create a ServiceAccount in the release namespace plus a
+  # ClusterRole and ClusterRoleBinding that grant it read access to
+  # json.kyverno.io ValidatingPolicy resources. Workspaces in the release
+  # namespace can then set spec.serviceAccountName to this name and policy
+  # validation will work out of the box. Workspaces in other namespaces
+  # need to bring their own ServiceAccount or replicate this setup.
+  create: true
+  name: magos-job
+  annotations: {}
+  automount: true
+
+policy:
+  kyvernoJson:
+    # Install the json.kyverno.io ValidatingPolicy CRD. The magos job reads
+    # this CRD at plan time to evaluate policies against the terraform plan.
+    # Set to false when kyverno-json is already installed in the cluster (for
+    # example through the upstream chart) so the CRD has a single owner.
+    installCRD: true
+
 api:
   enabled: true
   replicaCount: 1

@@ -3,4 +3,9 @@ kind: Project
 metadata:
   name: demo-project
   namespace: default
-spec: {}
+spec:
+  description: Demo project for Magos
+  # validation:
+  #   policySelector:
+  #     matchLabels:
+  #       policy.magosproject.io/category: security

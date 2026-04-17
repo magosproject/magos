@@ -115,6 +115,20 @@ spec:
                 required:
                 - name
                 type: object
+              serviceAccountName:
+                description: |-
+                  ServiceAccountName is the ServiceAccount that plan and apply Job pods
+                  run under. The ServiceAccount must exist in the same namespace as the
+                  Workspace. When empty, pods use that namespace's default
+                  ServiceAccount, which typically has no cluster-level permissions.
+
+                  Policy validation requires the chosen ServiceAccount to have
+                  get;list;watch on validatingpolicies.json.kyverno.io. The Helm chart
+                  can create such a ServiceAccount in the release namespace; see
+                  values.yaml under jobServiceAccount. Workspaces in other namespaces
+                  either need to bring their own pre-configured ServiceAccount or
+                  replicate that RBAC wiring locally.
+                type: string
               source:
                 description: Source defines the Git repository configuration
                 properties:
@@ -145,6 +159,64 @@ spec:
                     type: string
                 required:
                 - version
+                type: object
+              validation:
+                description: |-
+                  Validation configures plan-time policy validation for this Workspace.
+                  When nil, the parent Project's Validation applies if set. When non-nil,
+                  this fully overrides the Project default rather than merging with it.
+                properties:
+                  policySelector:
+                    description: |-
+                      PolicySelector selects ValidatingPolicy resources (json.kyverno.io) by
+                      label. When nil, no policy validation is performed. An empty selector
+                      ({}) matches every ValidatingPolicy in the cluster. On a Project this
+                      acts as the default for any Workspace that does not set its own
+                      Validation; on a Workspace this fully overrides the Project default.
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
                 type: object
             required:
             - projectRef
@@ -254,8 +326,37 @@ spec:
                 - Applying
                 - Applied
                 - Failed
+                - ValidationFailed
                 - Deleting
                 type: string
+              policyViolations:
+                description: |-
+                  PolicyViolations records violations from the most recent policy validation
+                  run. Populated when the plan job evaluates ValidatingPolicy resources and
+                  one or more rules fail. Cleared at the start of each new plan cycle.
+                items:
+                  description: |-
+                    PolicyViolation records a single failed policy assertion from a
+                    ValidatingPolicy evaluation against a Terraform plan.
+                  properties:
+                    message:
+                      description: Message is the human-readable violation message
+                        from the rule definition.
+                      type: string
+                    policy:
+                      description: Policy is the name of the ValidatingPolicy that
+                        produced this violation.
+                      type: string
+                    rule:
+                      description: Rule is the name of the rule within the policy
+                        that failed.
+                      type: string
+                  required:
+                  - message
+                  - policy
+                  - rule
+                  type: object
+                type: array
               reason:
                 description: Reason is a brief CamelCase string explaining the current
                   phase

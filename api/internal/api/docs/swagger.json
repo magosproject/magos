@@ -397,6 +397,7 @@
                     "Applying",
                     "Applied",
                     "Failed",
+                    "ValidationFailed",
                     "Deleting"
                 ],
                 "type": "string",
@@ -410,8 +411,26 @@
                     "PhaseApplying",
                     "PhaseApplied",
                     "PhaseFailed",
+                    "PhaseValidationFailed",
                     "PhaseDeleting"
                 ]
+            },
+            "v1alpha1.PolicyViolation": {
+                "properties": {
+                    "message": {
+                        "description": "Message is the human-readable violation message from the rule definition.",
+                        "type": "string"
+                    },
+                    "policy": {
+                        "description": "Policy is the name of the ValidatingPolicy that produced this violation.",
+                        "type": "string"
+                    },
+                    "rule": {
+                        "description": "Rule is the name of the rule within the policy that failed.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
             },
             "v1alpha1.Project": {
                 "properties": {
@@ -443,6 +462,9 @@
                     "description": {
                         "description": "Description provides a human-readable description of the project's purpose.\n+optional",
                         "type": "string"
+                    },
+                    "validation": {
+                        "$ref": "#/components/schemas/v1alpha1.ValidationSpec"
                     },
                     "variableSetRef": {
                         "description": "VariableSetRef references one or more VariableSets to be applied to all Workspaces within this Project.\n+optional",
@@ -602,6 +624,15 @@
                 },
                 "type": "object"
             },
+            "v1alpha1.ValidationSpec": {
+                "description": "Validation configures plan-time policy validation for this Workspace.\nWhen nil, the parent Project's Validation applies if set. When non-nil,\nthis fully overrides the Project default rather than merging with it.\n+optional",
+                "properties": {
+                    "policySelector": {
+                        "$ref": "#/components/schemas/v1.LabelSelector"
+                    }
+                },
+                "type": "object"
+            },
             "v1alpha1.VariableSet": {
                 "properties": {
                     "metadata": {
@@ -686,11 +717,18 @@
                     "projectRef": {
                         "$ref": "#/components/schemas/v1alpha1.ProjectReference"
                     },
+                    "serviceAccountName": {
+                        "description": "ServiceAccountName is the ServiceAccount that plan and apply Job pods\nrun under. The ServiceAccount must exist in the same namespace as the\nWorkspace. When empty, pods use that namespace's default\nServiceAccount, which typically has no cluster-level permissions.\n\nPolicy validation requires the chosen ServiceAccount to have\nget;list;watch on validatingpolicies.json.kyverno.io. The Helm chart\ncan create such a ServiceAccount in the release namespace; see\nvalues.yaml under jobServiceAccount. Workspaces in other namespaces\neither need to bring their own pre-configured ServiceAccount or\nreplicate that RBAC wiring locally.\n+optional",
+                        "type": "string"
+                    },
                     "source": {
                         "$ref": "#/components/schemas/v1alpha1.SourceSpec"
                     },
                     "terraform": {
                         "$ref": "#/components/schemas/v1alpha1.TerraformSpec"
+                    },
+                    "validation": {
+                        "$ref": "#/components/schemas/v1alpha1.ValidationSpec"
                     }
                 },
                 "type": "object"
@@ -724,6 +762,14 @@
                     },
                     "phase": {
                         "$ref": "#/components/schemas/v1alpha1.Phase"
+                    },
+                    "policyViolations": {
+                        "description": "PolicyViolations records violations from the most recent policy validation\nrun. Populated when the plan job evaluates ValidatingPolicy resources and\none or more rules fail. Cleared at the start of each new plan cycle.\n+optional",
+                        "items": {
+                            "$ref": "#/components/schemas/v1alpha1.PolicyViolation"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "reason": {
                         "description": "Reason is a brief CamelCase string explaining the current phase\n+optional",
