@@ -1202,8 +1202,8 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 		if workspace.Status.PolicyViolations != nil {
 			latest.Status.PolicyViolations = workspace.Status.PolicyViolations
 			needsUpdate = true
-		} else if phase == v1alpha1.PhasePending && len(latest.Status.PolicyViolations) > 0 {
-			// Clear violations when resetting to Pending for a fresh cycle.
+		} else if (phase == v1alpha1.PhasePending || phase == v1alpha1.PhasePlanning) && len(latest.Status.PolicyViolations) > 0 {
+			// Clear violations when starting a new evaluation cycle.
 			latest.Status.PolicyViolations = nil
 			needsUpdate = true
 		}

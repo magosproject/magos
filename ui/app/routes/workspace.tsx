@@ -17,6 +17,7 @@ import InfoCard from "../components/InfoCard";
 import StatusBadge from "../components/StatusBadge";
 import KubeBadge from "../components/KubeBadge";
 import ConditionsTable from "../components/ConditionsTable";
+import PolicyViolationsTable from "../components/PolicyViolationsTable";
 import ProjectLineageGraph from "../components/ProjectLineageGraph";
 import { repoIcon } from "../utils/repoIcon";
 import { apiUrl } from "../api/base";
@@ -232,6 +233,10 @@ export default function Workspace() {
 
       {ws.status?.conditions && ws.status.conditions.length > 0 && (
         <ConditionsTable conditions={ws.status.conditions} />
+      )}
+
+      {ws.status?.policyViolations && ws.status.policyViolations.length > 0 && (
+        <PolicyViolationsTable violations={ws.status.policyViolations} />
       )}
 
       {project && (
