@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -284,6 +285,21 @@ type policyResult struct {
 	Violations []policyViolation `json:"violations"`
 }
 
+// kyvernoReport is a minimal representation of the OpenReports ClusterReport /
+// Report produced by kyverno apply --policy-report --output-format json.
+// kyverno prints one JSON object per line (with optional "---" separators), so
+// we decode each line individually and collect all failing results.
+type kyvernoReport struct {
+	Results []kyvernoResult `json:"results"`
+}
+
+type kyvernoResult struct {
+	Policy      string `json:"policy"`
+	Rule        string `json:"rule"`
+	Result      string `json:"result"`      // "pass", "fail", "warn", "error", "skip"
+	Description string `json:"description"` // the message from spec.validations[].message
+}
+
 // validatePolicies runs the Kyverno CLI to evaluate the plan JSON against
 // ValidatingPolicy resources (policies.kyverno.io) matching the label selector.
 // Each policy is evaluated individually so that a non-zero exit code unambiguously
@@ -323,13 +339,14 @@ func validatePolicies(ctx context.Context, cfg *Config, planJSONFile string) err
 	if err != nil {
 		return fmt.Errorf("failed to create policies temp directory: %w", err)
 	}
-	defer os.RemoveAll(policyDir)
-
-	var violations []policyViolation
+	defer func() {
+		if err := os.RemoveAll(policyDir); err != nil {
+			log.Printf("Warning: failed to remove policy temp directory %q: %v", policyDir, err)
+		}
+	}()
 
 	for i, item := range policyUnstructured.Items {
 		policyName := item.GetName()
-
 		policyBytes, err := yaml.Marshal(item.Object)
 		if err != nil {
 			return fmt.Errorf("failed to marshal policy %q to YAML: %w", policyName, err)
@@ -338,21 +355,19 @@ func validatePolicies(ctx context.Context, cfg *Config, planJSONFile string) err
 		if err := os.WriteFile(policyFile, policyBytes, 0600); err != nil {
 			return fmt.Errorf("failed to write policy file for %q: %w", policyName, err)
 		}
-
-		var out bytes.Buffer
-		cmd := exec.CommandContext(ctx, "kyverno", "apply", policyFile, "--json", planJSONFile)
-		cmd.Stdout = &out
-		cmd.Stderr = &out
-
-		if err := cmd.Run(); err != nil {
-			output := out.String()
-			log.Printf("Policy %q failed:\n%s", policyName, output)
-			violations = append(violations, policyViolation{
-				Policy:  policyName,
-				Message: extractKyvernoMessage(output),
-			})
-		}
 	}
+
+	var out bytes.Buffer
+	cmd := exec.CommandContext(ctx, "kyverno", "apply", policyDir,
+		"--json", planJSONFile,
+		"--policy-report",
+		"--output-format", "json",
+	)
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	cmd.Run() //nolint:errcheck // exit code is determined by violations below
+
+	violations := parseKyvernoReport(out.Bytes())
 
 	result := policyResult{
 		Passed:     len(violations) == 0,
@@ -373,16 +388,37 @@ func validatePolicies(ctx context.Context, cfg *Config, planJSONFile string) err
 	return nil
 }
 
-// extractKyvernoMessage pulls the first "message: ..." line from kyverno CLI
-// output and returns it as the human-readable violation message. When no
-// message line is found it falls back to a generic string.
-func extractKyvernoMessage(output string) string {
-	for _, line := range strings.Split(output, "\n") {
-		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "message: ") {
-			return strings.TrimPrefix(trimmed, "message: ")
+// parseKyvernoReport turns the output of kyverno apply --policy-report
+// --output-format json into a list of violations. Kyverno writes one JSON
+// object per line (a ClusterReport or Report from the OpenReports API),
+// sometimes with "---" separators between them. We skip blank lines and
+// separators, unmarshal each JSON object, and collect every result entry
+// whose result field is "fail". The Description field on each result carries
+// the human-readable message from the policy's spec.validations[].message,
+// which is what we surface to the operator.
+func parseKyvernoReport(output []byte) []policyViolation {
+	var violations []policyViolation
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 || bytes.Equal(line, []byte("---")) {
+			continue
+		}
+		var report kyvernoReport
+		if err := json.Unmarshal(line, &report); err != nil {
+			continue
+		}
+		for _, r := range report.Results {
+			if r.Result == "fail" {
+				violations = append(violations, policyViolation{
+					Policy:  r.Policy,
+					Rule:    r.Rule,
+					Message: r.Description,
+				})
+			}
 		}
 	}
-	return "policy rule failed"
+	return violations
 }
 
 // run drives a single job from start to finish. It configures logging, loads

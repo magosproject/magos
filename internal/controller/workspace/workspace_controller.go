@@ -58,6 +58,13 @@ const (
 	// indefinitely if a Job hangs (e.g. terraform blocks on a provider call).
 	DefaultJobTimeoutSeconds int64 = 86400 // 24 hours
 
+	// jobTypePlan and jobTypeApply are the two values the workspace controller
+	// uses when launching a Kubernetes Job. The value is written into the
+	// MAGOS_JOB_TYPE environment variable so the job knows whether to run
+	// terraform plan or terraform apply.
+	jobTypePlan  = "plan"
+	jobTypeApply = "apply"
+
 	// Label used to identify repository credential secrets
 	RepoSecretLabelKey   = "magosproject.io/secret-type"
 	RepoSecretLabelValue = "repository"
@@ -602,7 +609,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	if planJobGetErr != nil {
 		if errors.IsNotFound(planJobGetErr) {
 			logger.Info("Creating a new Plan Job", "job", planJobName)
-			newJob, err := r.constructJobForWorkspace(ctx, workspace, planJobName, "plan", planFile, pvcName)
+			newJob, err := r.constructJobForWorkspace(ctx, workspace, planJobName, jobTypePlan, planFile, pvcName)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -661,10 +668,11 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		return ctrl.Result{}, nil
 	}
 
-	// Record plan job duration if both start and completion times are available.
+	// Record plan job duration if both start and completion times are
+	// available.
 	if planJob.Status.StartTime != nil && planJob.Status.CompletionTime != nil {
 		duration := planJob.Status.CompletionTime.Time.Sub(planJob.Status.StartTime.Time).Seconds()
-		jobDurationSeconds.WithLabelValues(workspace.Namespace, workspace.Name, "plan").Observe(duration)
+		jobDurationSeconds.WithLabelValues(workspace.Namespace, workspace.Name, jobTypePlan).Observe(duration)
 	}
 
 	// Step 7: Run "terraform apply" (requires approval).
@@ -711,7 +719,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			}
 
 			logger.Info("Creating a new Apply Job", "job", applyJobName)
-			newJob, err := r.constructJobForWorkspace(ctx, workspace, applyJobName, "apply", planFile, pvcName)
+			newJob, err := r.constructJobForWorkspace(ctx, workspace, applyJobName, jobTypeApply, planFile, pvcName)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -773,10 +781,11 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// interval, or when the RefWatcher detects another new commit.
 	logger.Info("Apply Job completed successfully", "job", applyJobName)
 
-	// Record apply job duration if both start and completion times are available.
+	// Record apply job duration if both start and completion times are
+	// available.
 	if applyJob.Status.StartTime != nil && applyJob.Status.CompletionTime != nil {
 		duration := applyJob.Status.CompletionTime.Time.Sub(applyJob.Status.StartTime.Time).Seconds()
-		jobDurationSeconds.WithLabelValues(workspace.Namespace, workspace.Name, "apply").Observe(duration)
+		jobDurationSeconds.WithLabelValues(workspace.Namespace, workspace.Name, jobTypeApply).Observe(duration)
 	}
 
 	// Record the observed revision before the status update so it is included
@@ -928,7 +937,11 @@ func (r *WorkspaceReconciler) readPolicyViolations(ctx context.Context, namespac
 	if err != nil {
 		return nil, fmt.Errorf("failed to stream logs for pod %s: %w", pod.Name, err)
 	}
-	defer logStream.Close()
+	defer func() {
+		if err := logStream.Close(); err != nil {
+			log.FromContext(ctx).Error(err, "Failed to close pod log stream")
+		}
+	}()
 
 	scanner := bufio.NewScanner(logStream)
 	for scanner.Scan() {
@@ -995,7 +1008,7 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 
 	// For plan jobs, resolve and pass the policy selector so the job can list
 	// matching ValidatingPolicy resources and evaluate them against the plan.
-	if jobType == "plan" {
+	if jobType == jobTypePlan {
 		if policySelector := r.resolveEffectivePolicySelector(ctx, ws); policySelector != "" {
 			envVars = append(envVars, corev1.EnvVar{Name: "MAGOS_POLICY_SELECTOR", Value: policySelector})
 		}
@@ -1055,11 +1068,11 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 	// otherwise fall back to the global default.
 	timeout := DefaultJobTimeoutSeconds
 	switch jobType {
-	case "plan":
+	case jobTypePlan:
 		if ws.Spec.Plan != nil && ws.Spec.Plan.TimeoutSeconds != nil {
 			timeout = *ws.Spec.Plan.TimeoutSeconds
 		}
-	case "apply":
+	case jobTypeApply:
 		if ws.Spec.Apply != nil && ws.Spec.Apply.TimeoutSeconds != nil {
 			timeout = *ws.Spec.Apply.TimeoutSeconds
 		}
@@ -1076,11 +1089,11 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 	}
 	var overrides map[string]string
 	switch jobType {
-	case "plan":
+	case jobTypePlan:
 		if ws.Spec.Plan != nil {
 			overrides = ws.Spec.Plan.Annotations
 		}
-	case "apply":
+	case jobTypeApply:
 		if ws.Spec.Apply != nil {
 			overrides = ws.Spec.Apply.Annotations
 		}
