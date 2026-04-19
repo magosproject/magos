@@ -1165,13 +1165,11 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 }
 
 // updateStatus writes the phase, reason, message, and Ready condition to the
-// Workspace's status subresource. To prevent conflicts from concurrent updates,
-// it always fetches the latest version of the Workspace before writing.
-//
-// After a successful update, the Workspace object passed into updateStatus is
-// updated in-place with the new resourceVersion and status. This guarantees
-// that any subsequent logic in the same reconcile loop sees the latest state
-// and avoids operating on stale data.
+// Workspace status. workspace is the object the reconcile loop has
+// been working with; latest is a fresh re-fetch of the same resource used as
+// the write target to avoid conflict errors from stale resourceVersions.
+// After a successful write, workspace is updated in-place from latest so that
+// any subsequent logic in the same reconcile sees the current state.
 func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alpha1.Workspace, phase v1alpha1.Phase, reason, message string, status metav1.ConditionStatus) {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Fetch the latest version to avoid conflict errors
@@ -1198,13 +1196,21 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 			needsUpdate = true
 		}
 
-		// Propagate policy violations set during this reconcile.
-		if workspace.Status.PolicyViolations != nil {
+		// Policy violations belong to the plan run that produced them. On
+		// Pending or Planning a new job is starting, so we clear latest to
+		// avoid showing stale failures next to a running job. Otherwise,
+		// workspace.Status.PolicyViolations is only non-nil when
+		// readPolicyViolations just populated it with failures from the plan
+		// job that just finished, so we copy those into latest so they get
+		// saved to the Kubernetes API and show up in kubectl describe and the
+		// UI.
+		if phase == v1alpha1.PhasePending || phase == v1alpha1.PhasePlanning {
+			if len(latest.Status.PolicyViolations) > 0 {
+				latest.Status.PolicyViolations = nil
+				needsUpdate = true
+			}
+		} else if workspace.Status.PolicyViolations != nil {
 			latest.Status.PolicyViolations = workspace.Status.PolicyViolations
-			needsUpdate = true
-		} else if (phase == v1alpha1.PhasePending || phase == v1alpha1.PhasePlanning) && len(latest.Status.PolicyViolations) > 0 {
-			// Clear violations when starting a new evaluation cycle.
-			latest.Status.PolicyViolations = nil
 			needsUpdate = true
 		}
 
