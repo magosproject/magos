@@ -718,7 +718,7 @@
                         "$ref": "#/components/schemas/v1alpha1.ProjectReference"
                     },
                     "serviceAccountName": {
-                        "description": "ServiceAccountName is the ServiceAccount that plan and apply Job pods\nrun under. The ServiceAccount must exist in the same namespace as the\nWorkspace. When empty, pods use that namespace's default\nServiceAccount, which typically has no cluster-level permissions.\n\nPolicy validation requires the chosen ServiceAccount to have\nget;list;watch on validatingpolicies.policies.kyverno.io. The Helm chart\ncan create such a ServiceAccount in the release namespace; see\nvalues.yaml under jobServiceAccount. Workspaces in other namespaces\neither need to bring their own pre-configured ServiceAccount or\nreplicate that RBAC wiring locally.\n+optional",
+                        "description": "ServiceAccountName is the ServiceAccount that plan and apply Job pods\nrun under. The ServiceAccount must exist in the same namespace as the\nWorkspace. Defaults to magos-job, which the Helm chart creates with\nget;list;watch on validatingpolicies.policies.kyverno.io so the job can\nfetch ValidatingPolicies at runtime. Override this to run pods under a\ndifferent identity, for example to bind a GKE Workload Identity or AWS\nIRSA annotation; the replacement must carry the same RBAC.\n+kubebuilder:default=magos-job\n+optional",
                         "type": "string"
                     },
                     "source": {
