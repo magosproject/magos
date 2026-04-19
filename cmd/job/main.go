@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -17,12 +19,12 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/hashicorp/terraform-exec/tfexec"
-	kyvernov1alpha1 "github.com/kyverno/kyverno-json/pkg/apis/policy/v1alpha1"
-	kyvernoclient "github.com/kyverno/kyverno-json/pkg/client/clientset/versioned"
-	jsonengine "github.com/kyverno/kyverno-json/pkg/json-engine"
 	gossh "golang.org/x/crypto/ssh"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/yaml"
 
 	"github.com/magosproject/magos/internal/terraform"
 )
@@ -45,7 +47,7 @@ type Config struct {
 	GitSSHKey      string
 	JobType        string
 	PlanFile       string
-	PolicySelector string // label selector for ValidatingPolicy resources (e.g. "category=security")
+	PolicySelector string // label selector for Kyverno ValidatingPolicy resources (e.g. "category=security")
 }
 
 // loadConfig reads the job configuration from environment variables. The
@@ -216,7 +218,7 @@ func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 			}
 			log.Printf("Plan JSON written to %s", planJSONFile)
 
-			if err := validatePolicies(ctx, cfg, planJSON); err != nil {
+			if err := validatePolicies(ctx, cfg, planJSONFile); err != nil {
 				return err
 			}
 		}
@@ -266,10 +268,7 @@ func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 	return nil
 }
 
-// policyViolation is one rule failure surfaced by the kyverno-json engine
-// when it evaluates a plan against a ValidatingPolicy. We emit these as
-// structured JSON so the workspace controller can parse them from pod logs
-// and record them on the Workspace status.
+// policyViolation is one rule failure surfaced by Kyverno validation.
 type policyViolation struct {
 	Policy  string `json:"policy"`
 	Rule    string `json:"rule"`
@@ -285,81 +284,76 @@ type policyResult struct {
 	Violations []policyViolation `json:"violations"`
 }
 
-// validatePolicies runs the kyverno-json engine over the plan JSON and fails
-// the job when any ValidatingPolicy produces a violation. The policies are
-// fetched from the cluster using the label selector the controller passed
-// in, which means cluster admins can add or remove policies without
-// rebuilding or redeploying the job image.
-//
-// We never attempt to remediate a violation. The job's only role is to
-// report: each violation is logged individually and the full result is
-// emitted as a single MAGOS_RESULT line for the workspace controller to
-// parse. A failing validation returns an error so the pod exits non zero,
-// which the workspace controller surfaces as the ValidationFailed phase.
-func validatePolicies(ctx context.Context, cfg *Config, planJSON string) error {
+// validatePolicies runs the Kyverno CLI to evaluate the plan JSON against
+// ValidatingPolicy resources (policies.kyverno.io) matching the label selector.
+// Each policy is evaluated individually so that a non-zero exit code unambiguously
+// identifies the failing policy by name. The full result is emitted as a single
+// MAGOS_RESULT line for the workspace controller to parse and surface in the
+// Workspace status. A failing validation returns an error so the pod exits
+// non-zero, which the workspace controller surfaces as the ValidationFailed phase.
+func validatePolicies(ctx context.Context, cfg *Config, planJSONFile string) error {
 	log.Printf("Evaluating policies with selector %q", cfg.PolicySelector)
 
-	// Build an in-cluster client for the kyverno-json ValidatingPolicy CRD.
 	restCfg, err := rest.InClusterConfig()
 	if err != nil {
 		return fmt.Errorf("failed to get in-cluster config: %w", err)
 	}
-	client, err := kyvernoclient.NewForConfig(restCfg)
+
+	dynamicClient, err := dynamic.NewForConfig(restCfg)
 	if err != nil {
-		return fmt.Errorf("failed to create kyverno-json client: %w", err)
+		return fmt.Errorf("failed to create dynamic client: %w", err)
 	}
 
-	// List ValidatingPolicy resources matching the label selector.
-	policyList, err := client.JsonV1alpha1().ValidatingPolicies().List(ctx, metav1.ListOptions{
+	policyUnstructured, err := dynamicClient.Resource(
+		schema.GroupVersionResource{Group: "policies.kyverno.io", Version: "v1", Resource: "validatingpolicies"},
+	).List(ctx, v1.ListOptions{
 		LabelSelector: cfg.PolicySelector,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to list ValidatingPolicy resources: %w", err)
 	}
-	if len(policyList.Items) == 0 {
+
+	if len(policyUnstructured.Items) == 0 {
 		log.Println("No ValidatingPolicy resources match the selector, skipping validation")
 		return nil
 	}
-	log.Printf("Found %d ValidatingPolicy resource(s) to evaluate", len(policyList.Items))
+	log.Printf("Found %d ValidatingPolicy resource(s) to evaluate", len(policyUnstructured.Items))
 
-	// Parse the plan JSON into a generic structure for the engine.
-	var payload any
-	if err := json.Unmarshal([]byte(planJSON), &payload); err != nil {
-		return fmt.Errorf("failed to parse plan JSON: %w", err)
+	policyDir, err := os.MkdirTemp("", "magos-policies-*")
+	if err != nil {
+		return fmt.Errorf("failed to create policies temp directory: %w", err)
 	}
+	defer os.RemoveAll(policyDir)
 
-	// Convert to pointer slice for the engine request.
-	policies := make([]*kyvernov1alpha1.ValidatingPolicy, len(policyList.Items))
-	for i := range policyList.Items {
-		policies[i] = &policyList.Items[i]
-	}
-
-	// Run the kyverno-json engine.
-	engine := jsonengine.New()
-	response := engine.Run(ctx, jsonengine.Request{
-		Resource: payload,
-		Policies: policies,
-	})
-
-	// Collect violations across all policies and rules.
 	var violations []policyViolation
-	for _, policyResp := range response.Policies {
-		for _, ruleResp := range policyResp.Rules {
-			if ruleResp.Error != nil {
-				return fmt.Errorf("policy engine error in %s/%s: %w",
-					policyResp.Policy.Name, ruleResp.Rule.Name, ruleResp.Error)
-			}
-			for _, v := range ruleResp.Violations {
-				violations = append(violations, policyViolation{
-					Policy:  policyResp.Policy.Name,
-					Rule:    ruleResp.Rule.Name,
-					Message: v.Error(),
-				})
-			}
+
+	for i, item := range policyUnstructured.Items {
+		policyName := item.GetName()
+
+		policyBytes, err := yaml.Marshal(item.Object)
+		if err != nil {
+			return fmt.Errorf("failed to marshal policy %q to YAML: %w", policyName, err)
+		}
+		policyFile := filepath.Join(policyDir, fmt.Sprintf("policy-%d.yaml", i))
+		if err := os.WriteFile(policyFile, policyBytes, 0600); err != nil {
+			return fmt.Errorf("failed to write policy file for %q: %w", policyName, err)
+		}
+
+		var out bytes.Buffer
+		cmd := exec.CommandContext(ctx, "kyverno", "apply", policyFile, "--json", planJSONFile)
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+
+		if err := cmd.Run(); err != nil {
+			output := out.String()
+			log.Printf("Policy %q failed:\n%s", policyName, output)
+			violations = append(violations, policyViolation{
+				Policy:  policyName,
+				Message: extractKyvernoMessage(output),
+			})
 		}
 	}
 
-	// Emit structured results for the workspace controller to parse.
 	result := policyResult{
 		Passed:     len(violations) == 0,
 		Violations: violations,
@@ -368,15 +362,27 @@ func validatePolicies(ctx context.Context, cfg *Config, planJSON string) error {
 	fmt.Printf("MAGOS_RESULT:%s\n", resultJSON)
 
 	if len(violations) > 0 {
-		log.Printf("Policy validation failed with %d violation(s):", len(violations))
-		for _, v := range violations {
-			log.Printf("  - %s / %s: %s", v.Policy, v.Rule, v.Message)
+		policies := make([]string, len(violations))
+		for i, v := range violations {
+			policies[i] = v.Policy
 		}
-		return fmt.Errorf("policy validation failed: %d violation(s)", len(violations))
+		return fmt.Errorf("policy validation failed: %s", strings.Join(policies, ", "))
 	}
 
 	log.Println("Policy validation passed")
 	return nil
+}
+
+// extractKyvernoMessage pulls the first "message: ..." line from kyverno CLI
+// output and returns it as the human-readable violation message. When no
+// message line is found it falls back to a generic string.
+func extractKyvernoMessage(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "message: ") {
+			return strings.TrimPrefix(trimmed, "message: ")
+		}
+	}
+	return "policy rule failed"
 }
 
 // run drives a single job from start to finish. It configures logging, loads

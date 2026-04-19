@@ -58,11 +58,12 @@ spec:
                 properties:
                   policySelector:
                     description: |-
-                      PolicySelector selects ValidatingPolicy resources (json.kyverno.io) by
-                      label. When nil, no policy validation is performed. An empty selector
-                      ({}) matches every ValidatingPolicy in the cluster. On a Project this
-                      acts as the default for any Workspace that does not set its own
-                      Validation; on a Workspace this fully overrides the Project default.
+                      PolicySelector selects Kyverno ValidatingPolicy resources
+                      (policies.kyverno.io) by label. When nil, no policy validation is
+                      performed. An empty selector ({}) matches every ValidatingPolicy in
+                      the cluster. On a Project this acts as the default for any Workspace
+                      that does not set its own Validation; on a Workspace this fully
+                      overrides the Project default.
                     properties:
                       matchExpressions:
                         description: matchExpressions is a list of label selector

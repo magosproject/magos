@@ -24,7 +24,7 @@ spec:
             source:
               targetRevision: main
             terraform:
-              version: "1.13.0"
+              version: "1.14.8"
         expect:
         - match:
             apiVersion: magosproject.io/v1alpha1

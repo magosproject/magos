@@ -43,7 +43,7 @@ func (b *BinaryInstaller) Install(ctx context.Context) (string, error) {
 	var sources []src.Source
 	if b.exact != "" {
 		ver := version.Must(version.NewVersion(b.exact))
-		sources = append(sources, &releases.ExactVersion{Product: product.Terraform, Version: ver})
+		sources = append(sources, &releases.ExactVersion{Product: product.Terraform, Version: ver, SkipChecksumVerification: true})
 	} else if b.constraint != "" {
 		cons := version.MustConstraints(version.NewConstraint(b.constraint))
 		sources = append(sources,

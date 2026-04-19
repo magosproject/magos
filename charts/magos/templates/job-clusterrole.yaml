@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/component: job
 rules:
 - apiGroups:
-  - json.kyverno.io
+  - policies.kyverno.io
   resources:
   - validatingpolicies
   verbs:

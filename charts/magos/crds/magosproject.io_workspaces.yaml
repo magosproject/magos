@@ -123,7 +123,7 @@ spec:
                   ServiceAccount, which typically has no cluster-level permissions.
 
                   Policy validation requires the chosen ServiceAccount to have
-                  get;list;watch on validatingpolicies.json.kyverno.io. The Helm chart
+                  get;list;watch on validatingpolicies.policies.kyverno.io. The Helm chart
                   can create such a ServiceAccount in the release namespace; see
                   values.yaml under jobServiceAccount. Workspaces in other namespaces
                   either need to bring their own pre-configured ServiceAccount or
@@ -168,11 +168,12 @@ spec:
                 properties:
                   policySelector:
                     description: |-
-                      PolicySelector selects ValidatingPolicy resources (json.kyverno.io) by
-                      label. When nil, no policy validation is performed. An empty selector
-                      ({}) matches every ValidatingPolicy in the cluster. On a Project this
-                      acts as the default for any Workspace that does not set its own
-                      Validation; on a Workspace this fully overrides the Project default.
+                      PolicySelector selects Kyverno ValidatingPolicy resources
+                      (policies.kyverno.io) by label. When nil, no policy validation is
+                      performed. An empty selector ({}) matches every ValidatingPolicy in
+                      the cluster. On a Project this acts as the default for any Workspace
+                      that does not set its own Validation; on a Workspace this fully
+                      overrides the Project default.
                     properties:
                       matchExpressions:
                         description: matchExpressions is a list of label selector

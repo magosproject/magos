@@ -23,5 +23,5 @@ spec:
     targetRevision: main
     path: .
   terraform:
-    version: "1.13.0"
+    version: "1.14.8"
     tfvarsPath: env/staging/vars.tfvars

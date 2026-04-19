@@ -1374,7 +1374,7 @@ export interface components {
              *     ServiceAccount, which typically has no cluster-level permissions.
              *
              *     Policy validation requires the chosen ServiceAccount to have
-             *     get;list;watch on validatingpolicies.json.kyverno.io. The Helm chart
+             *     get;list;watch on validatingpolicies.policies.kyverno.io. The Helm chart
              *     can create such a ServiceAccount in the release namespace; see
              *     values.yaml under jobServiceAccount. Workspaces in other namespaces
              *     either need to bring their own pre-configured ServiceAccount or

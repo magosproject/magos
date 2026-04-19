@@ -21,15 +21,16 @@ import (
 )
 
 // ValidationSpec configures how Terraform plans are evaluated against
-// ValidatingPolicy resources before apply. The same shape is used on both
-// Project (where it defines the default for member Workspaces) and Workspace
-// (where it overrides the Project default).
+// Kyverno ValidatingPolicy resources before apply. The same shape is used on
+// both Project (where it defines the default for member Workspaces) and
+// Workspace (where it overrides the Project default).
 type ValidationSpec struct {
-	// PolicySelector selects ValidatingPolicy resources (json.kyverno.io) by
-	// label. When nil, no policy validation is performed. An empty selector
-	// ({}) matches every ValidatingPolicy in the cluster. On a Project this
-	// acts as the default for any Workspace that does not set its own
-	// Validation; on a Workspace this fully overrides the Project default.
+	// PolicySelector selects Kyverno ValidatingPolicy resources
+	// (policies.kyverno.io) by label. When nil, no policy validation is
+	// performed. An empty selector ({}) matches every ValidatingPolicy in
+	// the cluster. On a Project this acts as the default for any Workspace
+	// that does not set its own Validation; on a Workspace this fully
+	// overrides the Project default.
 	// +optional
 	PolicySelector *metav1.LabelSelector `json:"policySelector,omitempty"`
 }
