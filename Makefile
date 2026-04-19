@@ -149,6 +149,7 @@ generate-controller: controller-gen ## Generate deepcopy, conversion and default
 
 .PHONY: generate-api-client
 generate-api-client: client-gen lister-gen informer-gen ## Generate typed Kubernetes clientset, informers and listers.
+	cd hack/tools && go mod download
 	CODE_GENERATOR_VERSION=$(CODE_GENERATOR_VERSION) LOCALBIN=$(LOCALBIN) hack/update-codegen.sh
 
 .PHONY: generate-swagger
