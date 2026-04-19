@@ -220,8 +220,12 @@ ifndef ignore-not-found
 endif
 
 .PHONY: install
-install: manifests install-validatingpolicy-crd ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+install: manifests install-validatingpolicy-crd install-job-rbac ## Install CRDs into the K8s cluster specified in ~/.kube/config.
 	$(KUBECTL) apply -f charts/magos/crds/
+
+.PHONY: install-job-rbac
+install-job-rbac: ## Install the magos-job ServiceAccount and RBAC for local development (default namespace).
+	$(KUBECTL) apply -f hack/local-job-rbac.yaml
 
 .PHONY: install-validatingpolicy-crd
 install-validatingpolicy-crd: ## Install the Kyverno ValidatingPolicy CRD if not already present (skips when Kyverno is already installed).
