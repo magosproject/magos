@@ -1111,6 +1111,10 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
 			Namespace: ws.Namespace,
+			Labels: map[string]string{
+				"magosproject.io/workspace": ws.Name,
+				"magosproject.io/job-type":  jobType,
+			},
 		},
 		Spec: batchv1.JobSpec{
 			BackoffLimit:          &backoffLimit,

@@ -1,0 +1,35 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: serviceaccount-default
+spec:
+  description: |
+    The CRD schema defaults serviceAccountName to magos-job so that plan
+    and apply Job pods have the RBAC needed to list ValidatingPolicies
+    without operators having to remember to set the field. This test is
+    the canary that catches a CRD regeneration accidentally dropping or
+    changing that default before it ships to users.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: sa-default-ws
+          spec:
+            projectRef:
+              name: no-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.14.8"
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: sa-default-ws
+          spec:
+            serviceAccountName: magos-job

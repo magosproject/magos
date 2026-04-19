@@ -1,0 +1,60 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: policy-selector-matchlabels
+spec:
+  description: |
+    When a Workspace declares a policySelector with matchLabels, the
+    workspace controller must pass that selector as MAGOS_POLICY_SELECTOR
+    on the plan Job so the job knows which ValidatingPolicies to
+    fetch at runtime. If that wiring breaks, the job silently skips all
+    policy validation regardless of what the operator configured.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: selector-matchlabels-project
+          spec: {}
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: selector-matchlabels-ws
+          spec:
+            projectRef:
+              name: selector-matchlabels-project
+            validation:
+              policySelector:
+                matchLabels:
+                  policy.magosproject.io/category: security
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.14.8"
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: selector-matchlabels-ws
+            annotations:
+              magosproject.io/execution-allowed: "true"
+    - assert:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            labels:
+              magosproject.io/workspace: selector-matchlabels-ws
+              magosproject.io/job-type: plan
+    - script:
+        content: |
+          kubectl get jobs -n "$NAMESPACE" \
+            -l magosproject.io/workspace=selector-matchlabels-ws,magosproject.io/job-type=plan \
+            -o jsonpath='{range .items[0].spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' \
+            | grep -qF "MAGOS_POLICY_SELECTOR=policy.magosproject.io/category=security"
