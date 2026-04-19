@@ -345,14 +345,9 @@ spec:
                       description: Policy is the name of the ValidatingPolicy that
                         produced this violation.
                       type: string
-                    rule:
-                      description: Rule is the name of the rule within the policy
-                        that failed.
-                      type: string
                   required:
                   - message
                   - policy
-                  - rule
                   type: object
                 type: array
               reason:

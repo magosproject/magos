@@ -208,8 +208,6 @@ type WorkspaceStatus struct {
 type PolicyViolation struct {
 	// Policy is the name of the ValidatingPolicy that produced this violation.
 	Policy string `json:"policy"`
-	// Rule is the name of the rule within the policy that failed.
-	Rule string `json:"rule"`
 	// Message is the human-readable violation message from the rule definition.
 	Message string `json:"message"`
 }

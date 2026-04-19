@@ -1104,8 +1104,6 @@ export interface components {
             message?: string;
             /** @description Policy is the name of the ValidatingPolicy that produced this violation. */
             policy?: string;
-            /** @description Rule is the name of the rule within the policy that failed. */
-            rule?: string;
         };
         "v1alpha1.Project": {
             metadata?: components["schemas"]["v1.ObjectMeta"];

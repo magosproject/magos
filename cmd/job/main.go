@@ -271,7 +271,6 @@ func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 // policyViolation is one rule failure surfaced by Kyverno validation.
 type policyViolation struct {
 	Policy  string `json:"policy"`
-	Rule    string `json:"rule"`
 	Message string `json:"message"`
 }
 
@@ -294,7 +293,6 @@ type kyvernoReport struct {
 
 type kyvernoResult struct {
 	Policy  string `json:"policy"`
-	Rule    string `json:"rule"`
 	Result  string `json:"result"` // "pass", "fail", "warn", "error", "skip"
 	Message string `json:"message"`
 }
@@ -412,7 +410,6 @@ func parseKyvernoReport(output []byte) []policyViolation {
 			if r.Result == "fail" {
 				violations = append(violations, policyViolation{
 					Policy:  r.Policy,
-					Rule:    r.Rule,
 					Message: r.Message,
 				})
 			}
