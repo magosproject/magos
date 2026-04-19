@@ -12,6 +12,11 @@ spec:
     iam.gke.io/gcp-service-account: "test@test.iam.gserviceaccount.com"
   projectRef:
     name: demo-project
+  serviceAccountName: magos-job
+  validation:
+    policySelector:
+      matchLabels:
+        policy.magosproject.io/category: security-1
   source:
     repoURL: https://github.com/magosproject/demo.git
     targetRevision: main

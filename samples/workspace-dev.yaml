@@ -10,9 +10,6 @@ metadata:
 spec:
   projectRef:
     name: demo-project
-  # Needed for policy validation. The chart creates this ServiceAccount in
-  # the release namespace; replicate it here or override the name if you
-  # want a different identity.
   serviceAccountName: magos-job
   validation:
     policySelector:

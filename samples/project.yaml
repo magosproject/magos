@@ -5,7 +5,11 @@ metadata:
   namespace: default
 spec:
   description: Demo project for Magos
-  # validation:
-  #   policySelector:
-  #     matchLabels:
-  #       policy.magosproject.io/category: security
+  validation:
+    policySelector:
+      matchExpressions:
+        - key: policy.magosproject.io/category
+          operator: In
+          values:
+            - security-1
+            - security-2
