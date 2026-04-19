@@ -87,8 +87,12 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
 .PHONY: test-chainsaw
-test-chainsaw: chainsaw ## Run chainsaw tests.
-	$(CHAINSAW) test test/chainsaw/tests
+test-chainsaw: chainsaw ## Run controller behavior chainsaw tests (no helm install required).
+	$(CHAINSAW) test test/chainsaw/tests/workspace test/chainsaw/tests/rollout test/chainsaw/tests/project
+
+.PHONY: test-chainsaw-chart
+test-chainsaw-chart: chainsaw ## Run chart installation chainsaw tests (requires helm install of magos in magos-system).
+	$(CHAINSAW) test test/chainsaw/tests/chart
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
