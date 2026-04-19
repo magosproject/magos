@@ -48,7 +48,7 @@ type Config struct {
 	GitSSHKey      string
 	JobType        string
 	PlanFile       string
-	PolicySelector string // label selector for Kyverno ValidatingPolicy resources (e.g. "category=security")
+	PolicySelector string // a label selector for kyverno policies to evaluate the plan against, e.g. "env=prod"
 }
 
 // loadConfig reads the job configuration from environment variables. The
