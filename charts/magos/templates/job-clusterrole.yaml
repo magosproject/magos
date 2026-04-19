@@ -1,0 +1,18 @@
+{{- if and .Values.rbac.create .Values.jobServiceAccount.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "magos.fullname" . }}-job
+  labels:
+    {{- include "magos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: job
+rules:
+- apiGroups:
+  - policies.kyverno.io
+  resources:
+  - validatingpolicies
+  verbs:
+  - get
+  - list
+  - watch
+{{- end }}

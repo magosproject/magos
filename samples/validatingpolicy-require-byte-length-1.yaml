@@ -1,0 +1,19 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-random-id-byte-length-1
+  labels:
+    policy.magosproject.io/category: security-1
+spec:
+  evaluation:
+    mode: JSON
+  matchConditions:
+    - name: is-terraform-plan
+      expression: 'has(object.planned_values) && has(object.terraform_version)'
+  validations:
+    - message: 'Require random_id.server its byte_lenght to be 1'
+      expression: |
+        (
+          (has(object.planned_values.root_module.resources) &&
+          object.planned_values.root_module.resources.exists(r, r.type == 'random_id' && r.name == 'server' && r.values.byte_length == 1))
+        )

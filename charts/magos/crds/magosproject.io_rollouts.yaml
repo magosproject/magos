@@ -213,6 +213,7 @@ spec:
                 - Applying
                 - Applied
                 - Failed
+                - ValidationFailed
                 - Deleting
                 type: string
               reason:

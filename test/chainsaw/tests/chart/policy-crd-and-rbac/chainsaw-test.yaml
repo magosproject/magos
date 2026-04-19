@@ -1,0 +1,77 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: policy-crd-and-rbac
+spec:
+  description: |
+    Plan-time policy evaluation depends on three pieces of cluster
+    infrastructure that the magos chart creates by default:
+    1. The policies.kyverno.io ValidatingPolicy CRD, which must be present
+       for any ValidatingPolicy resource to be accepted.
+    2. The magos-job ServiceAccount in the chart namespace, which the plan
+       Job pod runs as.
+    3. A ClusterRole and ClusterRoleBinding that grant the ServiceAccount
+       get/list/watch on validatingpolicies so the job can fetch matching
+       policies at runtime.
+    If any of these are missing, the plan job silently skips policy
+    evaluation (RBAC errors) or crashes (CRD missing). This test asserts
+    all three are present and functional after chart installation.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: magos-job
+            namespace: magos-system
+    - assert:
+        resource:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: magos-job
+          rules:
+          - apiGroups:
+            - policies.kyverno.io
+            resources:
+            - validatingpolicies
+            verbs:
+            - get
+            - list
+            - watch
+    - assert:
+        resource:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: magos-job
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: magos-job
+          subjects:
+          - kind: ServiceAccount
+            name: magos-job
+            namespace: magos-system
+    - apply:
+        resource:
+          apiVersion: policies.kyverno.io/v1
+          kind: ValidatingPolicy
+          metadata:
+            name: policy-crd-probe
+          spec:
+            evaluation:
+              mode: JSON
+            matchConditions:
+            - name: is-terraform-plan
+              expression: 'has(object.planned_values) && has(object.terraform_version)'
+            validations:
+            - message: 'probe policy: always passes'
+              expression: 'true'
+    - assert:
+        resource:
+          apiVersion: policies.kyverno.io/v1
+          kind: ValidatingPolicy
+          metadata:
+            name: policy-crd-probe

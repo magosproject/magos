@@ -90,3 +90,6 @@ jobs:
 
       - name: Run chainsaw tests
         run: make test-chainsaw
+
+      - name: Run chart chainsaw tests
+        run: make test-chainsaw-chart

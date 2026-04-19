@@ -1,15 +1,14 @@
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
-  name: autoapply-defaults-true
+  name: serviceaccount-default
 spec:
   description: |
-    The default for spec.autoApply lives in the CRD schema, not in the
-    controller, and that distinction matters because changing it would
-    be a silent API break for every user who currently relies on
-    omitting the field and expecting automatic apply behaviour. This
-    test is the canary that catches a CRD regeneration accidentally
-    flipping or dropping that default value before it ships to users.
+    The CRD schema defaults serviceAccountName to magos-job so that plan
+    and apply Job pods have the RBAC needed to list ValidatingPolicies
+    without operators having to remember to set the field. This test is
+    the canary that catches a CRD regeneration accidentally dropping or
+    changing that default before it ships to users.
   steps:
   - try:
     - apply:
@@ -17,7 +16,7 @@ spec:
           apiVersion: magosproject.io/v1alpha1
           kind: Workspace
           metadata:
-            name: autoapply-default
+            name: sa-default-ws
           spec:
             projectRef:
               name: no-project
@@ -31,6 +30,6 @@ spec:
           apiVersion: magosproject.io/v1alpha1
           kind: Workspace
           metadata:
-            name: autoapply-default
+            name: sa-default-ws
           spec:
-            autoApply: true
+            serviceAccountName: magos-job

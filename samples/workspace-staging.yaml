@@ -6,16 +6,21 @@ metadata:
   labels:
     env: dev
   annotations:
-    magosproject.io/reconcile-interval: "150s"
+    magosproject.io/reconcile-interval: "40s"
 spec:
   annotations:
     iam.gke.io/gcp-service-account: "test@test.iam.gserviceaccount.com"
   projectRef:
     name: demo-project
+  serviceAccountName: magos-job
+  validation:
+    policySelector:
+      matchLabels:
+        policy.magosproject.io/category: security-1
   source:
     repoURL: https://github.com/magosproject/demo.git
     targetRevision: main
     path: .
   terraform:
-    version: "1.13.0"
+    version: "1.14.8"
     tfvarsPath: env/staging/vars.tfvars

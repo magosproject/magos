@@ -43,7 +43,8 @@ func (b *BinaryInstaller) Install(ctx context.Context) (string, error) {
 	var sources []src.Source
 	if b.exact != "" {
 		ver := version.Must(version.NewVersion(b.exact))
-		sources = append(sources, &releases.ExactVersion{Product: product.Terraform, Version: ver})
+		// TODO: remove this once hc-install cut a new release; see https://github.com/hashicorp/hc-install/issues/370
+		sources = append(sources, &releases.ExactVersion{Product: product.Terraform, Version: ver, SkipChecksumVerification: true})
 	} else if b.constraint != "" {
 		cons := version.MustConstraints(version.NewConstraint(b.constraint))
 		sources = append(sources,

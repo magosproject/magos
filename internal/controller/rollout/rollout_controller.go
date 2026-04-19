@@ -258,7 +258,7 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 	// deliberate safety mechanism: applying later steps on top of a broken
 	// earlier step could compound failures.
 	for _, ws := range currentLevel.workspaces {
-		if ws.Status.Phase == v1alpha1.PhaseFailed {
+		if ws.Status.Phase == v1alpha1.PhaseFailed || ws.Status.Phase == v1alpha1.PhaseValidationFailed {
 			logger.Info("Workspace failed, halting rollout", "workspace", ws.Name)
 			r.updateStatus(ctx, rollout, v1alpha1.PhaseFailed, "StepFailed",
 				"One or more workspaces failed in level ["+currentLevel.names+"]", metav1.ConditionFalse)
@@ -272,7 +272,16 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 	// before starting a plan/apply cycle. Without it, the Workspace stays in
 	// Pending. We only grant permission to Workspaces that actually need work
 	// to avoid unnecessary API updates and redundant reconciles.
+	//
+	// Workspaces in a terminal failed state (PhaseFailed, PhaseValidationFailed)
+	// are never re-granted permission: Step 3 already halted the Rollout for
+	// them, and re-granting would create an annotation-remove cycle between the
+	// two controllers.
 	for _, ws := range currentLevel.workspaces {
+		if ws.Status.Phase == v1alpha1.PhaseFailed || ws.Status.Phase == v1alpha1.PhaseValidationFailed {
+			continue
+		}
+
 		isFullyApplied := workspaceFullyApplied(&ws)
 		hasReconcileRequest := ws.Annotations != nil && ws.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != ""
 
