@@ -192,7 +192,7 @@ docker-push: ## Push docker images for all components.
 	$(CONTAINER_TOOL) push ${API_IMG}
 
 .PHONY: kind-load
-kind-load: ## load locally built docker image(s) into kind cluster.
+kind-load: kind ## load locally built docker image(s) into kind cluster.
 	$(KIND) load docker-image ${IMG} --name $(KIND_CLUSTER)
 	$(KIND) load docker-image ${UI_IMG} --name $(KIND_CLUSTER)
 	$(KIND) load docker-image ${JOB_IMG} --name $(KIND_CLUSTER)
