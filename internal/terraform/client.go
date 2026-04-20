@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 
-	version "github.com/hashicorp/go-version"
-	tfexec "github.com/hashicorp/terraform-exec/tfexec"
+	version "github.com/magosproject/go-version"
+	tfexec "github.com/magosproject/terraform-exec/tfexec"
 )
 
 type TerraformClient struct {
