@@ -27,7 +27,7 @@ import { useSSEItem } from "../hooks/useSSEItem";
 import { useFlashOnChange } from "../hooks/useFlashOnChange";
 import { flashColorVar } from "../utils/colors";
 
-const reconcileablePhases: Phase[] = ["Applied", "Failed", "Idle"];
+const reconcilablePhases: Phase[] = ["Applied", "Failed", "Idle"];
 
 export function meta({ params }: { params: { namespace: string; name: string } }) {
   return [{ title: `${params.name} – magos` }];
@@ -107,9 +107,8 @@ export default function Workspace() {
   const flashStyle = { "--flash-color": flashColorVar(phaseLabel) } as CSSProperties;
   const wsId = resourceId(ws);
   const lineageFlashIds = useMemo(() => (flash ? new Set([wsId]) : new Set<string>()), [flash, wsId]);
-  const canReconcile = phase ? reconcileablePhases.includes(phase) : false;
+  const canReconcile = phase ? reconcilablePhases.includes(phase) : false;
   const reconcileDisabled = isSubmittingReconcile || !canReconcile || !namespace || !name;
-  const reconcileLabel = isSubmittingReconcile || phase === "Reconciling" ? "Reconciling..." : "Reconcile";
 
   async function handleReconcile() {
     if (!namespace || !name || reconcileDisabled) return;
@@ -141,7 +140,7 @@ export default function Workspace() {
           loading={isSubmittingReconcile}
           onClick={handleReconcile}
         >
-          {reconcileLabel}
+          Reconcile
         </Button>
       </Group>
 
