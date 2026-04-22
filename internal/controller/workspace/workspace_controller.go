@@ -260,9 +260,12 @@ func (r *WorkspaceReconciler) handleDeletion(ctx context.Context, workspace *v1a
 // getSpecHash produces a short, deterministic hash of the Workspace spec. This
 // hash is used as a suffix on Job names (e.g. "myworkspace-plan-a1b2c3d4") so
 // that a spec change naturally creates new Jobs while leaving old ones to be
-// cleaned up by Step 2. Transient control annotations are deliberately
-// excluded: they may trigger a new cycle, but they must not change job
-// identity or a one-shot trigger would create multiple full runs.
+// cleaned up by Step 2. The approval annotation is deliberately excluded from
+// the hash so that approving a plan does not invalidate the existing Plan Job.
+//
+// Transient control annotations such as reconcile-request are also excluded.
+// They may trigger a fresh cycle, but they must not change job identity or a
+// one-shot trigger would create multiple full runs.
 func (r *WorkspaceReconciler) getSpecHash(ws *v1alpha1.Workspace) string {
 	data, _ := json.Marshal(ws.Spec)
 
@@ -285,30 +288,6 @@ func (r *WorkspaceReconciler) getSyncInterval(ws *v1alpha1.Workspace) time.Durat
 		}
 	}
 	return DefaultReconciliationInterval
-}
-
-// consumeWorkspaceAnnotations removes transient controller annotations after a
-// run has reached a terminal state. This prevents orchestration controllers
-// from continuously re-granting execution permission based on stale signals.
-func (r *WorkspaceReconciler) consumeWorkspaceAnnotations(ctx context.Context, workspace *v1alpha1.Workspace, keys ...string) error {
-	if workspace.Annotations == nil {
-		return nil
-	}
-
-	patch := client.MergeFrom(workspace.DeepCopy())
-	changed := false
-	for _, key := range keys {
-		if workspace.Annotations[key] != "" {
-			delete(workspace.Annotations, key)
-			changed = true
-		}
-	}
-
-	if !changed {
-		return nil
-	}
-
-	return r.Patch(ctx, workspace, patch)
 }
 
 func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace *v1alpha1.Workspace) (ctrl.Result, error) {
@@ -522,11 +501,10 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		}
 	}
 
-	// Manual reconcile requests are also one-shot reset triggers, but unlike
+	// Manual reconcile requests behave similarly, but unlike
 	// detected-revision they do not carry data that must survive the cycle.
-	// We treat them as an explicit signal to start one fresh run immediately.
-	// The same phase guard prevents an in-progress run from being reset over and
-	// over while the annotation is still present.
+	// The same phase guard ensures the request triggers exactly one fresh
+	// plan/apply cycle and does not keep resetting an in-progress run.
 	if !needsReset && workspace.Annotations != nil &&
 		(workspace.Status.Phase == "" || workspace.Status.Phase == v1alpha1.PhaseApplied || workspace.Status.Phase == v1alpha1.PhaseFailed) {
 		if req := workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation]; req != "" {
@@ -677,17 +655,31 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 
 		r.updateStatus(ctx, workspace, phase, reason, message, metav1.ConditionFalse)
 
-		// Release the execution lock and consume any manual reconcile request.
-		// A stale reconcile-request annotation would otherwise make the Project
-		// or Rollout controller immediately grant execution again, creating a
-		// tight failure loop instead of letting Step 3's retry cooldown govern
-		// the next attempt.
-		if err := r.consumeWorkspaceAnnotations(ctx, workspace,
-			v1alpha1.WorkspaceExecutionAllowedAnnotation,
-			v1alpha1.WorkspaceReconcileRequestAnnotation,
-		); err != nil {
-			logger.Error(err, "Failed to consume execution annotations via Patch on plan failure")
-			return ctrl.Result{}, err
+		// Release the execution lock so the Rollout controller knows this
+		// Workspace is done with its turn, even though it failed. Without this
+		// the Rollout would keep waiting for us and never advance to the next
+		// Workspace in the sequence.
+		//
+		// If this run was triggered by a manual reconcile request, consume that
+		// annotation too so the Project or Rollout controller does not
+		// immediately grant execution again and bypass Step 3's retry cooldown.
+		if workspace.Annotations != nil {
+			patch := client.MergeFrom(workspace.DeepCopy())
+			changed := false
+			if workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
+				changed = true
+			}
+			if workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceReconcileRequestAnnotation)
+				changed = true
+			}
+			if changed {
+				if err := r.Patch(ctx, workspace, patch); err != nil {
+					logger.Error(err, "Failed to consume execution annotations via Patch on plan failure")
+					return ctrl.Result{}, err
+				}
+			}
 		}
 
 		return ctrl.Result{}, nil
@@ -766,14 +758,28 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		r.updateStatus(ctx, workspace, v1alpha1.PhaseFailed, "ApplyFailed", "Terraform Apply execution failed", metav1.ConditionFalse)
 
 		// Same as the plan failure path in Step 6: release the execution lock
-		// and consume any manual reconcile request so retries follow the sync
-		// interval backoff rather than re-triggering immediately.
-		if err := r.consumeWorkspaceAnnotations(ctx, workspace,
-			v1alpha1.WorkspaceExecutionAllowedAnnotation,
-			v1alpha1.WorkspaceReconcileRequestAnnotation,
-		); err != nil {
-			logger.Error(err, "Failed to consume execution annotations via Patch on failure")
-			return ctrl.Result{}, err
+		// so the Rollout controller can continue with the next Workspace.
+		//
+		// If this run was triggered by a manual reconcile request, consume that
+		// annotation too so retries follow the sync interval backoff rather than
+		// re-triggering immediately.
+		if workspace.Annotations != nil {
+			patch := client.MergeFrom(workspace.DeepCopy())
+			changed := false
+			if workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
+				changed = true
+			}
+			if workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceReconcileRequestAnnotation)
+				changed = true
+			}
+			if changed {
+				if err := r.Patch(ctx, workspace, patch); err != nil {
+					logger.Error(err, "Failed to consume execution annotations via Patch on failure")
+					return ctrl.Result{}, err
+				}
+			}
 		}
 
 		return ctrl.Result{}, nil
@@ -803,12 +809,15 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// present and we fall back to spec.source.targetRevision (the branch or tag
 	// name).
 	//
-	// After recording the revision we remove transient execution annotations to
-	// hand control back to the orchestration layer, completing this
-	// Workspace's turn. A manual reconcile request is also consumed here: it is
-	// a one-shot trigger for exactly one fresh plan/apply cycle, not a durable
-	// desired-state flag. Leaving it behind would cause the Project or Rollout
-	// controller to continuously re-grant execution permission.
+	// After recording the revision we remove the execution-allowed and
+	// detected-revision annotations to hand control back to the Rollout
+	// controller, completing this Workspace's turn in the rollout sequence. The
+	// next cycle will start when Step 3's reset evaluation fires after the sync
+	// interval, or when the RefWatcher detects another new commit.
+	//
+	// If this run was triggered by a manual reconcile request, we consume that
+	// annotation here as well. It is a one-shot trigger for exactly one fresh
+	// plan/apply cycle, not a durable desired-state flag.
 	logger.Info("Apply Job completed successfully", "job", applyJobName)
 
 	// Record apply job duration if both start and completion times are
@@ -833,16 +842,39 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	}
 	r.updateStatus(ctx, workspace, v1alpha1.PhaseApplied, "ApplySucceeded", "Terraform Apply completed successfully", metav1.ConditionTrue)
 
-	// Remove transient execution annotations now that the cycle is complete.
-	// We use Patch rather than Update because the status update above may have
-	// bumped the resourceVersion, and a full Update would conflict.
-	if err := r.consumeWorkspaceAnnotations(ctx, workspace,
-		v1alpha1.WorkspaceExecutionAllowedAnnotation,
-		v1alpha1.WorkspaceDetectedRevisionAnnotation,
-		v1alpha1.WorkspaceReconcileRequestAnnotation,
-	); err != nil {
-		logger.Error(err, "Failed to consume execution annotations via Patch")
-		return ctrl.Result{}, err
+	// Remove the execution-allowed, detected-revision, and any manual
+	// reconcile-request annotations now that the cycle is complete. We use
+	// Patch rather than Update because the status update above may have bumped
+	// the resourceVersion, and a full Update would conflict. Deleting
+	// execution-allowed tells the Rollout controller that this Workspace is
+	// done with its turn. Deleting detected-revision tells both the Rollout
+	// controller (via workspaceFullyApplied) and Step 3 (via the phase guarded
+	// reset check) that the new commit has been fully processed. Deleting
+	// reconcile-request consumes a one-shot manual trigger so it does not
+	// immediately start another cycle.
+	{
+		patch := client.MergeFrom(workspace.DeepCopy())
+		changed := false
+		if workspace.Annotations != nil {
+			if workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
+				changed = true
+			}
+			if workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceDetectedRevisionAnnotation)
+				changed = true
+			}
+			if workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceReconcileRequestAnnotation)
+				changed = true
+			}
+		}
+		if changed {
+			if err := r.Patch(ctx, workspace, patch); err != nil {
+				logger.Error(err, "Failed to consume execution annotations via Patch")
+				return ctrl.Result{}, err
+			}
+		}
 	}
 
 	return ctrl.Result{}, nil
