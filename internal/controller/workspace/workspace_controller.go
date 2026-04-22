@@ -220,11 +220,12 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	reconcileTotal.WithLabelValues(req.Namespace, req.Name, "success").Inc()
 
-	// Always requeue on the sync interval so we periodically re-plan even when
-	// nothing in the cluster changes. This is how we detect infrastructure
-	// drift that happened outside of Magos.
+	// Always requeue on the periodic schedule so we periodically re-plan even
+	// when nothing in the cluster changes. This is how we detect
+	// infrastructure drift that happened outside of Magos.
 	if res.RequeueAfter == 0 {
-		res.RequeueAfter = r.getSyncInterval(workspace)
+		next := computeNextScheduledReconcileTime(workspace.Status.NextReconcileTime, r.getSyncInterval(workspace))
+		res.RequeueAfter = time.Until(next.Time)
 	}
 
 	r.updateNextReconcileTime(ctx, workspace, res.RequeueAfter)
@@ -288,6 +289,25 @@ func (r *WorkspaceReconciler) getSyncInterval(ws *v1alpha1.Workspace) time.Durat
 		}
 	}
 	return DefaultReconciliationInterval
+}
+
+func computeNextScheduledReconcileTime(existing *metav1.Time, interval time.Duration) metav1.Time {
+	now := time.Now()
+
+	if existing == nil || existing.IsZero() {
+		return metav1.NewTime(now.Add(interval))
+	}
+
+	next := existing.Time
+	for !next.After(now) {
+		next = next.Add(interval)
+	}
+
+	return metav1.NewTime(next)
+}
+
+func isScheduledReconcileDue(existing *metav1.Time) bool {
+	return existing != nil && !existing.IsZero() && !existing.After(time.Now())
 }
 
 func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace *v1alpha1.Workspace) (ctrl.Result, error) {
@@ -384,6 +404,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// leave the Workspace stuck in a terminal(?) phase with no way to clean up
 	// old Jobs or start a new cycle.
 	syncInterval := r.getSyncInterval(workspace)
+	nextScheduledReconcile := computeNextScheduledReconcileTime(workspace.Status.NextReconcileTime, syncInterval)
 	needsReset := false
 	resetReason := ""
 	resetMessage := ""
@@ -438,8 +459,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// exactly the remaining duration to avoid waking up on every reconcile loop
 	// in the meantime.
 	if !applyFinishedTime.IsZero() {
-		elapsed := time.Since(applyFinishedTime)
-		if elapsed >= syncInterval {
+		if isScheduledReconcileDue(workspace.Status.NextReconcileTime) {
 			needsReset = true
 			if applySucceeded {
 				resetReason = "ScheduledReconcile"
@@ -449,7 +469,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 				resetMessage = "Retrying failed apply starting from new plan"
 			}
 		} else {
-			exactRequeue = syncInterval - elapsed
+			exactRequeue = time.Until(nextScheduledReconcile.Time)
 		}
 	} else if planJobGetErr == nil && planJob.Status.Failed > 0 {
 		// We never got to Apply because the Plan itself failed. We use the same
@@ -463,13 +483,12 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			}
 		}
 		if !failedTime.IsZero() {
-			elapsed := time.Since(failedTime)
-			if elapsed >= syncInterval {
+			if isScheduledReconcileDue(workspace.Status.NextReconcileTime) {
 				needsReset = true
 				resetReason = "RetryPlan"
 				resetMessage = "Retrying failed plan"
 			} else {
-				exactRequeue = syncInterval - elapsed
+				exactRequeue = time.Until(nextScheduledReconcile.Time)
 			}
 		}
 	}

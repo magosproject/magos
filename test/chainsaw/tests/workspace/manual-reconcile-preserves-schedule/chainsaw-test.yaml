@@ -1,0 +1,141 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: manual-reconcile-preserves-schedule
+spec:
+  description: |
+    A manual reconcile should force immediate work without changing the
+    Workspace's existing drift-detection schedule. The test seeds the current
+    plan Job into a failed terminal state so the Workspace starts from
+    Failed/PlanFailed with nextReconcileTime already populated. It then triggers
+    a manual reconcile and verifies two things: the controller acted on the
+    request right away, and status.nextReconcileTime stayed unchanged.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: manual-reconcile-preserves-schedule-project
+          spec: {}
+    # Seed the current-hash plan Job so the Workspace can observe an existing
+    # terminal run immediately. That keeps the test fast and deterministic:
+    # without this, Chainsaw would have to wait for a real plan Job to be
+    # created and fail before nextReconcileTime is populated.
+    #
+    # This fixture has to be created before the Workspace. Once the Workspace
+    # exists the controller may race in and create the same-named Job itself,
+    # and Kubernetes does not allow the Job pod template to be replaced after
+    # creation.
+    - apply:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: manual-reconcile-preserves-schedule-ws-plan-b89a4e3e
+            labels:
+              magosproject.io/workspace: manual-reconcile-preserves-schedule-ws
+              magosproject.io/job-type: plan
+          spec:
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                - name: stub
+                  image: busybox:1.36
+                  command: ["sh", "-c", "exit 1"]
+    # Patch the seeded Job straight to Failed so the controller sees the same
+    # terminal state it would normally see after a real plan failure.
+    - script:
+        content: |
+          kubectl patch job manual-reconcile-preserves-schedule-ws-plan-b89a4e3e -n "$NAMESPACE" \
+            --subresource=status --type merge \
+            -p '{"status":{"active":0,"failed":1,"conditions":[{"type":"FailureTarget","status":"True","lastTransitionTime":"2026-04-22T00:00:00Z","reason":"BackoffLimitExceeded","message":"forced failure for chainsaw"},{"type":"Failed","status":"True","lastTransitionTime":"2026-04-22T00:00:00Z","reason":"BackoffLimitExceeded","message":"forced failure for chainsaw"}]}}'
+    # The spec below is intentionally the same spec whose hash produced the
+    # seeded Job name above. That makes the Workspace adopt that Job as its
+    # current plan run instead of creating a different one first.
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: manual-reconcile-preserves-schedule-ws
+            annotations:
+              magosproject.io/execution-allowed: "true"
+              magosproject.io/reconcile-interval: "45m"
+          spec:
+            projectRef:
+              name: manual-reconcile-preserves-schedule-project
+            autoApply: true
+            source:
+              repoURL: file:///definitely-missing-repo
+              targetRevision: main
+              path: .
+            terraform:
+              version: "1.14.8"
+            serviceAccountName: magos-job
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: manual-reconcile-preserves-schedule-ws
+            annotations:
+              magosproject.io/reconcile-interval: "45m"
+          status:
+            phase: Failed
+            reason: PlanFailed
+            (nextReconcileTime != null): true
+    # Capture the anchored schedule before the manual trigger so we can compare
+    # it after the controller reacts.
+    - script:
+        content: |
+          ws=manual-reconcile-preserves-schedule-ws
+          initial_next=$(kubectl get workspace "$ws" -n "$NAMESPACE" -o jsonpath='{.status.nextReconcileTime}')
+          if [ -z "$initial_next" ]; then
+            echo "initial nextReconcileTime is empty"
+            exit 1
+          fi
+
+          kubectl annotate workspace "$ws" -n "$NAMESPACE" --overwrite \
+            chainsaw.magosproject.io/initial-next="$initial_next" \
+            magosproject.io/reconcile-request="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    # The manual request should move the Workspace out of its original terminal
+    # Failed/PlanFailed state quickly, but it must not rewrite the stored
+    # nextReconcileTime while doing so.
+    - script:
+        content: |
+          ws=manual-reconcile-preserves-schedule-ws
+          initial_next=$(kubectl get workspace "$ws" -n "$NAMESPACE" -o jsonpath='{.metadata.annotations.chainsaw\.magosproject\.io/initial-next}')
+          transitioned=false
+
+          # The controller may move through Pending so quickly that the test
+          # only observes Planning. Leaving the original Failed/PlanFailed
+          # state is the stable signal that the manual request was acted on.
+          for i in $(seq 1 20); do
+            current_phase=$(kubectl get workspace "$ws" -n "$NAMESPACE" -o jsonpath='{.status.phase}')
+            current_reason=$(kubectl get workspace "$ws" -n "$NAMESPACE" -o jsonpath='{.status.reason}')
+
+            if [ "$current_phase" != "Failed" ] || [ "$current_reason" != "PlanFailed" ]; then
+              transitioned=true
+              break
+            fi
+
+            sleep 0.2
+          done
+
+          if [ "$transitioned" != "true" ]; then
+            echo "manual reconcile request was not acted on within the expected short window"
+            exit 1
+          fi
+
+          final_next=$(kubectl get workspace "$ws" -n "$NAMESPACE" -o jsonpath='{.status.nextReconcileTime}')
+
+          if [ "$initial_next" != "$final_next" ]; then
+            echo "nextReconcileTime changed across manual reconcile"
+            echo "initial: $initial_next"
+            echo "final:   $final_next"
+            exit 1
+          fi
