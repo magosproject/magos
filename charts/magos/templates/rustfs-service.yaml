@@ -1,0 +1,22 @@
+{{- if .Values.rustfs.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+  labels:
+    {{- include "magos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rustfs
+spec:
+  selector:
+    {{- include "magos.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: rustfs
+  ports:
+  - name: s3
+    port: {{ .Values.rustfs.service.port }}
+    targetPort: s3
+    protocol: TCP
+  - name: console
+    port: {{ .Values.rustfs.service.consolePort }}
+    targetPort: console
+    protocol: TCP
+{{- end }}

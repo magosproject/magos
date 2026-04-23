@@ -188,6 +188,16 @@ type WorkspaceStatus struct {
 	// +optional
 	PolicyViolations []PolicyViolation `json:"policyViolations,omitempty"`
 
+	// CurrentRunID identifies the current reconciliation run that the
+	// controller is executing. The same run ID is shared across the plan/apply
+	// pair for a single cycle and is replaced when the next cycle starts.
+	// +optional
+	CurrentRunID string `json:"currentRunID,omitempty"`
+
+	// CurrentRunTrigger records why the current reconciliation run was started.
+	// +optional
+	CurrentRunTrigger RunTrigger `json:"currentRunTrigger,omitempty"`
+
 	// conditions represent the current state of the Workspace resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
 	//
@@ -210,6 +220,73 @@ type PolicyViolation struct {
 	Policy string `json:"policy"`
 	// Message is the human-readable violation message from the rule definition.
 	Message string `json:"message"`
+}
+
+// RunPhase identifies which Terraform phase produced a stored run log.
+type RunPhase string
+
+const (
+	RunPhasePlan  RunPhase = "plan"
+	RunPhaseApply RunPhase = "apply"
+)
+
+// RunLogResult is the terminal outcome for a run log entry.
+type RunLogResult string
+
+const (
+	RunLogResultSucceeded RunLogResult = "Succeeded"
+	RunLogResultFailed    RunLogResult = "Failed"
+)
+
+// RunTrigger identifies what caused a reconciliation run to start.
+type RunTrigger string
+
+const (
+	RunTriggerUnknown   RunTrigger = "unknown"
+	RunTriggerConfig    RunTrigger = "configuration"
+	RunTriggerManual    RunTrigger = "manual"
+	RunTriggerScheduled RunTrigger = "scheduled"
+	RunTriggerRevision  RunTrigger = "revision"
+	RunTriggerRetry     RunTrigger = "retry"
+)
+
+// RunLogSummary stores metadata for an archived run log object.
+type RunLogSummary struct {
+	// RunID groups the plan/apply jobs that belong to one reconciliation cycle.
+	RunID string `json:"runID"`
+	// Phase is the Terraform phase that emitted the archived log.
+	Phase RunPhase `json:"phase"`
+	// JobName is the Kubernetes Job that produced the log.
+	// +optional
+	JobName string `json:"jobName,omitempty"`
+	// PodName is the pod backing the Kubernetes Job that produced the log.
+	// +optional
+	PodName string `json:"podName,omitempty"`
+	// StartedAt is when the Job started running.
+	// +optional
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+	// FinishedAt is when the Job reached a terminal state.
+	// +optional
+	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
+	// Result is the terminal result of the Job.
+	// +optional
+	Result RunLogResult `json:"result,omitempty"`
+	// Trigger records why this run was started.
+	// +optional
+	Trigger RunTrigger `json:"trigger,omitempty"`
+	// TargetRevision is the ref configured on the Workspace spec for this run,
+	// for example a branch like "main".
+	// +optional
+	TargetRevision string `json:"targetRevision,omitempty"`
+	// ObservedRevision is the git revision associated with this run.
+	// +optional
+	ObservedRevision string `json:"observedRevision,omitempty"`
+	// LogKey is the object-store key used to fetch the archived log.
+	// +optional
+	LogKey string `json:"logKey,omitempty"`
+	// LogSizeBytes is the compressed size of the stored log object.
+	// +optional
+	LogSizeBytes int64 `json:"logSizeBytes,omitempty"`
 }
 
 // +genclient

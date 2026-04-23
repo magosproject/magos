@@ -17,7 +17,10 @@ package workspace
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"context"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -26,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/magosproject/magos/internal/logstore"
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -74,6 +78,8 @@ const (
 	SecretKeyUsername      = "username"
 	SecretKeyPassword      = "password"
 	SecretKeySSHPrivateKey = "sshPrivateKey"
+
+	runIDLabelKey = "magosproject.io/run-id"
 )
 
 // WorkspaceReconciler reconciles a Workspace object
@@ -82,6 +88,7 @@ type WorkspaceReconciler struct {
 	Scheme    *runtime.Scheme
 	JobImage  string
 	Clientset kubernetes.Interface // for reading pod logs
+	LogStore  logstore.Store
 }
 
 // getRepoCredentials finds the Git credential Secret for a given repository
@@ -308,6 +315,47 @@ func computeNextScheduledReconcileTime(existing *metav1.Time, interval time.Dura
 
 func isScheduledReconcileDue(existing *metav1.Time) bool {
 	return existing != nil && !existing.IsZero() && !existing.After(time.Now())
+}
+
+func newRunID() string {
+	var suffix [4]byte
+	if _, err := crand.Read(suffix[:]); err != nil {
+		return time.Now().UTC().Format("20060102T150405.000000000")
+	}
+	return fmt.Sprintf("%s-%s", time.Now().UTC().Format("20060102T150405"), hex.EncodeToString(suffix[:]))
+}
+
+func ensureRunID(workspace *v1alpha1.Workspace) string {
+	if workspace.Status.CurrentRunID == "" {
+		workspace.Status.CurrentRunID = newRunID()
+	}
+	return workspace.Status.CurrentRunID
+}
+
+func currentRunObservedRevision(workspace *v1alpha1.Workspace) string {
+	if workspace.Annotations != nil {
+		if sha := workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation]; sha != "" {
+			return sha
+		}
+	}
+	return workspace.Spec.Source.TargetRevision
+}
+
+func runTriggerFromResetReason(reason string) v1alpha1.RunTrigger {
+	switch reason {
+	case "ConfigurationChanged":
+		return v1alpha1.RunTriggerConfig
+	case "ManualReconcileRequested":
+		return v1alpha1.RunTriggerManual
+	case "ScheduledReconcile":
+		return v1alpha1.RunTriggerScheduled
+	case "NewRevisionDetected":
+		return v1alpha1.RunTriggerRevision
+	case "RetryApply", "RetryPlan":
+		return v1alpha1.RunTriggerRetry
+	default:
+		return v1alpha1.RunTriggerUnknown
+	}
 }
 
 func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace *v1alpha1.Workspace) (ctrl.Result, error) {
@@ -553,6 +601,8 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		// before earlier ones (e.g. dev) have even started their new cycle.
 		// Writing Pending first closes that window: the Rollout sees
 		// PhasePending and knows the Workspace still has work to do.
+		workspace.Status.CurrentRunID = newRunID()
+		workspace.Status.CurrentRunTrigger = runTriggerFromResetReason(resetReason)
 		r.updateStatus(ctx, workspace, v1alpha1.PhasePending, resetReason, resetMessage, metav1.ConditionUnknown)
 
 		// Clear execution-allowed so the Rollout controller must re-grant
@@ -635,7 +685,8 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	if planJobGetErr != nil {
 		if errors.IsNotFound(planJobGetErr) {
 			logger.Info("Creating a new Plan Job", "job", planJobName)
-			newJob, err := r.constructJobForWorkspace(ctx, workspace, planJobName, jobTypePlan, planFile, pvcName)
+			runID := ensureRunID(workspace)
+			newJob, err := r.constructJobForWorkspace(ctx, workspace, planJobName, jobTypePlan, planFile, pvcName, runID)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -759,7 +810,8 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			}
 
 			logger.Info("Creating a new Apply Job", "job", applyJobName)
-			newJob, err := r.constructJobForWorkspace(ctx, workspace, applyJobName, jobTypeApply, planFile, pvcName)
+			runID := ensureRunID(workspace)
+			newJob, err := r.constructJobForWorkspace(ctx, workspace, applyJobName, jobTypeApply, planFile, pvcName, runID)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -774,6 +826,9 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 
 	if applyJob.Status.Failed > 0 {
 		logger.Info("Apply Job failed", "job", applyJobName)
+		if err := r.archiveRunLogs(ctx, workspace, &applyJob, v1alpha1.RunPhaseApply, v1alpha1.RunLogResultFailed); err != nil {
+			logger.Error(err, "Failed to archive apply logs", "job", applyJobName)
+		}
 		r.updateStatus(ctx, workspace, v1alpha1.PhaseFailed, "ApplyFailed", "Terraform Apply execution failed", metav1.ConditionFalse)
 
 		// Same as the plan failure path in Step 6: release the execution lock
@@ -838,6 +893,9 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// annotation here as well. It is a one-shot trigger for exactly one fresh
 	// plan/apply cycle, not a durable desired-state flag.
 	logger.Info("Apply Job completed successfully", "job", applyJobName)
+	if err := r.archiveRunLogs(ctx, workspace, &applyJob, v1alpha1.RunPhaseApply, v1alpha1.RunLogResultSucceeded); err != nil {
+		logger.Error(err, "Failed to archive apply logs", "job", applyJobName)
+	}
 
 	// Record apply job duration if both start and completion times are
 	// available.
@@ -1026,6 +1084,130 @@ func (r *WorkspaceReconciler) readPolicyViolations(ctx context.Context, namespac
 	return nil, nil
 }
 
+func (r *WorkspaceReconciler) getJobPod(ctx context.Context, namespace, jobName string) (*corev1.Pod, error) {
+	var podList corev1.PodList
+	if err := r.List(ctx, &podList,
+		client.InNamespace(namespace),
+		client.MatchingLabels{"job-name": jobName},
+	); err != nil {
+		return nil, fmt.Errorf("failed to list pods for job %s: %w", jobName, err)
+	}
+	if len(podList.Items) == 0 {
+		return nil, fmt.Errorf("no pods found for job %s", jobName)
+	}
+	return &podList.Items[0], nil
+}
+
+func (r *WorkspaceReconciler) readPodLogs(ctx context.Context, namespace, podName string) ([]byte, error) {
+	logStream, err := r.Clientset.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{}).Stream(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stream logs for pod %s: %w", podName, err)
+	}
+	defer func() {
+		if err := logStream.Close(); err != nil {
+			log.FromContext(ctx).Error(err, "Failed to close pod log stream")
+		}
+	}()
+
+	data, err := io.ReadAll(logStream)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read pod log stream for %s: %w", podName, err)
+	}
+	return data, nil
+}
+
+func gzipLogContent(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(data); err != nil {
+		return nil, fmt.Errorf("gzip log content: %w", err)
+	}
+	if err := zw.Close(); err != nil {
+		return nil, fmt.Errorf("finalize gzip log content: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+func terminalJobFinishedAt(job *batchv1.Job) *metav1.Time {
+	if job.Status.CompletionTime != nil {
+		return job.Status.CompletionTime
+	}
+	for _, cond := range job.Status.Conditions {
+		if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
+			t := cond.LastTransitionTime
+			return &t
+		}
+	}
+	return nil
+}
+
+func (r *WorkspaceReconciler) archiveRunLogs(
+	ctx context.Context,
+	workspace *v1alpha1.Workspace,
+	job *batchv1.Job,
+	phase v1alpha1.RunPhase,
+	result v1alpha1.RunLogResult,
+) error {
+	if r.LogStore == nil || r.Clientset == nil {
+		return nil
+	}
+
+	runID := workspace.Status.CurrentRunID
+	if runID == "" {
+		return nil
+	}
+
+	pod, err := r.getJobPod(ctx, workspace.Namespace, job.Name)
+	if err != nil {
+		return err
+	}
+	rawLogs, err := r.readPodLogs(ctx, workspace.Namespace, pod.Name)
+	if err != nil {
+		return err
+	}
+	compressed, err := gzipLogContent(rawLogs)
+	if err != nil {
+		return err
+	}
+
+	startedAt := time.Now().UTC()
+	if job.Status.StartTime != nil {
+		startedAt = job.Status.StartTime.Time.UTC()
+	}
+
+	stored, err := r.LogStore.PutRunLog(ctx, logstore.PutRunLogInput{
+		Namespace: workspace.Namespace,
+		Workspace: workspace.Name,
+		RunID:     runID,
+		Phase:     phase,
+		StartedAt: startedAt,
+	}, compressed)
+	if err != nil {
+		return err
+	}
+
+	summary := v1alpha1.RunLogSummary{
+		RunID:            runID,
+		Phase:            phase,
+		JobName:          job.Name,
+		PodName:          pod.Name,
+		StartedAt:        job.Status.StartTime,
+		FinishedAt:       terminalJobFinishedAt(job),
+		Result:           result,
+		Trigger:          workspace.Status.CurrentRunTrigger,
+		TargetRevision:   workspace.Spec.Source.TargetRevision,
+		ObservedRevision: currentRunObservedRevision(workspace),
+		LogKey:           stored.Key,
+		LogSizeBytes:     stored.SizeBytes,
+	}
+
+	if err := r.LogStore.PutRunSummary(ctx, workspace.Namespace, workspace.Name, summary); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // constructJobForWorkspace builds a Kubernetes Job spec for either a "plan" or
 // "apply" operation. The Job runs the magos-job container image which knows how
 // to clone a Git repo, install the right Terraform version, and execute the
@@ -1048,7 +1230,7 @@ func (r *WorkspaceReconciler) readPolicyViolations(ctx context.Context, namespac
 //
 // The Job is owned by the Workspace via SetControllerReference, so Kubernetes
 // garbage collection will delete it when the Workspace is removed.
-func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *v1alpha1.Workspace, jobName, jobType, planFile, pvcName string) (*batchv1.Job, error) {
+func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *v1alpha1.Workspace, jobName, jobType, planFile, pvcName, runID string) (*batchv1.Job, error) {
 	// The below map holds configuration that every Job needs: where to clone
 	// from, which revision to check out, which Terraform version to use, and
 	// whether this is a "plan" or "apply" run.
@@ -1178,6 +1360,7 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 			Labels: map[string]string{
 				"magosproject.io/workspace": ws.Name,
 				"magosproject.io/job-type":  jobType,
+				runIDLabelKey:               runID,
 			},
 		},
 		Spec: batchv1.JobSpec{
@@ -1186,6 +1369,11 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: podAnnotations,
+					Labels: map[string]string{
+						"magosproject.io/workspace": ws.Name,
+						"magosproject.io/job-type":  jobType,
+						runIDLabelKey:               runID,
+					},
 				},
 				Spec: corev1.PodSpec{
 					RestartPolicy:      corev1.RestartPolicyNever,
@@ -1257,6 +1445,16 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 		// Preserve observed revision if it was set
 		if workspace.Status.ObservedRevision != "" && latest.Status.ObservedRevision != workspace.Status.ObservedRevision {
 			latest.Status.ObservedRevision = workspace.Status.ObservedRevision
+			needsUpdate = true
+		}
+
+		if workspace.Status.CurrentRunID != "" && latest.Status.CurrentRunID != workspace.Status.CurrentRunID {
+			latest.Status.CurrentRunID = workspace.Status.CurrentRunID
+			needsUpdate = true
+		}
+
+		if workspace.Status.CurrentRunTrigger != "" && latest.Status.CurrentRunTrigger != workspace.Status.CurrentRunTrigger {
+			latest.Status.CurrentRunTrigger = workspace.Status.CurrentRunTrigger
 			needsUpdate = true
 		}
 

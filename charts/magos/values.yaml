@@ -164,6 +164,39 @@ jobServiceAccount:
   annotations: {}
   automount: true
 
+logs:
+  enabled: true
+  s3:
+    bucket: magos-run-logs
+    # Used only for S3 request signing. For local RustFS on Kind this does not
+    # represent a real cloud region; keep us-east-1 unless your backend
+    # requires a different signing region.
+    region: us-east-1
+    endpoint: ""
+    forcePathStyle: true
+    insecureSkipTLSVerify: false
+    accessKeySecretRef:
+      name: ""
+      key: accessKey
+    secretKeySecretRef:
+      name: ""
+      key: secretKey
+
+rustfs:
+  enabled: true
+  image:
+    repository: rustfs/rustfs
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    port: 9000
+    consolePort: 9001
+  persistence:
+    size: 10Gi
+  auth:
+    accessKey: rustfsadmin
+    secretKey: ChangeMe123!
+
 policy:
   kyverno:
     # Install the policies.kyverno.io ValidatingPolicy CRD. The magos job reads

@@ -1,10 +1,4 @@
-import {
-  Button,
-  Group,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Button, Group, Stack, Text, Title } from "@mantine/core";
 import { IconRefresh } from "@tabler/icons-react";
 import { useMemo, useState, type CSSProperties } from "react";
 import { useLoaderData, useParams } from "react-router";
@@ -14,10 +8,11 @@ import KubeBadge from "../components/KubeBadge";
 import ConditionsTable from "../components/ConditionsTable";
 import PolicyViolationsTable from "../components/PolicyViolationsTable";
 import ProjectLineageGraph from "../components/ProjectLineageGraph";
+import WorkspaceApplyLogs from "../components/WorkspaceApplyLogs";
 import WorkspaceOverview from "../components/WorkspaceOverview";
 import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
-import type { Phase, Project, Workspace as WorkspaceType } from "../api/types";
+import type { Phase, Project, RunLogListResponse, Workspace as WorkspaceType } from "../api/types";
 import { useSSEItem } from "../hooks/useSSEItem";
 import { useFlashOnChange } from "../hooks/useFlashOnChange";
 import { flashColorVar } from "../utils/colors";
@@ -27,11 +22,7 @@ export function meta({ params }: { params: { namespace: string; name: string } }
   return [{ title: `${params.name} – magos` }];
 }
 
-export async function clientLoader({
-  params,
-}: {
-  params: { namespace: string; name: string };
-}) {
+export async function clientLoader({ params }: { params: { namespace: string; name: string } }) {
   const { data: ws } = await apiClient.GET(
     "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}",
     { params: { path: { namespace: params.namespace, name: params.name } } }
@@ -39,6 +30,7 @@ export async function clientLoader({
   if (!ws) throw new Response("Not found", { status: 404 });
 
   let project: Project | undefined;
+  let applyLogs: RunLogListResponse = { items: [] };
   const projectRef = ws.spec?.projectRef?.name;
   if (projectRef) {
     const { data } = await apiClient.GET(
@@ -48,7 +40,18 @@ export async function clientLoader({
     project = data;
   }
 
-  return { workspace: ws, project };
+  const { data: logs } = await apiClient.GET(
+    "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs",
+    {
+      params: {
+        path: { namespace: params.namespace, name: params.name },
+        query: { phase: "apply", limit: 5 },
+      },
+    }
+  );
+  applyLogs = logs ?? { items: [] };
+
+  return { workspace: ws, project, applyLogs };
 }
 
 export default function Workspace() {
@@ -70,7 +73,10 @@ export default function Workspace() {
   const flash = useFlashOnChange(phase);
   const flashStyle = { "--flash-color": flashColorVar(phaseLabel) } as CSSProperties;
   const wsId = resourceId(ws);
-  const lineageFlashIds = useMemo(() => (flash ? new Set([wsId]) : new Set<string>()), [flash, wsId]);
+  const lineageFlashIds = useMemo(
+    () => (flash ? new Set([wsId]) : new Set<string>()),
+    [flash, wsId]
+  );
   const canReconcile = phase ? RECONCILABLE_PHASES.has(phase) : false;
   const reconcileDisabled = isSubmittingReconcile || !canReconcile || !namespace || !name;
 
@@ -79,9 +85,12 @@ export default function Workspace() {
 
     setIsSubmittingReconcile(true);
     try {
-      await apiClient.POST("/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile", {
-        params: { path: { namespace, name } },
-      });
+      await apiClient.POST(
+        "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile",
+        {
+          params: { path: { namespace, name } },
+        }
+      );
     } finally {
       setIsSubmittingReconcile(false);
     }
@@ -131,6 +140,14 @@ export default function Workspace() {
 
       {ws.status?.policyViolations && ws.status.policyViolations.length > 0 && (
         <PolicyViolationsTable violations={ws.status.policyViolations} />
+      )}
+
+      {namespace && name && (
+        <WorkspaceApplyLogs
+          namespace={namespace}
+          workspaceName={name}
+          initialLogs={initial.applyLogs}
+        />
       )}
 
       {project && (

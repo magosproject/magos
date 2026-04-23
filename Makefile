@@ -4,6 +4,15 @@ IMG ?= controller:$(TAG)
 JOB_IMG ?= magos-job:$(TAG)
 UI_IMG ?= ui:$(TAG)
 API_IMG ?= magos-api:$(TAG)
+RUSTFS_IMAGE ?= rustfs/rustfs:latest
+RUSTFS_CONTAINER ?= magos-rustfs
+RUSTFS_DEV_DIR ?= .dev
+RUSTFS_DATA_DIR ?= $(RUSTFS_DEV_DIR)/rustfs-data
+RUSTFS_LOG_DIR ?= $(RUSTFS_DEV_DIR)/rustfs-logs
+RUSTFS_S3_PORT ?= 9000
+RUSTFS_CONSOLE_PORT ?= 9001
+RUSTFS_ACCESS_KEY ?= rustfsadmin
+RUSTFS_SECRET_KEY ?= ChangeMe123!
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -17,6 +26,22 @@ endif
 # scaffolded by default. However, you might want to replace it to use other
 # tools. (i.e. podman)
 CONTAINER_TOOL ?= docker
+RUN_LOCAL_RUSTFS ?= true
+MAGOS_LOGS_ENABLED ?= true
+MAGOS_LOGS_S3_BUCKET ?= magos-run-logs
+MAGOS_LOGS_S3_REGION ?= us-east-1
+MAGOS_LOGS_S3_ENDPOINT ?= http://127.0.0.1:$(RUSTFS_S3_PORT)
+MAGOS_LOGS_S3_FORCE_PATH_STYLE ?= true
+MAGOS_LOGS_S3_ACCESS_KEY_ID ?= $(RUSTFS_ACCESS_KEY)
+MAGOS_LOGS_S3_SECRET_ACCESS_KEY ?= $(RUSTFS_SECRET_KEY)
+RUN_LOG_ENV = \
+	MAGOS_LOGS_ENABLED="$(MAGOS_LOGS_ENABLED)" \
+	MAGOS_LOGS_S3_BUCKET="$(MAGOS_LOGS_S3_BUCKET)" \
+	MAGOS_LOGS_S3_REGION="$(MAGOS_LOGS_S3_REGION)" \
+	MAGOS_LOGS_S3_ENDPOINT="$(MAGOS_LOGS_S3_ENDPOINT)" \
+	MAGOS_LOGS_S3_FORCE_PATH_STYLE="$(MAGOS_LOGS_S3_FORCE_PATH_STYLE)" \
+	MAGOS_LOGS_S3_ACCESS_KEY_ID="$(MAGOS_LOGS_S3_ACCESS_KEY_ID)" \
+	MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$(MAGOS_LOGS_S3_SECRET_ACCESS_KEY)"
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -116,8 +141,11 @@ deps:
 .PHONY: run
 run: deps manifests generate fmt vet ## Run all components in parallel.
 	@trap 'kill 0' EXIT; \
-	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
-	$(MAKE) -s run-api & \
+	if [ "$(RUN_LOCAL_RUSTFS)" = "true" ]; then \
+		$(MAKE) -s run-rustfs; \
+	fi; \
+	$(RUN_LOG_ENV) $(MAKE) -s run-controller ARGS="$(ARGS)" & \
+	$(RUN_LOG_ENV) $(MAKE) -s run-api & \
 	$(MAKE) -s run-ui & \
 	wait
 
@@ -133,6 +161,51 @@ run-api: ## Run the API server from your host.
 .PHONY: run-ui
 run-ui: ## Run the react UI from your host, requires to have npm installed.
 	cd ./ui && npm run dev
+
+.PHONY: run-rustfs
+run-rustfs: ## Run RustFS locally in Docker for host-based development.
+	@$(MAKE) -s stop-rustfs >/dev/null
+	@rm -rf "$(RUSTFS_DATA_DIR)" "$(RUSTFS_LOG_DIR)"
+	@mkdir -p "$(RUSTFS_DATA_DIR)" "$(RUSTFS_LOG_DIR)"
+	@$(CONTAINER_TOOL) run --rm \
+		-v "$$(pwd)/$(RUSTFS_DATA_DIR):/data" \
+		-v "$$(pwd)/$(RUSTFS_LOG_DIR):/logs" \
+		alpine sh -c "chown -R 10001:10001 /data /logs" >/dev/null
+	@echo "Starting RustFS container '$(RUSTFS_CONTAINER)' with clean local data..."
+	@$(CONTAINER_TOOL) run -d \
+		--name $(RUSTFS_CONTAINER) \
+		-p $(RUSTFS_S3_PORT):9000 \
+		-p $(RUSTFS_CONSOLE_PORT):9001 \
+		-e RUSTFS_ACCESS_KEY=$(RUSTFS_ACCESS_KEY) \
+		-e RUSTFS_SECRET_KEY=$(RUSTFS_SECRET_KEY) \
+		-v "$$(pwd)/$(RUSTFS_DATA_DIR):/data" \
+		-v "$$(pwd)/$(RUSTFS_LOG_DIR):/logs" \
+		$(RUSTFS_IMAGE) \
+		/data >/dev/null
+	@echo "RustFS S3 endpoint: http://127.0.0.1:$(RUSTFS_S3_PORT)"
+	@echo "RustFS console: http://127.0.0.1:$(RUSTFS_CONSOLE_PORT)"
+	@echo "Local data dir: $(RUSTFS_DATA_DIR)"
+	@echo "Local log dir: $(RUSTFS_LOG_DIR)"
+	@echo "'make run' will use this RustFS instance automatically."
+	@echo "Override any setting via make vars, for example:"
+	@echo "  MAGOS_LOGS_S3_BUCKET=my-bucket make run"
+
+.PHONY: stop-rustfs
+stop-rustfs: ## Stop the local RustFS Docker container.
+	@if [ "$$($(CONTAINER_TOOL) ps -aq -f name=^$(RUSTFS_CONTAINER)$$)" ]; then \
+		echo "Removing RustFS container '$(RUSTFS_CONTAINER)'..."; \
+		$(CONTAINER_TOOL) rm -f $(RUSTFS_CONTAINER) >/dev/null; \
+	else \
+		echo "RustFS container '$(RUSTFS_CONTAINER)' does not exist."; \
+	fi
+
+.PHONY: rustfs-status
+rustfs-status: ## Show local RustFS Docker container status.
+	@$(CONTAINER_TOOL) ps -a -f name=^$(RUSTFS_CONTAINER)$$
+
+.PHONY: logs-rustfs
+logs-rustfs: ## Tail logs from the local RustFS Docker container.
+	@$(CONTAINER_TOOL) logs -f $(RUSTFS_CONTAINER)
 
 ##@ Code Generation
 ##

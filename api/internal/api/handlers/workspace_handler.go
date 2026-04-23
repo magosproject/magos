@@ -1,10 +1,14 @@
 package handlers
 
 import (
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/magosproject/magos/api/internal/service"
+	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
@@ -98,6 +102,117 @@ func (h *WorkspaceHandler) RequestReconcile(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, http.StatusOK, workspace)
+}
+
+// ListRuns godoc
+//
+//	@Summary	List archived runs for a Workspace
+//	@Tags		Workspace
+//	@Produce	json
+//	@Param		namespace	path		string	true	"Namespace"
+//	@Param		name		path		string	true	"Name"
+//	@Param		phase		query		string	false	"Run phase filter"
+//	@Param		limit		query		int		false	"Page size"
+//	@Param		cursor		query		string	false	"Object-store pagination cursor"
+//	@Success	200			{object}	service.RunLogListResponse
+//	@Failure	400			{object}	ErrorResponse
+//	@Failure	404			{object}	ErrorResponse
+//	@Router		/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs [get]
+func (h *WorkspaceHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
+	namespace := r.PathValue("namespace")
+	name := r.PathValue("name")
+	if namespace == "" || name == "" {
+		writeError(w, http.StatusBadRequest, "namespace and name are required")
+		return
+	}
+
+	limit, err := parseListLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	phase := parseRunPhase(r.URL.Query().Get("phase"))
+	items, err := h.service.ListRunLogs(r.Context(), namespace, name, phase, limit, r.URL.Query().Get("cursor"))
+	if err != nil {
+		h.logger.Error("failed to list workspace run logs", "error", err, "namespace", namespace, "name", name)
+		if apierrors.IsNotFound(err) {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to list workspace run logs")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, items)
+}
+
+// GetRunLog godoc
+//
+//	@Summary	Get archived run log for a Workspace run
+//	@Tags		Workspace
+//	@Produce	plain
+//	@Param		namespace	path		string	true	"Namespace"
+//	@Param		name		path		string	true	"Name"
+//	@Param		runID		path		string	true	"Run ID"
+//	@Param		phase		query		string	false	"Run phase filter"
+//	@Success	200			{string}	string
+//	@Failure	400			{object}	ErrorResponse
+//	@Failure	404			{object}	ErrorResponse
+//	@Router		/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/log [get]
+func (h *WorkspaceHandler) GetRunLog(w http.ResponseWriter, r *http.Request) {
+	namespace := r.PathValue("namespace")
+	name := r.PathValue("name")
+	runID := r.PathValue("runID")
+	if namespace == "" || name == "" || runID == "" {
+		writeError(w, http.StatusBadRequest, "namespace, name, and runID are required")
+		return
+	}
+
+	body, err := h.service.GetRunLog(r.Context(), namespace, name, runID, parseRunPhase(r.URL.Query().Get("phase")))
+	if err != nil {
+		h.logger.Error("failed to get workspace run log", "error", err, "namespace", namespace, "name", name, "runID", runID)
+		if apierrors.IsNotFound(err) {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+		writeError(w, http.StatusNotFound, "workspace run log not found")
+		return
+	}
+	defer func() {
+		_ = body.Close()
+	}()
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.Copy(w, body); err != nil {
+		h.logger.Error("failed to stream workspace run log", "error", err, "namespace", namespace, "name", name, "runID", runID)
+	}
+}
+
+func parseRunPhase(raw string) apiv1alpha1.RunPhase {
+	switch raw {
+	case string(apiv1alpha1.RunPhasePlan):
+		return apiv1alpha1.RunPhasePlan
+	case string(apiv1alpha1.RunPhaseApply), "":
+		return apiv1alpha1.RunPhaseApply
+	default:
+		return apiv1alpha1.RunPhaseApply
+	}
+}
+
+func parseListLimit(raw string) (int, error) {
+	if raw == "" {
+		return 5, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("limit must be a positive integer")
+	}
+	if value > 100 {
+		return 100, nil
+	}
+	return value, nil
 }
 
 // Events godoc

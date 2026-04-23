@@ -78,6 +78,28 @@ spec:
         {{- if eq $name "workspace" }}
         - name: MAGOS_JOB_IMAGE
           value: "{{ $root.Values.jobImage.repository }}:{{ $root.Values.jobImage.tag | default $root.Chart.AppVersion }}"
+        - name: MAGOS_LOGS_ENABLED
+          value: {{ $root.Values.logs.enabled | quote }}
+        - name: MAGOS_LOGS_S3_BUCKET
+          value: {{ $root.Values.logs.s3.bucket | quote }}
+        - name: MAGOS_LOGS_S3_REGION
+          value: {{ $root.Values.logs.s3.region | quote }}
+        - name: MAGOS_LOGS_S3_ENDPOINT
+          value: {{ default (printf "http://%s-rustfs:%v" (include "magos.fullname" $root) $root.Values.rustfs.service.port) $root.Values.logs.s3.endpoint | quote }}
+        - name: MAGOS_LOGS_S3_FORCE_PATH_STYLE
+          value: {{ $root.Values.logs.s3.forcePathStyle | quote }}
+        - name: MAGOS_LOGS_S3_INSECURE_SKIP_TLS_VERIFY
+          value: {{ $root.Values.logs.s3.insecureSkipTLSVerify | quote }}
+        - name: MAGOS_LOGS_S3_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ default (printf "%s-rustfs" (include "magos.fullname" $root)) $root.Values.logs.s3.accessKeySecretRef.name }}
+              key: {{ $root.Values.logs.s3.accessKeySecretRef.key }}
+        - name: MAGOS_LOGS_S3_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ default (printf "%s-rustfs" (include "magos.fullname" $root)) $root.Values.logs.s3.secretKeySecretRef.name }}
+              key: {{ $root.Values.logs.s3.secretKeySecretRef.key }}
         {{- end }}
         {{- with ($controller.env | default $root.Values.podDefaults.env) }}
         {{- toYaml . | nindent 8 }}

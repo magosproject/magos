@@ -1,14 +1,18 @@
 package service
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
 	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
 	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/magosproject/v1alpha1"
+	"github.com/magosproject/magos/internal/logstore"
 	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -29,6 +33,13 @@ type WorkspaceService interface {
 	List(ctx context.Context) ([]*apiv1alpha1.Workspace, error)
 	Get(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
 	RequestReconcile(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
+	ListRunLogs(ctx context.Context, namespace, name string, phase apiv1alpha1.RunPhase, limit int, cursor string) (*RunLogListResponse, error)
+	GetRunLog(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase) (io.ReadCloser, error)
+}
+
+type RunLogListResponse struct {
+	Items      []apiv1alpha1.RunLogSummary `json:"items"`
+	NextCursor string                      `json:"nextCursor,omitempty"`
 }
 
 type workspaceService struct {
@@ -37,9 +48,10 @@ type workspaceService struct {
 	informer cache.SharedIndexInformer
 	lister   listerv1alpha1.WorkspaceLister
 	events   *Broadcaster[WorkspaceEvent]
+	logStore logstore.Store
 }
 
-func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory, client versioned.Interface) WorkspaceService {
+func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory, client versioned.Interface, logs logstore.Store) WorkspaceService {
 	workspaceInformer := factory.Magosproject().V1alpha1().Workspaces()
 
 	svc := &workspaceService{
@@ -48,6 +60,7 @@ func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInf
 		lister:   workspaceInformer.Lister(),
 		informer: workspaceInformer.Informer(),
 		events:   NewBroadcaster[WorkspaceEvent](),
+		logStore: logs,
 	}
 
 	workspaceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -130,4 +143,72 @@ func (s *workspaceService) RequestReconcile(ctx context.Context, namespace, name
 	}
 
 	return workspace, nil
+}
+
+func (s *workspaceService) ListRunLogs(ctx context.Context, namespace, name string, phase apiv1alpha1.RunPhase, limit int, cursor string) (*RunLogListResponse, error) {
+	workspace, err := s.Get(ctx, namespace, name)
+	if err != nil {
+		return nil, err
+	}
+	if s.logStore == nil {
+		return &RunLogListResponse{}, nil
+	}
+	result, err := s.logStore.ListRunSummaries(ctx, logstore.ListRunSummariesInput{
+		Namespace: workspace.Namespace,
+		Workspace: workspace.Name,
+		Phase:     phase,
+		Limit:     limit,
+		Cursor:    cursor,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &RunLogListResponse{
+		Items:      result.Items,
+		NextCursor: result.NextCursor,
+	}, nil
+}
+
+func (s *workspaceService) GetRunLog(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase) (io.ReadCloser, error) {
+	if s.logStore == nil {
+		return nil, fmt.Errorf("run log storage is not configured")
+	}
+
+	workspace, err := s.Get(ctx, namespace, name)
+	if err != nil {
+		return nil, err
+	}
+
+	item, err := s.logStore.FindRunSummary(ctx, workspace.Namespace, workspace.Name, phase, runID)
+	if err != nil {
+		return nil, err
+	}
+	body, _, err := s.logStore.Get(ctx, item.LogKey)
+	if err != nil {
+		return nil, err
+	}
+	gz, err := gzip.NewReader(body)
+	if err != nil {
+		_ = body.Close()
+		return nil, fmt.Errorf("open gzip run log: %w", err)
+	}
+	return &gzipReadCloser{Reader: gz, body: body}, nil
+}
+
+type gzipReadCloser struct {
+	Reader *gzip.Reader
+	body   io.Closer
+}
+
+func (g *gzipReadCloser) Read(p []byte) (int, error) {
+	return g.Reader.Read(p)
+}
+
+func (g *gzipReadCloser) Close() error {
+	readerErr := g.Reader.Close()
+	bodyErr := g.body.Close()
+	if readerErr != nil {
+		return readerErr
+	}
+	return bodyErr
 }

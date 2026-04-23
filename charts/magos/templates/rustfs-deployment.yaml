@@ -1,0 +1,75 @@
+{{- if .Values.rustfs.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+  labels:
+    {{- include "magos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rustfs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "magos.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: rustfs
+  template:
+    metadata:
+      labels:
+        {{- include "magos.labels" . | nindent 8 }}
+        app.kubernetes.io/component: rustfs
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: rustfs
+        image: "{{ .Values.rustfs.image.repository }}:{{ .Values.rustfs.image.tag }}"
+        imagePullPolicy: {{ .Values.rustfs.image.pullPolicy }}
+        args:
+        - /data
+        ports:
+        - name: s3
+          containerPort: {{ .Values.rustfs.service.port }}
+          protocol: TCP
+        - name: console
+          containerPort: {{ .Values.rustfs.service.consolePort }}
+          protocol: TCP
+        env:
+        - name: RUSTFS_ADDRESS
+          value: ":{{ .Values.rustfs.service.port }}"
+        - name: RUSTFS_CONSOLE_ADDRESS
+          value: ":{{ .Values.rustfs.service.consolePort }}"
+        - name: RUSTFS_CONSOLE_ENABLE
+          value: "true"
+        - name: RUSTFS_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+              key: accessKey
+        - name: RUSTFS_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+              key: secretKey
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+{{- end }}

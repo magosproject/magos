@@ -11,6 +11,8 @@ export type Condition = components["schemas"]["v1.Condition"];
 export type ObjectMeta = components["schemas"]["v1.ObjectMeta"];
 export type RolloutStep = components["schemas"]["v1alpha1.RolloutStep"];
 export type LabelSelector = components["schemas"]["v1.LabelSelector"];
+export type RunLogSummary = components["schemas"]["v1alpha1.RunLogSummary"];
+export type RunLogListResponse = components["schemas"]["service.RunLogListResponse"];
 
 export type ResourceObject = {
   metadata?: ObjectMeta;

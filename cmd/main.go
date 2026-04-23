@@ -17,12 +17,14 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/magosproject/magos/internal/logstore"
 	magosprojectiov1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -231,11 +233,18 @@ func main() {
 			setupLog.Error(err, "unable to create kubernetes clientset")
 			os.Exit(1)
 		}
+		logConfig := logstore.LoadConfigFromEnv()
+		runLogStore, err := logstore.NewStore(context.Background(), logConfig)
+		if err != nil {
+			setupLog.Error(err, "unable to create run log store")
+			os.Exit(1)
+		}
 		if err := (&workspacecontroller.WorkspaceReconciler{
 			Client:    mgr.GetClient(),
 			Scheme:    mgr.GetScheme(),
 			JobImage:  jobImage,
 			Clientset: clientset,
+			LogStore:  runLogStore,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Workspace")
 			os.Exit(1)
