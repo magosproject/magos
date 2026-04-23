@@ -14,12 +14,7 @@ export const PHASE = {
   Deleting: "Deleting",
 } as const satisfies Record<string, Phase>;
 
-export const RECONCILABLE_PHASES = new Set<Phase>([
-  PHASE.Applied,
-  PHASE.Failed,
-  PHASE.Idle,
-  PHASE.ValidationFailed,
-]);
+export const RECONCILABLE_PHASES = new Set<Phase>([PHASE.Applied, PHASE.Failed, PHASE.Idle]);
 
 export const SPINNING_PHASES = new Set<Phase>([
   PHASE.Reconciling,
