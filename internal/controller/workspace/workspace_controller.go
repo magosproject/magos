@@ -223,12 +223,12 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Always requeue on the periodic schedule so we periodically re-plan even
 	// when nothing in the cluster changes. This is how we detect
 	// infrastructure drift that happened outside of Magos.
+	nextReconcileTime, reconcileInterval, _ := computeNextReconcileTime(workspace, workspace.Status.NextReconcileTime)
 	if res.RequeueAfter == 0 {
-		next := computeNextScheduledReconcileTime(workspace.Status.NextReconcileTime, r.getSyncInterval(workspace))
-		res.RequeueAfter = time.Until(next.Time)
+		res.RequeueAfter = time.Until(nextReconcileTime.Time)
 	}
 
-	r.updateNextReconcileTime(ctx, workspace, res.RequeueAfter)
+	r.updateNextReconcileTime(ctx, workspace, res.RequeueAfter, reconcileInterval)
 
 	return res, nil
 }
@@ -274,40 +274,46 @@ func (r *WorkspaceReconciler) getSpecHash(ws *v1alpha1.Workspace) string {
 	return hex.EncodeToString(hash[:])[:8] // Short 8-character hash
 }
 
-// getSyncInterval returns the reconciliation interval for this Workspace. If
-// the user set the magosproject.io/reconcile-interval annotation to a valid Go
-// duration (e.g. "5m", "1h"), we use that. Otherwise we fall back to
-// DefaultReconciliationInterval (3 minutes). This interval controls how often
-// we re-plan for drift detection and how long we wait before retrying after a
-// failure.
-func (r *WorkspaceReconciler) getSyncInterval(ws *v1alpha1.Workspace) time.Duration {
+// computeNextReconcileTime is the single source of truth for the Workspace
+// reconcile interval and schedule cadence. It resolves the effective
+// interval from the magosproject.io/reconcile-interval annotation when
+// present and valid, or falls back to DefaultReconciliationInterval
+// otherwise. It also remaps a persisted NextReconcileTime onto the new
+// cadence when the configured interval changes, so annotation updates take
+// effect immediately instead of waiting for the previously scheduled time.
+func computeNextReconcileTime(ws *v1alpha1.Workspace, existing *metav1.Time) (metav1.Time, time.Duration, bool) {
+	interval := DefaultReconciliationInterval
 	if ws.Annotations != nil {
 		if val, ok := ws.Annotations[v1alpha1.WorkspaceReconcileIntervalAnnotation]; ok {
 			if d, err := time.ParseDuration(val); err == nil {
-				return d
+				interval = d
 			}
 		}
 	}
-	return DefaultReconciliationInterval
-}
-
-func computeNextScheduledReconcileTime(existing *metav1.Time, interval time.Duration) metav1.Time {
 	now := time.Now()
 
 	if existing == nil || existing.IsZero() {
-		return metav1.NewTime(now.Add(interval))
+		return metav1.NewTime(now.Add(interval)), interval, false
 	}
 
 	next := existing.Time
+
+	if ws.Status.ObservedReconcileInterval != "" && ws.Status.ObservedReconcileInterval != interval.String() {
+		previousInterval, err := time.ParseDuration(ws.Status.ObservedReconcileInterval)
+		if err == nil && previousInterval > 0 {
+			for next.After(now) {
+				next = next.Add(-previousInterval)
+			}
+			next = next.Add(interval)
+		}
+	}
+
+	due := !next.After(now)
 	for !next.After(now) {
 		next = next.Add(interval)
 	}
 
-	return metav1.NewTime(next)
-}
-
-func isScheduledReconcileDue(existing *metav1.Time) bool {
-	return existing != nil && !existing.IsZero() && !existing.After(time.Now())
+	return metav1.NewTime(next), interval, due
 }
 
 func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace *v1alpha1.Workspace) (ctrl.Result, error) {
@@ -403,8 +409,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// appear "not allowed" and we would never reach this reset path. That would
 	// leave the Workspace stuck in a terminal(?) phase with no way to clean up
 	// old Jobs or start a new cycle.
-	syncInterval := r.getSyncInterval(workspace)
-	nextScheduledReconcile := computeNextScheduledReconcileTime(workspace.Status.NextReconcileTime, syncInterval)
+	nextScheduledReconcile, _, scheduledReconcileDue := computeNextReconcileTime(workspace, workspace.Status.NextReconcileTime)
 	needsReset := false
 	resetReason := ""
 	resetMessage := ""
@@ -459,7 +464,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// exactly the remaining duration to avoid waking up on every reconcile loop
 	// in the meantime.
 	if !applyFinishedTime.IsZero() {
-		if isScheduledReconcileDue(workspace.Status.NextReconcileTime) {
+		if scheduledReconcileDue {
 			needsReset = true
 			if applySucceeded {
 				resetReason = "ScheduledReconcile"
@@ -483,7 +488,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			}
 		}
 		if !failedTime.IsZero() {
-			if isScheduledReconcileDue(workspace.Status.NextReconcileTime) {
+			if scheduledReconcileDue {
 				needsReset = true
 				resetReason = "RetryPlan"
 				resetMessage = "Retrying failed plan"
@@ -1314,7 +1319,7 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 
 // updateNextReconcileTime writes the expected next reconciliation time into the
 // Workspace status so that the UI can display when the next sync will happen.
-func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, workspace *v1alpha1.Workspace, requeueAfter time.Duration) {
+func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, workspace *v1alpha1.Workspace, requeueAfter time.Duration, interval time.Duration) {
 	next := metav1.NewTime(time.Now().Add(requeueAfter))
 
 	// Use a fresh context so this best-effort update isn't constrained by the
@@ -1328,7 +1333,16 @@ func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, works
 			return err
 		}
 
+		// We persist two related but different values together in status:
+		// - nextReconcileTime: the exact next scheduled wake-up time
+		// - observedReconcileInterval: the cadence that produced that time
+		//
+		// We need both. Without the stored interval, a later reconcile cannot
+		// tell whether an existing future nextReconcileTime was computed from
+		// the current interval or from an older one, so changing
+		// magosproject.io/reconcile-interval would not take effect immediately.
 		latest.Status.NextReconcileTime = &next
+		latest.Status.ObservedReconcileInterval = interval.String()
 		if err := r.Status().Update(updateCtx, latest); err != nil {
 			return err
 		}
