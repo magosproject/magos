@@ -12,10 +12,11 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { apiUrl } from "../api/base";
-import type { RunLogListResponse, RunLogSummary } from "../api/types";
+import type { Phase, RunLogListResponse, RunLogSummary } from "../api/types";
 import { formatDateTime } from "../utils/formatDateTime";
+import { flashColorVar } from "../utils/colors";
 import SectionTable from "./SectionTable";
 
 const pageSize = 5;
@@ -43,6 +44,8 @@ interface Props {
   namespace: string;
   workspaceName: string;
   initialLogs: RunLogListResponse;
+  phase?: Phase;
+  currentRunID?: string;
 }
 
 interface PageState {
@@ -51,7 +54,13 @@ interface PageState {
   cursor: string;
 }
 
-export default function WorkspaceApplyLogs({ namespace, workspaceName, initialLogs }: Props) {
+export default function WorkspaceApplyLogs({
+  namespace,
+  workspaceName,
+  initialLogs,
+  phase,
+  currentRunID,
+}: Props) {
   const [pages, setPages] = useState<PageState[]>([
     {
       items: initialLogs.items ?? [],
@@ -66,6 +75,11 @@ export default function WorkspaceApplyLogs({ namespace, workspaceName, initialLo
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [loadingPage, setLoadingPage] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [flashingIDs, setFlashingIDs] = useState<Set<string>>(new Set());
+  const previousPhaseRef = useRef<Phase | undefined>(phase);
+  const previousRunIDRef = useRef<string | undefined>(currentRunID);
+  const flashTimeoutRef = useRef<number | null>(null);
 
   const currentPage = pages[activePage - 1] ?? { items: [], nextCursor: "", cursor: "" };
   const hasNewer = activePage > 1;
@@ -86,7 +100,7 @@ export default function WorkspaceApplyLogs({ namespace, workspaceName, initialLo
       apiUrl(
         `/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs/${selected.runID}/log?phase=apply`
       ),
-      { signal: controller.signal }
+      { signal: controller.signal, cache: "no-store" }
     )
       .then(async (response) => {
         if (!response.ok) {
@@ -125,7 +139,8 @@ export default function WorkspaceApplyLogs({ namespace, workspaceName, initialLo
       const response = await fetch(
         apiUrl(
           `/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs?phase=apply&limit=${pageSize}&cursor=${encodeURIComponent(cursor)}`
-        )
+        ),
+        { cache: "no-store" }
       );
       if (!response.ok) {
         throw new Error(`Request failed with status ${response.status}`);
@@ -152,21 +167,86 @@ export default function WorkspaceApplyLogs({ namespace, workspaceName, initialLo
     setActivePage((page) => page - 1);
   }
 
-  function refreshToLatest() {
+  async function loadLatestPage() {
+    const response = await fetch(
+      apiUrl(
+        `/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs?phase=apply&limit=${pageSize}`
+      ),
+      { cache: "no-store" }
+    );
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}`);
+    }
+    return (await response.json()) as RunLogListResponse;
+  }
+
+  function applyLatestPage(logs: RunLogListResponse) {
+    const previousIDs = new Set(pages[0]?.items.map((item) => item.runID ?? "").filter(Boolean));
+    const newIDs = (logs.items ?? [])
+      .map((item) => item.runID ?? "")
+      .filter((id) => Boolean(id) && !previousIDs.has(id));
+
+    if (flashTimeoutRef.current != null) {
+      window.clearTimeout(flashTimeoutRef.current);
+      flashTimeoutRef.current = null;
+    }
+
     setPages([
       {
-        items: initialLogs.items ?? [],
-        nextCursor: initialLogs.nextCursor ?? "",
+        items: logs.items ?? [],
+        nextCursor: logs.nextCursor ?? "",
         cursor: "",
       },
     ]);
     setActivePage(1);
+
+    if (newIDs.length > 0) {
+      setFlashingIDs(new Set(newIDs));
+      flashTimeoutRef.current = window.setTimeout(() => {
+        setFlashingIDs(new Set());
+        flashTimeoutRef.current = null;
+      }, 1400);
+    }
   }
+
+  async function refreshToLatest() {
+    setRefreshing(true);
+    try {
+      applyLatestPage(await loadLatestPage());
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => {
+    const previousPhase = previousPhaseRef.current;
+    const previousRunID = previousRunIDRef.current;
+    const applyJustFinished =
+      previousPhase === "Applying" &&
+      phase !== "Applying" &&
+      (phase === "Applied" || phase === "Failed");
+    const completedRunChanged =
+      previousRunID !== undefined && previousRunID !== currentRunID && previousPhase === "Applying";
+
+    if (applyJustFinished || completedRunChanged) {
+      const timer = window.setTimeout(() => {
+        void refreshToLatest();
+      }, 1250);
+      previousPhaseRef.current = phase;
+      previousRunIDRef.current = currentRunID;
+      return () => window.clearTimeout(timer);
+    }
+
+    previousPhaseRef.current = phase;
+    previousRunIDRef.current = currentRunID;
+  }, [currentRunID, phase]);
 
   return (
     <>
       <SectionTable
-        title="Apply Logs"
+        title="Historical Apply Logs"
         columns={[
           { key: "time", label: "Time" },
           { key: "revision", label: "Revision" },
@@ -175,9 +255,14 @@ export default function WorkspaceApplyLogs({ namespace, workspaceName, initialLo
           { key: "size", label: "Size" },
         ]}
         rows={currentPage.items.map((item) => {
+          const isFlashing = flashingIDs.has(item.runID ?? "");
           return {
             id: item.runID ?? "",
             onClick: () => setSelected(item),
+            className: isFlashing ? "flash-highlight" : undefined,
+            style: isFlashing
+              ? ({ "--flash-color": flashColorVar("Applied") } as CSSProperties)
+              : undefined,
             cells: [
               <Text size="sm" key="time">
                 {formatDateTime(item.finishedAt ?? item.startedAt)}
@@ -204,14 +289,13 @@ export default function WorkspaceApplyLogs({ namespace, workspaceName, initialLo
           };
         })}
         emptyMessage="No archived apply logs yet."
-        action={{ label: "Refresh", onClick: refreshToLatest }}
       />
       <Group justify="flex-end">
         <Button
           size="xs"
           variant="default"
           onClick={showNewerPage}
-          disabled={!hasNewer || loadingPage}
+          disabled={!hasNewer || loadingPage || refreshing}
         >
           Newer
         </Button>
@@ -219,7 +303,7 @@ export default function WorkspaceApplyLogs({ namespace, workspaceName, initialLo
           size="xs"
           variant="default"
           onClick={showOlderPage}
-          disabled={!hasOlder || loadingPage}
+          disabled={!hasOlder || loadingPage || refreshing}
         >
           Older
         </Button>

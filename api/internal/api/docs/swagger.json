@@ -116,6 +116,29 @@
                 },
                 "type": "object"
             },
+            "service.RunLogStreamEvent": {
+                "properties": {
+                    "line": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "phase": {
+                        "$ref": "#/components/schemas/v1alpha1.RunPhase"
+                    },
+                    "podName": {
+                        "type": "string"
+                    },
+                    "runID": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.VariableSetEvent": {
                 "properties": {
                     "object": {
@@ -1538,6 +1561,74 @@
                     }
                 },
                 "summary": "List archived runs for a Workspace",
+                "tags": [
+                    "Workspace"
+                ]
+            }
+        },
+        "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/current/log/stream": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Run phase filter",
+                        "in": "query",
+                        "name": "phase",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/service.RunLogStreamEvent"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Stream live logs for the current Workspace run",
                 "tags": [
                     "Workspace"
                 ]

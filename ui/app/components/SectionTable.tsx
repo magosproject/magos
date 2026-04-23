@@ -1,6 +1,6 @@
 import { ActionIcon, Button, Group, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
 import { IconX } from "@tabler/icons-react";
-import { type ReactNode } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 
 interface Column {
   key: string;
@@ -12,6 +12,8 @@ interface Row {
   cells: ReactNode[];
   onClick?: () => void;
   onRemove?: () => void;
+  className?: string;
+  style?: CSSProperties;
 }
 
 interface Props {
@@ -64,7 +66,8 @@ export default function SectionTable({
               <Table.Tr
                 key={row.id}
                 onClick={row.onClick}
-                style={row.onClick ? { cursor: "pointer" } : undefined}
+                className={row.className}
+                style={row.onClick ? { cursor: "pointer", ...row.style } : row.style}
               >
                 {row.cells.map((cell, i) => (
                   <Table.Td key={i}>{cell}</Table.Td>

@@ -6,7 +6,7 @@ metadata:
   labels:
     env: dev
   annotations:
-    magosproject.io/reconcile-interval: "120s"
+    magosproject.io/reconcile-interval: "40s"
 spec:
   annotations:
     iam.gke.io/gcp-service-account: "test@test.iam.gserviceaccount.com"

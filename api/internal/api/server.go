@@ -17,6 +17,7 @@ import (
 	"github.com/magosproject/magos/api/internal/service"
 	"github.com/magosproject/magos/internal/logstore"
 
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -37,11 +38,11 @@ type Server struct {
 }
 
 // NewServer creates a new API server with the given Kubernetes client.
-func NewServer(logger *slog.Logger, vc versioned.Interface, logs logstore.Store) *Server {
+func NewServer(logger *slog.Logger, vc versioned.Interface, kube kubernetes.Interface, logs logstore.Store) *Server {
 	factory := externalversions.NewSharedInformerFactory(vc, 5*time.Minute)
 
 	projectSvc := service.NewProjectService(logger, factory)
-	workspaceSvc := service.NewWorkspaceService(logger, factory, vc, logs)
+	workspaceSvc := service.NewWorkspaceService(logger, factory, vc, kube, logs)
 	rolloutSvc := service.NewRolloutService(logger, factory)
 	variableSetSvc := service.NewVariableSetService(logger, factory)
 
@@ -78,13 +79,17 @@ func NewServerWithDefaults(logger *slog.Logger) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create versioned clientset: %w", err)
 	}
+	kube, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create kubernetes clientset: %w", err)
+	}
 
 	logs, err := logstore.NewStore(context.Background(), logstore.LoadConfigFromEnv())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log store: %w", err)
 	}
 
-	return NewServer(logger, vc, logs), nil
+	return NewServer(logger, vc, kube, logs), nil
 }
 
 // Router returns the HTTP handler with all routes configured.
@@ -118,6 +123,7 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}", s.workspaceHandler.Get)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs", s.workspaceHandler.ListRuns)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/log", s.workspaceHandler.GetRunLog)
+	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/current/log/stream", s.workspaceHandler.StreamCurrentRunLog)
 	mux.HandleFunc("POST /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile", s.workspaceHandler.RequestReconcile)
 
 	// Rollouts

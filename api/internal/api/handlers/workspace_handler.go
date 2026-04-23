@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -188,6 +189,38 @@ func (h *WorkspaceHandler) GetRunLog(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.Copy(w, body); err != nil {
 		h.logger.Error("failed to stream workspace run log", "error", err, "namespace", namespace, "name", name, "runID", runID)
 	}
+}
+
+// StreamCurrentRunLog godoc
+//
+//	@Summary	Stream live logs for the current Workspace run
+//	@Tags		Workspace
+//	@Produce	text/event-stream
+//	@Param		namespace	path		string	true	"Namespace"
+//	@Param		name		path		string	true	"Name"
+//	@Param		phase		query		string	false	"Run phase filter"
+//	@Success	200			{object}	service.RunLogStreamEvent
+//	@Failure	400			{object}	ErrorResponse
+//	@Failure	404			{object}	ErrorResponse
+//	@Router		/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/current/log/stream [get]
+func (h *WorkspaceHandler) StreamCurrentRunLog(w http.ResponseWriter, r *http.Request) {
+	namespace := r.PathValue("namespace")
+	name := r.PathValue("name")
+	if namespace == "" || name == "" {
+		writeError(w, http.StatusBadRequest, "namespace and name are required")
+		return
+	}
+
+	if _, err := h.service.Get(r.Context(), namespace, name); err != nil {
+		h.logger.Error("failed to get workspace for live log stream", "error", err, "namespace", namespace, "name", name)
+		writeError(w, http.StatusNotFound, "workspace not found")
+		return
+	}
+
+	phase := parseRunPhase(r.URL.Query().Get("phase"))
+	StreamSSE(w, r, func(ctx context.Context) <-chan service.RunLogStreamEvent {
+		return h.service.StreamCurrentRunLogs(ctx, namespace, name, phase)
+	})
 }
 
 func parseRunPhase(raw string) apiv1alpha1.RunPhase {

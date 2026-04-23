@@ -713,6 +713,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/current/log/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream live logs for the current Workspace run */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Run phase filter */
+                    phase?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Namespace */
+                    namespace: string;
+                    /** @description Name */
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": components["schemas"]["service.RunLogStreamEvent"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/log": {
         parameters: {
             query?: never;
@@ -899,6 +961,14 @@ export interface components {
         "service.RunLogListResponse": {
             items?: components["schemas"]["v1alpha1.RunLogSummary"][];
             nextCursor?: string;
+        };
+        "service.RunLogStreamEvent": {
+            line?: string;
+            message?: string;
+            phase?: components["schemas"]["v1alpha1.RunPhase"];
+            podName?: string;
+            runID?: string;
+            type?: string;
         };
         "service.VariableSetEvent": {
             object?: components["schemas"]["v1alpha1.VariableSet"];

@@ -1,4 +1,4 @@
-import { Button, Group, Stack, Text, Title } from "@mantine/core";
+import { Button, Group, Stack, Tabs, Text, Title } from "@mantine/core";
 import { IconRefresh } from "@tabler/icons-react";
 import { useMemo, useState, type CSSProperties } from "react";
 import { useLoaderData, useParams } from "react-router";
@@ -9,6 +9,7 @@ import ConditionsTable from "../components/ConditionsTable";
 import PolicyViolationsTable from "../components/PolicyViolationsTable";
 import ProjectLineageGraph from "../components/ProjectLineageGraph";
 import WorkspaceApplyLogs from "../components/WorkspaceApplyLogs";
+import WorkspaceLiveConsole from "../components/WorkspaceLiveConsole";
 import WorkspaceOverview from "../components/WorkspaceOverview";
 import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
@@ -117,53 +118,79 @@ export default function Workspace() {
         </Button>
       </Group>
 
-      {namespace && (
-        <WorkspaceOverview
-          namespace={namespace}
-          workspace={ws}
-          phaseLabel={phaseLabel}
-          projectName={projectName}
-          flash={flash}
-          flashStyle={flashStyle}
-        />
-      )}
+      <Tabs defaultValue="overview">
+        <Tabs.List>
+          <Tabs.Tab value="overview">Overview</Tabs.Tab>
+          <Tabs.Tab value="logs">Logs</Tabs.Tab>
+        </Tabs.List>
 
-      {ws.status?.message && (
-        <Text size="sm" c="dimmed" fs="italic">
-          {ws.status.message}
-        </Text>
-      )}
+        <Tabs.Panel value="overview" pt="md">
+          <Stack gap="lg">
+            {namespace && (
+              <WorkspaceOverview
+                namespace={namespace}
+                workspace={ws}
+                phaseLabel={phaseLabel}
+                projectName={projectName}
+                flash={flash}
+                flashStyle={flashStyle}
+              />
+            )}
 
-      {ws.status?.conditions && ws.status.conditions.length > 0 && (
-        <ConditionsTable conditions={ws.status.conditions} />
-      )}
+            {ws.status?.message && (
+              <Text size="sm" c="dimmed" fs="italic">
+                {ws.status.message}
+              </Text>
+            )}
 
-      {ws.status?.policyViolations && ws.status.policyViolations.length > 0 && (
-        <PolicyViolationsTable violations={ws.status.policyViolations} />
-      )}
+            {ws.status?.conditions && ws.status.conditions.length > 0 && (
+              <ConditionsTable conditions={ws.status.conditions} />
+            )}
 
-      {namespace && name && (
-        <WorkspaceApplyLogs
-          namespace={namespace}
-          workspaceName={name}
-          initialLogs={initial.applyLogs}
-        />
-      )}
+            {ws.status?.policyViolations && ws.status.policyViolations.length > 0 && (
+              <PolicyViolationsTable violations={ws.status.policyViolations} />
+            )}
 
-      {project && (
-        <Stack gap="xs">
-          <Title order={4}>Inheritance Lineage</Title>
-          <Text size="sm" c="dimmed">
-            Variable sets flow into the project and are inherited by this workspace.
-          </Text>
-          <ProjectLineageGraph
-            project={project}
-            variableSetRefs={variableSetRefs}
-            workspaces={[ws]}
-            flashIds={lineageFlashIds}
-          />
-        </Stack>
-      )}
+            {project && (
+              <Stack gap="xs">
+                <Title order={4}>Inheritance Lineage</Title>
+                <Text size="sm" c="dimmed">
+                  Variable sets flow into the project and are inherited by this workspace.
+                </Text>
+                <ProjectLineageGraph
+                  project={project}
+                  variableSetRefs={variableSetRefs}
+                  workspaces={[ws]}
+                  flashIds={lineageFlashIds}
+                />
+              </Stack>
+            )}
+          </Stack>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="logs" pt="md">
+          <Stack gap="lg">
+            {namespace && name && (
+              <WorkspaceLiveConsole
+                namespace={namespace}
+                workspaceName={name}
+                phase={phase}
+                currentRunID={ws.status?.currentRunID}
+              />
+            )}
+
+            {namespace && name && (
+              <WorkspaceApplyLogs
+                namespace={namespace}
+                workspaceName={name}
+                initialLogs={initial.applyLogs}
+                phase={phase}
+                currentRunID={ws.status?.currentRunID}
+              />
+            )}
+          </Stack>
+        </Tabs.Panel>
+      </Tabs>
     </Stack>
   );
 }
