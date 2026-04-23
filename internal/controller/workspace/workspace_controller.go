@@ -263,10 +263,6 @@ func (r *WorkspaceReconciler) handleDeletion(ctx context.Context, workspace *v1a
 // that a spec change naturally creates new Jobs while leaving old ones to be
 // cleaned up by Step 2. The approval annotation is deliberately excluded from
 // the hash so that approving a plan does not invalidate the existing Plan Job.
-//
-// Transient control annotations such as reconcile-request are also excluded.
-// They may trigger a fresh cycle, but they must not change job identity or a
-// one-shot trigger would create multiple full runs.
 func (r *WorkspaceReconciler) getSpecHash(ws *v1alpha1.Workspace) string {
 	data, _ := json.Marshal(ws.Spec)
 
@@ -833,7 +829,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// present and we fall back to spec.source.targetRevision (the branch or tag
 	// name).
 	//
-	// After recording the revision we remove the execution-allowed and
+	// After recording the revision we remove both the execution-allowed and
 	// detected-revision annotations to hand control back to the Rollout
 	// controller, completing this Workspace's turn in the rollout sequence. The
 	// next cycle will start when Step 3's reset evaluation fires after the sync
