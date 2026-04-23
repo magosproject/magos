@@ -37,13 +37,31 @@ export default function WorkspaceLiveConsole({
   const [loading, setLoading] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<string[]>([]);
-  const flushTimerRef = useRef<number | null>(null);
+  const revealTimerRef = useRef<number | null>(null);
   const currentPhase = streamPhase(phase);
   const isActive = Boolean(currentPhase && currentRunID);
   const streamKey = useMemo(
     () => `${currentRunID ?? ""}:${currentPhase}`,
     [currentPhase, currentRunID]
   );
+
+  function stopRevealTimer() {
+    if (revealTimerRef.current != null) {
+      window.clearInterval(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+  }
+
+  function flushPendingLines() {
+    if (pendingRef.current.length === 0) {
+      return;
+    }
+    const chunk = pendingRef.current.splice(0, 2).join("\n");
+    setContent((current) => `${current}${current && chunk ? "\n" : ""}${chunk}`);
+    if (pendingRef.current.length === 0) {
+      stopRevealTimer();
+    }
+  }
 
   useEffect(() => {
     setStatus(
@@ -131,13 +149,10 @@ export default function WorkspaceLiveConsole({
           break;
         case "line":
           pendingRef.current.push(payload.line ?? "");
-          if (flushTimerRef.current == null) {
-            flushTimerRef.current = window.setTimeout(() => {
-              flushTimerRef.current = null;
-              const chunk = pendingRef.current.join("\n");
-              pendingRef.current = [];
-              setContent((current) => `${current}${current && chunk ? "\n" : ""}${chunk}`);
-            }, 24);
+          if (revealTimerRef.current == null) {
+            revealTimerRef.current = window.setInterval(() => {
+              flushPendingLines();
+            }, 60);
           }
           setLoading(false);
           break;
@@ -159,14 +174,9 @@ export default function WorkspaceLiveConsole({
 
     return () => {
       source.close();
-      if (flushTimerRef.current != null) {
-        window.clearTimeout(flushTimerRef.current);
-        flushTimerRef.current = null;
-      }
-      if (pendingRef.current.length > 0) {
-        const chunk = pendingRef.current.join("\n");
-        pendingRef.current = [];
-        setContent((current) => `${current}${current && chunk ? "\n" : ""}${chunk}`);
+      stopRevealTimer();
+      while (pendingRef.current.length > 0) {
+        flushPendingLines();
       }
     };
   }, [currentPhase, isActive, namespace, streamKey, workspaceName]);
