@@ -40,7 +40,7 @@ func NewServer(logger *slog.Logger, vc versioned.Interface) *Server {
 	factory := externalversions.NewSharedInformerFactory(vc, 5*time.Minute)
 
 	projectSvc := service.NewProjectService(logger, factory)
-	workspaceSvc := service.NewWorkspaceService(logger, factory)
+	workspaceSvc := service.NewWorkspaceService(logger, factory, vc)
 	rolloutSvc := service.NewRolloutService(logger, factory)
 	variableSetSvc := service.NewVariableSetService(logger, factory)
 
@@ -110,6 +110,7 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces", s.workspaceHandler.List)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/events", s.workspaceHandler.Events)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}", s.workspaceHandler.Get)
+	mux.HandleFunc("POST /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile", s.workspaceHandler.RequestReconcile)
 
 	// Rollouts
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/rollouts", s.rolloutHandler.List)

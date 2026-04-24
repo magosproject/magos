@@ -1,0 +1,142 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: manual-reconcile-preserves-schedule
+spec:
+  description: |
+    A manual reconcile should start a fresh cycle without changing the
+    Workspace's existing drift-detection schedule. The test lets a plain
+    Workspace create its real plan Job, then patches that Job to Failed so the
+    controller naturally reaches a terminal Failed/PlanFailed state with
+    nextReconcileTime populated. It then requests a manual reconcile, patches
+    the replacement plan Job to Failed as well, and verifies
+    status.nextReconcileTime stayed unchanged across the fresh cycle.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: manual-reconcile-preserves-schedule-project
+          spec: {}
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: manual-reconcile-preserves-schedule-ws
+            annotations:
+              magosproject.io/execution-allowed: "true"
+              magosproject.io/reconcile-interval: "45m"
+          spec:
+            projectRef:
+              name: manual-reconcile-preserves-schedule-project
+            autoApply: true
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+              path: .
+            terraform:
+              version: "1.14.8"
+            serviceAccountName: magos-job
+    - assert:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            labels:
+              magosproject.io/workspace: manual-reconcile-preserves-schedule-ws
+              magosproject.io/job-type: plan
+    # Let the controller create the real plan Job, then patch that Job to a
+    # terminal failure so the test stays fast.
+    - script:
+        content: |
+          job_name=$(kubectl get jobs -n "$NAMESPACE" \
+            -l magosproject.io/workspace=manual-reconcile-preserves-schedule-ws,magosproject.io/job-type=plan \
+            -o jsonpath='{.items[0].metadata.name}')
+
+          if [ -z "$job_name" ]; then
+            echo "plan job not found"
+            exit 1
+          fi
+
+          kubectl patch job "$job_name" -n "$NAMESPACE" \
+            --subresource=status --type merge \
+            -p '{"status":{"active":0,"failed":1,"conditions":[{"type":"FailureTarget","status":"True","lastTransitionTime":"2026-04-22T00:00:00Z","reason":"BackoffLimitExceeded","message":"forced failure for chainsaw"},{"type":"Failed","status":"True","lastTransitionTime":"2026-04-22T00:00:00Z","reason":"BackoffLimitExceeded","message":"forced failure for chainsaw"}]}}'
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: manual-reconcile-preserves-schedule-ws
+            annotations:
+              magosproject.io/reconcile-interval: "45m"
+          status:
+            phase: Failed
+            reason: PlanFailed
+            (nextReconcileTime != null): true
+    - script:
+        # Stores the initial `nextReconcileTime` as an annotation for the final
+        # comparison, then sets `reconcile-request` to force a fresh cycle.
+        content: |
+          ws=manual-reconcile-preserves-schedule-ws
+          initial_next=$(kubectl get workspace "$ws" -n "$NAMESPACE" -o jsonpath='{.status.nextReconcileTime}')
+          if [ -z "$initial_next" ]; then
+            echo "initial nextReconcileTime is empty"
+            exit 1
+          fi
+
+          kubectl annotate workspace "$ws" -n "$NAMESPACE" --overwrite \
+            chainsaw.magosproject.io/initial-next="$initial_next" \
+            magosproject.io/reconcile-request="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    # Manual reconcile deletes the failed plan Job and starts a fresh plan
+    # cycle. Patch the replacement Job to Failed too so the test ends in the
+    # same terminal state it started from.
+    - script:
+        content: |
+          job_name=
+          for i in $(seq 1 20); do
+            current=$(kubectl get jobs -n "$NAMESPACE" \
+              -l magosproject.io/workspace=manual-reconcile-preserves-schedule-ws,magosproject.io/job-type=plan \
+              -o jsonpath='{.items[0].metadata.name}')
+
+            if [ -n "$current" ]; then
+              job_name="$current"
+              break
+            fi
+
+            sleep 0.2
+          done
+
+          if [ -z "$job_name" ]; then
+            echo "replacement plan job not found after manual reconcile request"
+            exit 1
+          fi
+
+          kubectl patch job "$job_name" -n "$NAMESPACE" \
+            --subresource=status --type merge \
+            -p '{"status":{"active":0,"failed":1,"conditions":[{"type":"FailureTarget","status":"True","lastTransitionTime":"2026-04-22T00:00:00Z","reason":"BackoffLimitExceeded","message":"forced failure for chainsaw"},{"type":"Failed","status":"True","lastTransitionTime":"2026-04-22T00:00:00Z","reason":"BackoffLimitExceeded","message":"forced failure for chainsaw"}]}}'
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: manual-reconcile-preserves-schedule-ws
+          status:
+            phase: Failed
+            reason: PlanFailed
+            (nextReconcileTime != null): true
+    # Assert that the manual reconcile didn't overwrite the `nextReconcileTime`
+    - script:
+        content: |
+          ws=manual-reconcile-preserves-schedule-ws
+          initial_next=$(kubectl get workspace "$ws" -n "$NAMESPACE" -o jsonpath='{.metadata.annotations.chainsaw\.magosproject\.io/initial-next}')
+          final_next=$(kubectl get workspace "$ws" -n "$NAMESPACE" -o jsonpath='{.status.nextReconcileTime}')
+
+          if [ "$initial_next" != "$final_next" ]; then
+            echo "nextReconcileTime changed across manual reconcile"
+            echo "initial: $initial_next"
+            echo "final:   $final_next"
+            exit 1
+          fi

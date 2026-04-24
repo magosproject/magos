@@ -220,14 +220,15 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	reconcileTotal.WithLabelValues(req.Namespace, req.Name, "success").Inc()
 
-	// Always requeue on the sync interval so we periodically re-plan even when
-	// nothing in the cluster changes. This is how we detect infrastructure
-	// drift that happened outside of Magos.
+	// Always requeue on the periodic schedule so we periodically re-plan even
+	// when nothing in the cluster changes. This is how we detect
+	// infrastructure drift that happened outside of Magos.
+	nextReconcileTime, reconcileInterval, _ := computeNextReconcileTime(workspace, workspace.Status.NextReconcileTime)
 	if res.RequeueAfter == 0 {
-		res.RequeueAfter = r.getSyncInterval(workspace)
+		res.RequeueAfter = time.Until(nextReconcileTime.Time)
 	}
 
-	r.updateNextReconcileTime(ctx, workspace, res.RequeueAfter)
+	r.updateNextReconcileTime(ctx, workspace, res.RequeueAfter, reconcileInterval)
 
 	return res, nil
 }
@@ -262,38 +263,65 @@ func (r *WorkspaceReconciler) handleDeletion(ctx context.Context, workspace *v1a
 // that a spec change naturally creates new Jobs while leaving old ones to be
 // cleaned up by Step 2. The approval annotation is deliberately excluded from
 // the hash so that approving a plan does not invalidate the existing Plan Job.
-//
-// We also fold the reconcile-request annotation into the hash so that setting
-// that annotation (a manual "re-run" trigger) forces a new plan/apply cycle
-// even when the spec itself hasn't changed.
 func (r *WorkspaceReconciler) getSpecHash(ws *v1alpha1.Workspace) string {
 	data, _ := json.Marshal(ws.Spec)
-
-	if ws.Annotations != nil {
-		if req, ok := ws.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation]; ok {
-			data = append(data, []byte(req)...)
-		}
-	}
 
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])[:8] // Short 8-character hash
 }
 
-// getSyncInterval returns the reconciliation interval for this Workspace. If
-// the user set the magosproject.io/reconcile-interval annotation to a valid Go
-// duration (e.g. "5m", "1h"), we use that. Otherwise we fall back to
-// DefaultReconciliationInterval (3 minutes). This interval controls how often
-// we re-plan for drift detection and how long we wait before retrying after a
-// failure.
-func (r *WorkspaceReconciler) getSyncInterval(ws *v1alpha1.Workspace) time.Duration {
+// computeNextReconcileTime is the single source of truth for the Workspace
+// reconcile interval and schedule cadence. It resolves the effective
+// interval from the magosproject.io/reconcile-interval annotation when
+// present and valid, or falls back to DefaultReconciliationInterval
+// otherwise. It also remaps a persisted NextReconcileTime onto the new
+// cadence when the configured interval changes, so annotation updates take
+// effect immediately instead of waiting for the previously scheduled time.
+func computeNextReconcileTime(ws *v1alpha1.Workspace, existing *metav1.Time) (metav1.Time, time.Duration, bool) {
+	interval := DefaultReconciliationInterval
 	if ws.Annotations != nil {
 		if val, ok := ws.Annotations[v1alpha1.WorkspaceReconcileIntervalAnnotation]; ok {
 			if d, err := time.ParseDuration(val); err == nil {
-				return d
+				interval = d
 			}
 		}
 	}
-	return DefaultReconciliationInterval
+	now := time.Now()
+
+	// this condition triggers on the first reconcile when there is
+	// no existing nextReconcileTime set yet
+	if existing == nil || existing.IsZero() {
+		return metav1.NewTime(now.Add(interval)), interval, false
+	}
+
+	next := existing.Time
+
+	// this condition triggers when the reconcileInterval annotation on
+	// the workspace was updated between reconciles for example when a user
+	// changes the annotation to lower the reconcile interval. this check
+	// ensures	the updated interval takes effect immediately instead of waiting
+	// for the previously scheduled time to elapse
+	if ws.Status.ObservedReconcileInterval != "" && ws.Status.ObservedReconcileInterval != interval.String() {
+		previousInterval, err := time.ParseDuration(ws.Status.ObservedReconcileInterval)
+		if err == nil && previousInterval > 0 {
+			for next.After(now) {
+				next = next.Add(-previousInterval)
+			}
+			next = next.Add(interval)
+		}
+	}
+
+	// this is the usual condition that triggers when the scheduled time arrives.
+	// we update the nextReconcileTime by adding the interval with the original
+	// nextReconcileTime as the base, so that we maintain a consistent cadence
+	// even if individual reconciles are delayed for some reason (e.g. cluster load,
+	// long terraform execution).
+	due := !next.After(now)
+	for !next.After(now) {
+		next = next.Add(interval)
+	}
+
+	return metav1.NewTime(next), interval, due
 }
 
 func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace *v1alpha1.Workspace) (ctrl.Result, error) {
@@ -389,7 +417,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// appear "not allowed" and we would never reach this reset path. That would
 	// leave the Workspace stuck in a terminal(?) phase with no way to clean up
 	// old Jobs or start a new cycle.
-	syncInterval := r.getSyncInterval(workspace)
+	nextScheduledReconcile, _, scheduledReconcileDue := computeNextReconcileTime(workspace, workspace.Status.NextReconcileTime)
 	needsReset := false
 	resetReason := ""
 	resetMessage := ""
@@ -444,8 +472,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// exactly the remaining duration to avoid waking up on every reconcile loop
 	// in the meantime.
 	if !applyFinishedTime.IsZero() {
-		elapsed := time.Since(applyFinishedTime)
-		if elapsed >= syncInterval {
+		if scheduledReconcileDue {
 			needsReset = true
 			if applySucceeded {
 				resetReason = "ScheduledReconcile"
@@ -455,7 +482,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 				resetMessage = "Retrying failed apply starting from new plan"
 			}
 		} else {
-			exactRequeue = syncInterval - elapsed
+			exactRequeue = time.Until(nextScheduledReconcile.Time)
 		}
 	} else if planJobGetErr == nil && planJob.Status.Failed > 0 {
 		// We never got to Apply because the Plan itself failed. We use the same
@@ -469,13 +496,12 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			}
 		}
 		if !failedTime.IsZero() {
-			elapsed := time.Since(failedTime)
-			if elapsed >= syncInterval {
+			if scheduledReconcileDue {
 				needsReset = true
 				resetReason = "RetryPlan"
 				resetMessage = "Retrying failed plan"
 			} else {
-				exactRequeue = syncInterval - elapsed
+				exactRequeue = time.Until(nextScheduledReconcile.Time)
 			}
 		}
 	}
@@ -504,6 +530,19 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			needsReset = true
 			resetReason = "NewRevisionDetected"
 			resetMessage = fmt.Sprintf("RefWatcher detected new revision %s", detected)
+		}
+	}
+
+	// Manual reconcile requests behave similarly, but unlike
+	// detected-revision they do not carry data that must survive the cycle.
+	// The same phase guard ensures the request triggers exactly one fresh
+	// plan/apply cycle and does not keep resetting an in-progress run.
+	if !needsReset && workspace.Annotations != nil &&
+		(workspace.Status.Phase == "" || workspace.Status.Phase == v1alpha1.PhaseApplied || workspace.Status.Phase == v1alpha1.PhaseFailed) {
+		if req := workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation]; req != "" {
+			needsReset = true
+			resetReason = "ManualReconcileRequested"
+			resetMessage = fmt.Sprintf("Manual reconcile requested at %s", req)
 		}
 	}
 
@@ -652,12 +691,26 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		// Workspace is done with its turn, even though it failed. Without this
 		// the Rollout would keep waiting for us and never advance to the next
 		// Workspace in the sequence.
-		if workspace.Annotations != nil && workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
+		//
+		// If this run was triggered by a manual reconcile request, consume that
+		// annotation too so the Project or Rollout controller does not
+		// immediately grant execution again and bypass Step 3's retry cooldown.
+		if workspace.Annotations != nil {
 			patch := client.MergeFrom(workspace.DeepCopy())
-			delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
-			if err := r.Patch(ctx, workspace, patch); err != nil {
-				logger.Error(err, "Failed to consume execution annotations via Patch on plan failure")
-				return ctrl.Result{}, err
+			changed := false
+			if workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
+				changed = true
+			}
+			if workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceReconcileRequestAnnotation)
+				changed = true
+			}
+			if changed {
+				if err := r.Patch(ctx, workspace, patch); err != nil {
+					logger.Error(err, "Failed to consume execution annotations via Patch on plan failure")
+					return ctrl.Result{}, err
+				}
 			}
 		}
 
@@ -738,12 +791,26 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 
 		// Same as the plan failure path in Step 6: release the execution lock
 		// so the Rollout controller can continue with the next Workspace.
-		if workspace.Annotations != nil && workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
+		//
+		// If this run was triggered by a manual reconcile request, consume that
+		// annotation too so retries follow the sync interval backoff rather than
+		// re-triggering immediately.
+		if workspace.Annotations != nil {
 			patch := client.MergeFrom(workspace.DeepCopy())
-			delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
-			if err := r.Patch(ctx, workspace, patch); err != nil {
-				logger.Error(err, "Failed to consume execution annotations via Patch on failure")
-				return ctrl.Result{}, err
+			changed := false
+			if workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
+				changed = true
+			}
+			if workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceReconcileRequestAnnotation)
+				changed = true
+			}
+			if changed {
+				if err := r.Patch(ctx, workspace, patch); err != nil {
+					logger.Error(err, "Failed to consume execution annotations via Patch on failure")
+					return ctrl.Result{}, err
+				}
 			}
 		}
 
@@ -779,6 +846,10 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// controller, completing this Workspace's turn in the rollout sequence. The
 	// next cycle will start when Step 3's reset evaluation fires after the sync
 	// interval, or when the RefWatcher detects another new commit.
+	//
+	// If this run was triggered by a manual reconcile request, we consume that
+	// annotation here as well. It is a one-shot trigger for exactly one fresh
+	// plan/apply cycle, not a durable desired-state flag.
 	logger.Info("Apply Job completed successfully", "job", applyJobName)
 
 	// Record apply job duration if both start and completion times are
@@ -803,14 +874,16 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	}
 	r.updateStatus(ctx, workspace, v1alpha1.PhaseApplied, "ApplySucceeded", "Terraform Apply completed successfully", metav1.ConditionTrue)
 
-	// Remove the execution-allowed and detected-revision annotations now that
-	// the cycle is complete. We use Patch rather than Update because the status
-	// update above may have bumped the resourceVersion, and a full Update would
-	// conflict. Deleting execution-allowed tells the Rollout controller that
-	// this Workspace is done with its turn. Deleting detected-revision tells
-	// both the Rollout controller (via workspaceFullyApplied) and Step 3 (via
-	// the phase guarded reset check) that the new commit has been fully
-	// processed.
+	// Remove the execution-allowed, detected-revision, and any manual
+	// reconcile-request annotations now that the cycle is complete. We use
+	// Patch rather than Update because the status update above may have bumped
+	// the resourceVersion, and a full Update would conflict. Deleting
+	// execution-allowed tells the Rollout controller that this Workspace is
+	// done with its turn. Deleting detected-revision tells both the Rollout
+	// controller (via workspaceFullyApplied) and Step 3 (via the phase guarded
+	// reset check) that the new commit has been fully processed. Deleting
+	// reconcile-request consumes a one-shot manual trigger so it does not
+	// immediately start another cycle.
 	{
 		patch := client.MergeFrom(workspace.DeepCopy())
 		changed := false
@@ -821,6 +894,10 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			}
 			if workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation] != "" {
 				delete(workspace.Annotations, v1alpha1.WorkspaceDetectedRevisionAnnotation)
+				changed = true
+			}
+			if workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
+				delete(workspace.Annotations, v1alpha1.WorkspaceReconcileRequestAnnotation)
 				changed = true
 			}
 		}
@@ -1242,7 +1319,6 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 		workspace.ResourceVersion = latest.ResourceVersion
 		return nil
 	})
-
 	if err != nil {
 		log.FromContext(ctx).Error(err, "Failed to update workspace status")
 	}
@@ -1250,7 +1326,7 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 
 // updateNextReconcileTime writes the expected next reconciliation time into the
 // Workspace status so that the UI can display when the next sync will happen.
-func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, workspace *v1alpha1.Workspace, requeueAfter time.Duration) {
+func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, workspace *v1alpha1.Workspace, requeueAfter time.Duration, interval time.Duration) {
 	next := metav1.NewTime(time.Now().Add(requeueAfter))
 
 	// Use a fresh context so this best-effort update isn't constrained by the
@@ -1264,7 +1340,16 @@ func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, works
 			return err
 		}
 
+		// We persist two related but different values together in status:
+		// - nextReconcileTime: the exact next scheduled wake-up time
+		// - observedReconcileInterval: the cadence that produced that time
+		//
+		// We need both. Without the stored interval, a later reconcile cannot
+		// tell whether an existing future nextReconcileTime was computed from
+		// the current interval or from an older one, so changing
+		// magosproject.io/reconcile-interval would not take effect immediately.
 		latest.Status.NextReconcileTime = &next
+		latest.Status.ObservedReconcileInterval = interval.String()
 		if err := r.Status().Update(updateCtx, latest); err != nil {
 			return err
 		}
@@ -1273,7 +1358,6 @@ func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, works
 		workspace.ResourceVersion = latest.ResourceVersion
 		return nil
 	})
-
 	if err != nil {
 		log.FromContext(ctx).Error(err, "Failed to update next reconcile time")
 	}

@@ -8,6 +8,7 @@ import {
   Tabs,
   Text,
   Title,
+  Tooltip,
 } from "@mantine/core";
 import { Link, useLoaderData, useParams } from "react-router";
 import type { CSSProperties } from "react";
@@ -90,9 +91,13 @@ export default function Project() {
             </Text>
           )}
         </Stack>
-        <Button leftSection={<IconRefresh size={16} />} variant="default" size="sm">
-          Reconcile
-        </Button>
+        <Tooltip label="Only workspace reconcile is supported right now">
+          <span>
+            <Button leftSection={<IconRefresh size={16} />} variant="default" size="sm" disabled>
+              Reconcile
+            </Button>
+          </span>
+        </Tooltip>
       </Group>
 
       <Tabs defaultValue="overview">

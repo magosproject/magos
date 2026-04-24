@@ -579,6 +579,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request Workspace reconcile */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Namespace */
+                    namespace: string;
+                    /** @description Name */
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.Workspace"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -1416,6 +1484,17 @@ export interface components {
              *     +optional
              */
             nextReconcileTime?: string;
+            /**
+             * @description ObservedReconcileInterval is the effective reconcile interval that the
+             *     controller last used when it wrote NextReconcileTime.
+             *
+             *     This is controller bookkeeping, not user intent. It lets the controller
+             *     detect when magosproject.io/reconcile-interval changed after a future
+             *     NextReconcileTime was already persisted, so users do not have to wait for
+             *     one extra stale schedule iteration before a new interval is honored.
+             *     +optional
+             */
+            observedReconcileInterval?: string;
             /**
              * @description ObservedRevision is the git revision that was most recently observed/applied.
              *     When the RefWatcher detects a new commit, this is the full commit SHA.
