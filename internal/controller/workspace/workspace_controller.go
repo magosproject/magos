@@ -288,12 +288,19 @@ func computeNextReconcileTime(ws *v1alpha1.Workspace, existing *metav1.Time) (me
 	}
 	now := time.Now()
 
+	// this condition triggers on the first reconcile when there is
+	// no existing nextReconcileTime set yet
 	if existing == nil || existing.IsZero() {
 		return metav1.NewTime(now.Add(interval)), interval, false
 	}
 
 	next := existing.Time
 
+	// this condition triggers when the reconcileInterval annotation on
+	// the workspace was updated between reconciles for example when a user
+	// changes the annotation to lower the reconcile interval. this check
+	// ensures	the updated interval takes effect immediately instead of waiting
+	// for the previously scheduled time to elapse
 	if ws.Status.ObservedReconcileInterval != "" && ws.Status.ObservedReconcileInterval != interval.String() {
 		previousInterval, err := time.ParseDuration(ws.Status.ObservedReconcileInterval)
 		if err == nil && previousInterval > 0 {
@@ -304,6 +311,11 @@ func computeNextReconcileTime(ws *v1alpha1.Workspace, existing *metav1.Time) (me
 		}
 	}
 
+	// this is the usual condition that triggers when the scheduled time arrives.
+	// we update the nextReconcileTime by adding the interval with the original
+	// nextReconcileTime as the base, so that we maintain a consistent cadence
+	// even if individual reconciles are delayed for some reason (e.g. cluster load,
+	// long terraform execution).
 	due := !next.After(now)
 	for !next.After(now) {
 		next = next.Add(interval)
@@ -1307,7 +1319,6 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 		workspace.ResourceVersion = latest.ResourceVersion
 		return nil
 	})
-
 	if err != nil {
 		log.FromContext(ctx).Error(err, "Failed to update workspace status")
 	}
@@ -1347,7 +1358,6 @@ func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, works
 		workspace.ResourceVersion = latest.ResourceVersion
 		return nil
 	})
-
 	if err != nil {
 		log.FromContext(ctx).Error(err, "Failed to update next reconcile time")
 	}
