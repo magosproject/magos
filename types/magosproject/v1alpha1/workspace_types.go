@@ -182,6 +182,16 @@ type WorkspaceStatus struct {
 	// +optional
 	NextReconcileTime *metav1.Time `json:"nextReconcileTime,omitempty"`
 
+	// ObservedReconcileInterval is the effective reconcile interval that the
+	// controller last used when it wrote NextReconcileTime.
+	//
+	// This is controller bookkeeping, not user intent. It lets the controller
+	// detect when magosproject.io/reconcile-interval changed after a future
+	// NextReconcileTime was already persisted, so users do not have to wait for
+	// one extra stale schedule iteration before a new interval is honored.
+	// +optional
+	ObservedReconcileInterval string `json:"observedReconcileInterval,omitempty"`
+
 	// PolicyViolations records violations from the most recent policy validation
 	// run. Populated when the plan job evaluates ValidatingPolicy resources and
 	// one or more rules fail. Cleared at the start of each new plan cycle.

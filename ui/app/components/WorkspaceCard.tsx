@@ -5,25 +5,11 @@ import { resourceId, resourceName, resourceNamespace } from "../api/resource";
 import type { Workspace } from "../api/types";
 import type { ColumnDef } from "./ResourceList";
 import ResourceCard from "./ResourceCard";
-import StatusBadge, { spinningStatuses } from "./StatusBadge";
-import { statusColor, flashColorVar } from "../utils/colors";
+import StatusBadge from "./StatusBadge";
+import { flashColorVar, statusColorFor } from "../utils/colors";
+import { isPhase, SPINNING_PHASES } from "../utils/phases";
+import { commitUrl, revisionUrl } from "../utils/repoUrls";
 import { repoIcon } from "../utils/repoIcon";
-
-function commitURL(repoURL: string, sha: string): string {
-  const base = repoURL.replace(/\.git$/, "");
-  if (base.includes("gitlab")) return `${base}/-/commit/${sha}`;
-  if (base.includes("bitbucket")) return `${base}/commits/${sha}`;
-  return `${base}/commit/${sha}`;
-}
-
-function revisionURL(repoURL: string, revision: string): string | undefined {
-  if (!repoURL || !revision) return undefined;
-  const base = repoURL.replace(/\.git$/, "");
-  if (base.includes("github.com") || base.includes("gitlab.com") || base.includes("gitlab."))
-    return `${base}/tree/${revision}`;
-  if (base.includes("bitbucket.org")) return `${base}/src/${revision}`;
-  return undefined;
-}
 
 export type WorkspaceItem = Workspace & { id: string };
 
@@ -52,6 +38,7 @@ export default function WorkspaceCard({ workspace, borderAll, flash }: Workspace
   const appliedRef = isSHA ? observedRevision.slice(0, 7) : observedRevision;
   const syncInterval =
     workspace.metadata?.annotations?.["magosproject.io/reconcile-interval"] ?? "3m";
+  const badgeColor = statusColorFor(phase);
 
   const meta = [
     {
@@ -69,8 +56,8 @@ export default function WorkspaceCard({ workspace, borderAll, flash }: Workspace
       label: appliedRef || "—",
       href: appliedRef
         ? isSHA
-          ? commitURL(wsRepoURL, observedRevision)
-          : revisionURL(wsRepoURL, observedRevision)
+          ? commitUrl(wsRepoURL, observedRevision) ?? undefined
+          : revisionUrl(wsRepoURL, observedRevision) ?? undefined
         : undefined,
     },
     { icon: <IconFolder size={16} color="gray" />, label: wsPath },
@@ -81,10 +68,10 @@ export default function WorkspaceCard({ workspace, borderAll, flash }: Workspace
     <ResourceCard
       to={`/workspaces/${ns}/${name}`}
       title={name}
-      statusColor={statusColor[phase] ?? "gray"}
+      statusColor={badgeColor}
       badges={
         phase
-          ? [{ label: phase, color: statusColor[phase] ?? "gray", spinning: spinningStatuses.has(phase) }]
+          ? [{ label: phase, color: badgeColor, spinning: isPhase(phase) && SPINNING_PHASES.has(phase) }]
           : []
       }
       meta={meta}
@@ -144,4 +131,3 @@ export const workspaceColumns: ColumnDef<WorkspaceItem>[] = [
     ),
   },
 ];
-

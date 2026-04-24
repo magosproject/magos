@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/magosproject/magos/api/internal/service"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 // WorkspaceHandler handles HTTP requests for Workspace resources.
@@ -60,6 +61,39 @@ func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("failed to get workspace", "error", err, "namespace", namespace, "name", name)
 		writeError(w, http.StatusNotFound, "workspace not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, workspace)
+}
+
+// RequestReconcile godoc
+//
+//	@Summary	Request Workspace reconcile
+//	@Tags		Workspace
+//	@Param		namespace	path		string	true	"Namespace"
+//	@Param		name		path		string	true	"Name"
+//	@Success	200			{object}	Workspace
+//	@Failure	400			{object}	ErrorResponse
+//	@Failure	404			{object}	ErrorResponse
+//	@Failure	500			{object}	ErrorResponse
+//	@Router		/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile [post]
+func (h *WorkspaceHandler) RequestReconcile(w http.ResponseWriter, r *http.Request) {
+	namespace := r.PathValue("namespace")
+	name := r.PathValue("name")
+	if namespace == "" || name == "" {
+		writeError(w, http.StatusBadRequest, "namespace and name are required")
+		return
+	}
+
+	workspace, err := h.service.RequestReconcile(r.Context(), namespace, name)
+	if err != nil {
+		h.logger.Error("failed to request workspace reconcile", "error", err, "namespace", namespace, "name", name)
+		if apierrors.IsNotFound(err) {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to request workspace reconcile")
 		return
 	}
 

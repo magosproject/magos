@@ -9,7 +9,9 @@ spec:
     minute default: a mostly static prod environment might set it to
     1h to ease API pressure, while a fast moving dev Workspace might
     stay at 30s. This test exercises the whole path: the annotation
-    is parsed by getSyncInterval, used as the RequeueAfter, and then
+    is parsed by computeNextReconcileTime as the single source of
+    truth for the effective reconcile interval, used in the scheduling
+    decision, and then
     surfaced back into status.nextReconcileTime by
     updateNextReconcileTime. We deliberately do not assert a specific
     timestamp value because clock skew in CI makes that brittle, but

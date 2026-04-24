@@ -3,7 +3,7 @@ import { type Edge, type Node, MarkerType } from "@xyflow/react";
 import { useMantineTheme } from "@mantine/core";
 import { resourceId, resourceName, resourceNamespace } from "../api/resource";
 import type { Project, Workspace } from "../api/types";
-import { statusColor } from "../utils/colors";
+import { statusColorFor } from "../utils/colors";
 import { spinningStatuses } from "./StatusBadge";
 import ResourceCard from "./ResourceCard";
 import WorkspaceCard from "./WorkspaceCard";
@@ -55,11 +55,11 @@ export default function ProjectLineageGraph({
             title={projectName}
             badges={
               projectPhase
-                ? [{ label: projectPhase, color: statusColor[projectPhase] ?? "gray", spinning: spinningStatuses.has(projectPhase) }]
+                ? [{ label: projectPhase, color: statusColorFor(projectPhase), spinning: spinningStatuses.has(projectPhase) }]
                 : []
             }
             meta={[]}
-            statusColor={statusColor[projectPhase] ?? "gray"}
+            statusColor={statusColorFor(projectPhase)}
             borderAll
           />
         ),
@@ -130,7 +130,7 @@ export default function ProjectLineageGraph({
       const wsNs = resourceNamespace(ws);
       const wsName = resourceName(ws);
       const phase = ws.status?.phase ?? "";
-      const color = statusColor[phase] ?? "gray";
+      const color = statusColorFor(phase);
       const resolvedColor = theme.colors[color]?.[6] ?? theme.colors.gray[6];
 
       result.push({

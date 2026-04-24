@@ -7,10 +7,16 @@ import PageTagline from "../components/PageTagline";
 import ResourceList, { type ColumnDef } from "../components/ResourceList";
 import StatusBadge from "../components/StatusBadge";
 import { apiUrl } from "../api/base";
-import { statusColor, flashColorVar } from "../utils/colors";
+import { flashColorVar, statusColorFor } from "../utils/colors";
 import apiClient from "../api/client";
-import type { Rollout, RolloutStep } from "../api/types";
+import type { Phase, Rollout, RolloutStep } from "../api/types";
 import { useSSEList } from "../hooks/useSSEList";
+import {
+  completedRolloutSteps,
+  isRolloutStepActive,
+  isRolloutStepComplete,
+  isRolloutStepFailed,
+} from "../utils/rollouts";
 
 export function meta() {
   return [{ title: "Rollouts – magos" }];
@@ -20,7 +26,7 @@ type RolloutRow = {
   id: string;
   name: string;
   namespace: string;
-  phase: string;
+  phase: Phase | "";
   projectRef: string;
   currentStep: number;
   totalSteps: number;
@@ -49,18 +55,18 @@ function StepPipeline({ rollout }: { rollout: RolloutRow }) {
   return (
     <Group gap={0} wrap="nowrap" align="center">
       {rollout.steps.map((step, i) => {
-        const isComplete = i < rollout.currentStep || rollout.phase === "Applied";
-        const isActive = rollout.phase === "Reconciling" && i === rollout.currentStep;
-        const isFailed = rollout.phase === "Failed" && i === rollout.currentStep;
+        const isComplete = isRolloutStepComplete(i, rollout.currentStep, rollout.phase);
+        const isActive = isRolloutStepActive(i, rollout.currentStep, rollout.phase);
+        const isFailed = isRolloutStepFailed(i, rollout.currentStep, rollout.phase);
         const stepName = step.name ?? `Step ${i + 1}`;
 
         let color = "var(--mantine-color-gray-5)";
         if (isComplete) color = "var(--mantine-color-green-6)";
-        if (isActive) color = `var(--mantine-color-${statusColor[rollout.phase]}-6)`;
+        if (isActive) color = `var(--mantine-color-${statusColorFor(rollout.phase)}-6)`;
         if (isFailed) color = "var(--mantine-color-red-6)";
 
         const connectorColor =
-          i > 0 && (i <= rollout.currentStep || rollout.phase === "Applied")
+          i > 0 && isRolloutStepComplete(i, rollout.currentStep, rollout.phase)
             ? "var(--mantine-color-green-6)"
             : "var(--mantine-color-gray-5)";
 
@@ -119,7 +125,7 @@ const columns: ColumnDef<RolloutRow>[] = [
       <Group gap="sm" align="center" wrap="nowrap">
         <StepPipeline rollout={ro} />
         <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
-          {ro.phase === "Applied" ? ro.totalSteps : ro.currentStep}/{ro.totalSteps}
+          {completedRolloutSteps(ro.totalSteps, ro.currentStep, ro.phase)}/{ro.totalSteps}
         </Text>
       </Group>
     ),

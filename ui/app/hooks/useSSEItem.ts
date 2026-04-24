@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { WatchEvent } from "../api/types";
+import { EVENT_TYPE } from "../utils/events";
+import { useSSEStream } from "./useSSEStream";
 
 export function useSSEItem<T>(
   url: string,
@@ -12,36 +13,31 @@ export function useSSEItem<T>(
   const fetchItemRef = useRef(fetchItem);
 
   useEffect(() => {
+    setItem(initial);
+  }, [initial]);
+
+  useEffect(() => {
     matchRef.current = match;
     fetchItemRef.current = fetchItem;
   });
 
-  useEffect(() => {
-    const source = new EventSource(url);
-    let opened = false;
-
-    source.onopen = () => {
-      if (opened && fetchItemRef.current) {
+  useSSEStream<T>(url, {
+    onReconnect: () => {
+      if (fetchItemRef.current) {
         fetchItemRef.current().then(setItem).catch(() => {});
       }
-      opened = true;
-    };
-
-    source.onmessage = (ev: MessageEvent<string>) => {
-      const event: WatchEvent<T> = JSON.parse(ev.data);
-      if (!event.type || !event.object) return;
-      if (event.type === "BOOKMARK") return;
-
-      if (matchRef.current(event.object)) {
-        if (event.type === "ADDED" || event.type === "MODIFIED" || event.type === "ERROR") {
-          setItem(event.object);
-        }
+    },
+    onEvent: (event) => {
+      if (!matchRef.current(event.object)) return;
+      if (
+        event.type === EVENT_TYPE.Added ||
+        event.type === EVENT_TYPE.Modified ||
+        event.type === EVENT_TYPE.Error
+      ) {
+        setItem(event.object);
       }
-    };
-
-    return () => source.close();
-  }, [url]);
+    },
+  });
 
   return item;
 }
-

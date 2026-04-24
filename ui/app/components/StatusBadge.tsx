@@ -1,13 +1,9 @@
 import { Badge, Group } from "@mantine/core";
 import { IconRefresh } from "@tabler/icons-react";
-import { statusColor } from "../utils/colors";
+import { statusColorFor } from "../utils/colors";
+import { isPhase, SPINNING_PHASES } from "../utils/phases";
 
-export const spinningStatuses = new Set<string>([
-  "Reconciling",
-  "Planning",
-  "Applying",
-  "Deleting",
-]);
+export const spinningStatuses = SPINNING_PHASES;
 
 interface Props {
   status: string;
@@ -15,14 +11,17 @@ interface Props {
 }
 
 export default function StatusBadge({ status, size = "sm" }: Props) {
+  const color = statusColorFor(status);
+  const spinning = isPhase(status) && SPINNING_PHASES.has(status);
+
   return (
     <Badge
-      color={statusColor[status]}
+      color={color}
       variant="light"
       size={size}
     >
       <Group gap={4} wrap="nowrap" align="center">
-        {spinningStatuses.has(status) && (
+        {spinning && (
           <span className="spin">
             <IconRefresh size={10} />
           </span>

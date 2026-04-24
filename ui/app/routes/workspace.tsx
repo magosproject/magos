@@ -1,31 +1,27 @@
 import {
-  Anchor,
-  Badge,
   Button,
   Group,
-  SimpleGrid,
   Stack,
   Text,
   Title,
 } from "@mantine/core";
-import { IconFolder, IconGitBranch, IconRefresh } from "@tabler/icons-react";
-import { useMemo, type CSSProperties } from "react";
-import { Link, useLoaderData, useParams } from "react-router";
+import { IconRefresh } from "@tabler/icons-react";
+import { useMemo, useState, type CSSProperties } from "react";
+import { useLoaderData, useParams } from "react-router";
 import { resourceId } from "../api/resource";
 import Breadcrumbs from "../components/Breadcrumbs";
-import InfoCard from "../components/InfoCard";
-import StatusBadge from "../components/StatusBadge";
 import KubeBadge from "../components/KubeBadge";
 import ConditionsTable from "../components/ConditionsTable";
 import PolicyViolationsTable from "../components/PolicyViolationsTable";
 import ProjectLineageGraph from "../components/ProjectLineageGraph";
-import { repoIcon } from "../utils/repoIcon";
+import WorkspaceOverview from "../components/WorkspaceOverview";
 import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
-import type { Project, Workspace as WorkspaceType } from "../api/types";
+import type { Phase, Project, Workspace as WorkspaceType } from "../api/types";
 import { useSSEItem } from "../hooks/useSSEItem";
 import { useFlashOnChange } from "../hooks/useFlashOnChange";
 import { flashColorVar } from "../utils/colors";
+import { RECONCILABLE_PHASES } from "../utils/phases";
 
 export function meta({ params }: { params: { namespace: string; name: string } }) {
   return [{ title: `${params.name} – magos` }];
@@ -55,35 +51,10 @@ export async function clientLoader({
   return { workspace: ws, project };
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
-}
-
-function revisionUrl(repoURL: string, revision: string): string | null {
-  if (!repoURL || !revision) return null;
-  const base = repoURL.replace(/\.git$/, "");
-  if (base.includes("github.com") || base.includes("gitlab.com") || base.includes("gitlab."))
-    return `${base}/tree/${revision}`;
-  if (base.includes("bitbucket.org")) return `${base}/src/${revision}`;
-  return null;
-}
-
-function commitUrl(repoURL: string, sha: string): string | null {
-  if (!repoURL || !sha) return null;
-  const base = repoURL.replace(/\.git$/, "");
-  if (base.includes("gitlab")) return `${base}/-/commit/${sha}`;
-  if (base.includes("bitbucket")) return `${base}/commits/${sha}`;
-  return `${base}/commit/${sha}`;
-}
-
-function terraformReleaseUrl(version: string): string | null {
-  if (!version) return null;
-  return `https://releases.hashicorp.com/terraform/${version}`;
-}
-
 export default function Workspace() {
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const initial = useLoaderData<typeof clientLoader>();
+  const [isSubmittingReconcile, setIsSubmittingReconcile] = useState(false);
   const ws = useSSEItem<WorkspaceType>(
     apiUrl("/apis/magosproject.io/v1alpha1/workspaces/events"),
     initial.workspace,
@@ -93,16 +64,28 @@ export default function Workspace() {
   const project = initial.project;
   const variableSetRefs = (project?.spec?.variableSetRef ?? []).map((ref) => ref.name ?? "");
 
-  const repoURL = ws.spec?.source?.repoURL ?? "";
-  const revision = ws.spec?.source?.targetRevision ?? "";
-  const tfVersion = ws.spec?.terraform?.version ?? "";
-  const observedRevision = ws.status?.observedRevision ?? "";
   const projectName = ws.spec?.projectRef?.name ?? "";
-  const phase = ws.status?.phase ?? "";
+  const phase: Phase | undefined = ws.status?.phase;
+  const phaseLabel = phase ?? "";
   const flash = useFlashOnChange(phase);
-  const flashStyle = { "--flash-color": flashColorVar(phase) } as CSSProperties;
+  const flashStyle = { "--flash-color": flashColorVar(phaseLabel) } as CSSProperties;
   const wsId = resourceId(ws);
   const lineageFlashIds = useMemo(() => (flash ? new Set([wsId]) : new Set<string>()), [flash, wsId]);
+  const canReconcile = phase ? RECONCILABLE_PHASES.has(phase) : false;
+  const reconcileDisabled = isSubmittingReconcile || !canReconcile || !namespace || !name;
+
+  async function handleReconcile() {
+    if (!namespace || !name || reconcileDisabled) return;
+
+    setIsSubmittingReconcile(true);
+    try {
+      await apiClient.POST("/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile", {
+        params: { path: { namespace, name } },
+      });
+    } finally {
+      setIsSubmittingReconcile(false);
+    }
+  }
 
   return (
     <Stack gap="lg">
@@ -113,117 +96,28 @@ export default function Workspace() {
           <Title order={2}>{name}</Title>
           <KubeBadge label={namespace!} />
         </Group>
-        <Button leftSection={<IconRefresh size={16} />} variant="default" size="sm">
+        <Button
+          leftSection={<IconRefresh size={16} />}
+          variant="default"
+          size="sm"
+          disabled={reconcileDisabled}
+          loading={isSubmittingReconcile}
+          onClick={handleReconcile}
+        >
           Reconcile
         </Button>
       </Group>
 
-      <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
-        <InfoCard
-          label="Status"
-          className={flash ? "flash-highlight" : undefined}
-          style={flashStyle}
-        >
-          <StatusBadge status={phase} size="md" />
-        </InfoCard>
-
-        <InfoCard label="Project">
-          {projectName ? (
-            <Anchor component={Link} to={`/projects/${namespace}/${projectName}`} size="sm">
-              {projectName}
-            </Anchor>
-          ) : (
-            <Text size="sm" c="dimmed" fs="italic">
-              None
-            </Text>
-          )}
-        </InfoCard>
-
-        <InfoCard label="Repository">
-          <Group gap={6} wrap="nowrap">
-            {repoIcon(repoURL, 14)}
-            <Anchor href={repoURL} target="_blank" size="sm" truncate>
-              {repoURL.replace(/^https?:\/\//, "")}
-            </Anchor>
-          </Group>
-        </InfoCard>
-
-        <InfoCard label="Path">
-          <Group gap={6} wrap="nowrap">
-            <IconFolder size={14} />
-            <Text size="sm" c="dimmed" truncate>
-              {ws.spec?.source?.path ?? "—"}
-            </Text>
-          </Group>
-        </InfoCard>
-
-        <InfoCard label="Applied Ref">
-          <Group gap={6} wrap="nowrap">
-            <IconGitBranch size={14} />
-            {(() => {
-              if (!observedRevision) return <Text size="sm" c="dimmed">—</Text>;
-              const isSHA = observedRevision.length === 40;
-              if (isSHA) {
-                const href = commitUrl(repoURL, observedRevision);
-                return href ? (
-                  <Anchor href={href} target="_blank" size="sm" ff="monospace">
-                    {observedRevision.slice(0, 7)}
-                  </Anchor>
-                ) : (
-                  <Text size="sm" c="dimmed" ff="monospace">{observedRevision.slice(0, 7)}</Text>
-                );
-              }
-              const href = revisionUrl(repoURL, observedRevision);
-              return href ? (
-                <Anchor href={href} target="_blank" size="sm">
-                  {observedRevision}
-                </Anchor>
-              ) : (
-                <Text size="sm" c="dimmed">{observedRevision}</Text>
-              );
-            })()}
-          </Group>
-        </InfoCard>
-
-        <InfoCard label="Terraform Version">
-          {tfVersion ? (
-            (() => {
-              const href = terraformReleaseUrl(tfVersion);
-              return href ? (
-                <Anchor href={href} target="_blank" size="sm">
-                  {tfVersion}
-                </Anchor>
-              ) : (
-                <Text size="sm" c="dimmed">{tfVersion}</Text>
-              );
-            })()
-          ) : (
-            <Text size="sm" c="dimmed">—</Text>
-          )}
-        </InfoCard>
-
-        <InfoCard label="Auto Apply">
-          <Badge color={ws.spec?.autoApply ? "magos" : "gray"} variant="light" size="sm">
-            {ws.spec?.autoApply ? "enabled" : "disabled"}
-          </Badge>
-        </InfoCard>
-
-        {ws.status?.lastReconcileTime && (
-          <InfoCard label="Last reconcile">
-            <Text size="sm">
-              {formatDate(ws.status.lastReconcileTime)}
-            </Text>
-          </InfoCard>
-        )}
-
-        {ws.status?.nextReconcileTime && (
-          <InfoCard label="Next reconcile">
-            <Text size="sm">
-              {formatDate(ws.status.nextReconcileTime)}
-            </Text>
-          </InfoCard>
-        )}
-      </SimpleGrid>
+      {namespace && (
+        <WorkspaceOverview
+          namespace={namespace}
+          workspace={ws}
+          phaseLabel={phaseLabel}
+          projectName={projectName}
+          flash={flash}
+          flashStyle={flashStyle}
+        />
+      )}
 
       {ws.status?.message && (
         <Text size="sm" c="dimmed" fs="italic">

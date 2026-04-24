@@ -1,0 +1,138 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: reconcile-interval-change-takes-effect-immediately
+spec:
+  description: |
+    A change to magosproject.io/reconcile-interval should take effect
+    immediately, even when the Workspace already has a future
+    status.nextReconcileTime persisted from the previous interval. This test
+    drives the Workspace to a terminal failed state with a long interval,
+    stores that initial nextReconcileTime, then shortens the interval and
+    verifies the controller recomputes a materially earlier nextReconcileTime
+    instead of staying pinned to the old schedule.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: reconcile-interval-change-project
+          spec: {}
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: reconcile-interval-change-ws
+            annotations:
+              magosproject.io/execution-allowed: "true"
+              magosproject.io/reconcile-interval: "45m"
+          spec:
+            projectRef:
+              name: reconcile-interval-change-project
+            autoApply: true
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+              path: .
+            terraform:
+              version: "1.14.8"
+            serviceAccountName: magos-job
+    - assert:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            labels:
+              magosproject.io/workspace: reconcile-interval-change-ws
+              magosproject.io/job-type: plan
+    # Let the controller create a real plan Job, then force that Job into a
+    # terminal failed state. We do this with a script because Chainsaw can
+    # assert the Job exists, but it cannot natively drive the Job status into
+    # the exact failed shape the controller reacts to.
+    - script:
+        content: |
+          job_name=$(kubectl get jobs -n "$NAMESPACE" \
+            -l magosproject.io/workspace=reconcile-interval-change-ws,magosproject.io/job-type=plan \
+            -o jsonpath='{.items[0].metadata.name}')
+
+          if [ -z "$job_name" ]; then
+            echo "plan job not found"
+            exit 1
+          fi
+
+          kubectl patch job "$job_name" -n "$NAMESPACE" \
+            --subresource=status --type merge \
+            -p '{"status":{"active":0,"failed":1,"conditions":[{"type":"FailureTarget","status":"True","lastTransitionTime":"2026-04-22T00:00:00Z","reason":"BackoffLimitExceeded","message":"forced failure for chainsaw"},{"type":"Failed","status":"True","lastTransitionTime":"2026-04-22T00:00:00Z","reason":"BackoffLimitExceeded","message":"forced failure for chainsaw"}]}}' \
+            >/dev/null
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: reconcile-interval-change-ws
+            annotations:
+              magosproject.io/reconcile-interval: "45m"
+          status:
+            phase: Failed
+            reason: PlanFailed
+            (nextReconcileTime != null): true
+    # Capture the old schedule and then shorten the reconcile interval to 30s. 
+    # The controller-owned annotation is just scratch space for this test so the
+    # final verification can compare against the exact pre-change timestamp.
+    - script:
+        content: |
+          ws=reconcile-interval-change-ws
+          initial_next=$(kubectl get workspace "$ws" -n "$NAMESPACE" -o jsonpath='{.status.nextReconcileTime}')
+          if [ -z "$initial_next" ]; then
+            echo "initial nextReconcileTime is empty"
+            exit 1
+          fi
+
+          kubectl annotate workspace "$ws" -n "$NAMESPACE" --overwrite \
+            chainsaw.magosproject.io/initial-next="$initial_next" \
+            >/dev/null
+
+          kubectl annotate workspace "$ws" -n "$NAMESPACE" --overwrite \
+            magosproject.io/reconcile-interval="30s" \
+            >/dev/null
+    # We use a short polling script here because the interesting assertion is
+    # relational, not structural: after the interval change, the reconciler
+    # must publish a different `nextReconcileTime`, and that new timestamp
+    # must be earlier than the one computed from the old 45m cadence. Native
+    # Chainsaw asserts are good at matching a fixed object shape, but not at
+    # expressing "field B must become earlier than the previously observed
+    # value of field A".
+    - script:
+        content: |
+          ws=reconcile-interval-change-ws
+          initial_next=$(kubectl get workspace "$ws" -n "$NAMESPACE" -o jsonpath='{.metadata.annotations.chainsaw\.magosproject\.io/initial-next}')
+
+          if [ -z "$initial_next" ]; then
+            echo "initial nextReconcileTime annotation is empty"
+            exit 1
+          fi
+
+          for i in $(seq 1 8); do
+            state=$(kubectl get workspace "$ws" -n "$NAMESPACE" -o jsonpath='{.status.phase}{"|"}{.status.reason}{"|"}{.status.nextReconcileTime}')
+            phase=${state%%|*}
+            rest=${state#*|}
+            reason=${rest%%|*}
+            final_next=${rest#*|}
+
+            if [ "$phase" = "Failed" ] && [ "$reason" = "PlanFailed" ] && [ -n "$final_next" ]; then
+              if [ "$final_next" != "$initial_next" ] && [ "$final_next" \< "$initial_next" ]; then
+                exit 0
+              fi
+            fi
+
+            sleep 0.2
+          done
+
+          final_next=$(kubectl get workspace "$ws" -n "$NAMESPACE" -o jsonpath='{.status.nextReconcileTime}')
+          echo "nextReconcileTime did not move earlier after interval update"
+          echo "initial: $initial_next"
+          echo "final:   $final_next"
+          exit 1
