@@ -9,6 +9,10 @@ import StatusBadge from "./StatusBadge";
 import { repoIcon } from "../utils/repoIcon";
 import { commitUrl, revisionUrl, terraformReleaseUrl } from "../utils/repoUrls";
 
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
+}
+
 function AppliedRevisionValue({
   repoURL,
   observedRevision,

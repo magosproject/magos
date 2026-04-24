@@ -891,6 +891,10 @@
                         "description": "NextReconcileTime is the expected time of the next scheduled reconciliation\n+optional",
                         "type": "string"
                     },
+                    "observedReconcileInterval": {
+                        "description": "ObservedReconcileInterval is the effective reconcile interval that the\ncontroller last used when it wrote NextReconcileTime.\n\nThis is controller bookkeeping, not user intent. It lets the controller\ndetect when magosproject.io/reconcile-interval changed after a future\nNextReconcileTime was already persisted, so users do not have to wait for\none extra stale schedule iteration before a new interval is honored.\n+optional",
+                        "type": "string"
+                    },
                     "observedRevision": {
                         "description": "ObservedRevision is the git revision that was most recently observed/applied.\nWhen the RefWatcher detects a new commit, this is the full commit SHA.\nOtherwise it is the spec.source.targetRevision value (e.g. a branch name).\n+optional",
                         "type": "string"

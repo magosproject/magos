@@ -1762,6 +1762,17 @@ export interface components {
              */
             nextReconcileTime?: string;
             /**
+             * @description ObservedReconcileInterval is the effective reconcile interval that the
+             *     controller last used when it wrote NextReconcileTime.
+             *
+             *     This is controller bookkeeping, not user intent. It lets the controller
+             *     detect when magosproject.io/reconcile-interval changed after a future
+             *     NextReconcileTime was already persisted, so users do not have to wait for
+             *     one extra stale schedule iteration before a new interval is honored.
+             *     +optional
+             */
+            observedReconcileInterval?: string;
+            /**
              * @description ObservedRevision is the git revision that was most recently observed/applied.
              *     When the RefWatcher detects a new commit, this is the full commit SHA.
              *     Otherwise it is the spec.source.targetRevision value (e.g. a branch name).
