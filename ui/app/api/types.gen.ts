@@ -654,15 +654,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List archived runs for a Workspace */
+        /** List reconcile runs for a Workspace */
         get: {
             parameters: {
                 query?: {
-                    /** @description Run phase filter */
-                    phase?: string;
-                    /** @description Page size */
+                    /** @description Page size (default 20, max 100) */
                     limit?: number;
-                    /** @description Object-store pagination cursor */
+                    /** @description Pagination cursor from a previous response */
                     cursor?: string;
                 };
                 header?: never;
@@ -682,7 +680,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["service.RunLogListResponse"];
+                        "application/json": components["schemas"]["service.ReconcileRunListResponse"];
                     };
                 };
                 /** @description Bad Request */
@@ -954,13 +952,13 @@ export interface components {
             object?: components["schemas"]["v1alpha1.Project"];
             type?: components["schemas"]["watch.EventType"];
         };
+        "service.ReconcileRunListResponse": {
+            items?: components["schemas"]["v1alpha1.ReconcileRun"][];
+            nextCursor?: string;
+        };
         "service.RolloutEvent": {
             object?: components["schemas"]["v1alpha1.Rollout"];
             type?: components["schemas"]["watch.EventType"];
-        };
-        "service.RunLogListResponse": {
-            items?: components["schemas"]["v1alpha1.RunLogSummary"][];
-            nextCursor?: string;
         };
         "service.RunLogStreamEvent": {
             line?: string;
@@ -1448,6 +1446,37 @@ export interface components {
              */
             reason?: string;
         };
+        "v1alpha1.ReconcileRun": {
+            apply?: components["schemas"]["v1alpha1.RunPhaseSummary"];
+            /**
+             * @description FinishedAt is when the last completed phase of this cycle finished.
+             *     +optional
+             */
+            finishedAt?: string;
+            /**
+             * @description ObservedRevision is the resolved git commit SHA for this cycle.
+             *     +optional
+             */
+            observedRevision?: string;
+            plan?: components["schemas"]["v1alpha1.RunPhaseSummary"];
+            /**
+             * @description RunID uniquely identifies this reconciliation cycle. The same ID is
+             *     used for both the plan and apply phases of a single cycle.
+             */
+            runID?: string;
+            /**
+             * @description StartedAt is when the first phase of this cycle began.
+             *     +optional
+             */
+            startedAt?: string;
+            /**
+             * @description TargetRevision is the ref configured on the Workspace spec at the time
+             *     this cycle started, for example a branch name like "main".
+             *     +optional
+             */
+            targetRevision?: string;
+            trigger?: components["schemas"]["v1alpha1.RunTrigger"];
+        };
         "v1alpha1.Rollout": {
             metadata?: components["schemas"]["v1.ObjectMeta"];
             spec?: components["schemas"]["v1alpha1.RolloutSpec"];
@@ -1519,24 +1548,31 @@ export interface components {
             steps?: components["schemas"]["v1alpha1.RolloutStep"][];
         };
         /**
-         * @description Result is the terminal result of the Job.
+         * @description Result is the terminal outcome of the phase.
          *     +optional
          * @enum {string}
          */
         "v1alpha1.RunLogResult": "Succeeded" | "Failed";
-        "v1alpha1.RunLogSummary": {
+        /** @enum {string} */
+        "v1alpha1.RunPhase": "plan" | "apply";
+        /**
+         * @description Apply captures the outcome of the terraform apply phase. Nil when the
+         *     cycle has not yet reached or completed the apply phase.
+         *     +optional
+         */
+        "v1alpha1.RunPhaseSummary": {
             /**
              * @description FinishedAt is when the Job reached a terminal state.
              *     +optional
              */
             finishedAt?: string;
             /**
-             * @description JobName is the Kubernetes Job that produced the log.
+             * @description JobName is the Kubernetes Job that produced this phase's output.
              *     +optional
              */
             jobName?: string;
             /**
-             * @description LogKey is the object-store key used to fetch the archived log.
+             * @description LogKey is the object-store key for the archived, gzip-compressed log.
              *     +optional
              */
             logKey?: string;
@@ -1546,39 +1582,19 @@ export interface components {
              */
             logSizeBytes?: number;
             /**
-             * @description ObservedRevision is the git revision associated with this run.
-             *     +optional
-             */
-            observedRevision?: string;
-            phase?: components["schemas"]["v1alpha1.RunPhase"];
-            /**
-             * @description PodName is the pod backing the Kubernetes Job that produced the log.
+             * @description PodName is the Pod that backed the Kubernetes Job.
              *     +optional
              */
             podName?: string;
             result?: components["schemas"]["v1alpha1.RunLogResult"];
-            /** @description RunID groups the plan/apply jobs that belong to one reconciliation cycle. */
-            runID?: string;
             /**
-             * @description StartedAt is when the Job started running.
+             * @description StartedAt is when the Job began running.
              *     +optional
              */
             startedAt?: string;
-            /**
-             * @description TargetRevision is the ref configured on the Workspace spec for this run,
-             *     for example a branch like "main".
-             *     +optional
-             */
-            targetRevision?: string;
-            trigger?: components["schemas"]["v1alpha1.RunTrigger"];
         };
         /**
-         * @description Phase is the Terraform phase that emitted the archived log.
-         * @enum {string}
-         */
-        "v1alpha1.RunPhase": "plan" | "apply";
-        /**
-         * @description Trigger records why this run was started.
+         * @description Trigger records what caused this reconciliation cycle to start.
          *     +optional
          * @enum {string}
          */

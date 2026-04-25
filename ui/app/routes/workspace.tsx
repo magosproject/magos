@@ -8,12 +8,12 @@ import KubeBadge from "../components/KubeBadge";
 import ConditionsTable from "../components/ConditionsTable";
 import PolicyViolationsTable from "../components/PolicyViolationsTable";
 import ProjectLineageGraph from "../components/ProjectLineageGraph";
-import WorkspaceApplyLogs from "../components/WorkspaceApplyLogs";
+import WorkspaceRunHistory from "../components/WorkspaceRunHistory";
 import WorkspaceLiveConsole from "../components/WorkspaceLiveConsole";
 import WorkspaceOverview from "../components/WorkspaceOverview";
 import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
-import type { Phase, Project, RunLogListResponse, Workspace as WorkspaceType } from "../api/types";
+import type { Phase, Project, ReconcileRunListResponse, Workspace as WorkspaceType } from "../api/types";
 import { useSSEItem } from "../hooks/useSSEItem";
 import { useFlashOnChange } from "../hooks/useFlashOnChange";
 import { flashColorVar } from "../utils/colors";
@@ -31,7 +31,6 @@ export async function clientLoader({ params }: { params: { namespace: string; na
   if (!ws) throw new Response("Not found", { status: 404 });
 
   let project: Project | undefined;
-  let applyLogs: RunLogListResponse = { items: [] };
   const projectRef = ws.spec?.projectRef?.name;
   if (projectRef) {
     const { data } = await apiClient.GET(
@@ -41,18 +40,18 @@ export async function clientLoader({ params }: { params: { namespace: string; na
     project = data;
   }
 
-  const { data: logs } = await apiClient.GET(
+  const { data: runs } = await apiClient.GET(
     "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs",
     {
       params: {
         path: { namespace: params.namespace, name: params.name },
-        query: { phase: "apply", limit: 5 },
+        query: { limit: 20 },
       },
     }
   );
-  applyLogs = logs ?? { items: [] };
+  const initialRuns: ReconcileRunListResponse = runs ?? { items: [] };
 
-  return { workspace: ws, project, applyLogs };
+  return { workspace: ws, project, initialRuns };
 }
 
 export default function Workspace() {
@@ -121,7 +120,7 @@ export default function Workspace() {
       <Tabs defaultValue="overview">
         <Tabs.List>
           <Tabs.Tab value="overview">Overview</Tabs.Tab>
-          <Tabs.Tab value="logs">Logs</Tabs.Tab>
+          <Tabs.Tab value="runs">Runs</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="overview" pt="md">
@@ -168,7 +167,7 @@ export default function Workspace() {
           </Stack>
         </Tabs.Panel>
 
-        <Tabs.Panel value="logs" pt="md">
+        <Tabs.Panel value="runs" pt="md">
           <Stack gap="lg">
             {namespace && name && (
               <WorkspaceLiveConsole
@@ -180,10 +179,10 @@ export default function Workspace() {
             )}
 
             {namespace && name && (
-              <WorkspaceApplyLogs
+              <WorkspaceRunHistory
                 namespace={namespace}
                 workspaceName={name}
-                initialLogs={initial.applyLogs}
+                initialRuns={initial.initialRuns}
                 phase={phase}
                 currentRunID={ws.status?.currentRunID}
               />

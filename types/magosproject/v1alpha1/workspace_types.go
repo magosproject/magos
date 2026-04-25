@@ -260,43 +260,62 @@ const (
 	RunTriggerRetry     RunTrigger = "retry"
 )
 
-// RunLogSummary stores metadata for an archived run log object.
-type RunLogSummary struct {
-	// RunID groups the plan/apply jobs that belong to one reconciliation cycle.
-	RunID string `json:"runID"`
-	// Phase is the Terraform phase that emitted the archived log.
-	Phase RunPhase `json:"phase"`
-	// JobName is the Kubernetes Job that produced the log.
+// RunPhaseSummary captures the outcome and log reference for one Terraform
+// phase (plan or apply) within a reconciliation cycle.
+type RunPhaseSummary struct {
+	// JobName is the Kubernetes Job that produced this phase's output.
 	// +optional
 	JobName string `json:"jobName,omitempty"`
-	// PodName is the pod backing the Kubernetes Job that produced the log.
+	// PodName is the Pod that backed the Kubernetes Job.
 	// +optional
 	PodName string `json:"podName,omitempty"`
-	// StartedAt is when the Job started running.
+	// StartedAt is when the Job began running.
 	// +optional
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
 	// FinishedAt is when the Job reached a terminal state.
 	// +optional
 	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
-	// Result is the terminal result of the Job.
+	// Result is the terminal outcome of the phase.
 	// +optional
 	Result RunLogResult `json:"result,omitempty"`
-	// Trigger records why this run was started.
-	// +optional
-	Trigger RunTrigger `json:"trigger,omitempty"`
-	// TargetRevision is the ref configured on the Workspace spec for this run,
-	// for example a branch like "main".
-	// +optional
-	TargetRevision string `json:"targetRevision,omitempty"`
-	// ObservedRevision is the git revision associated with this run.
-	// +optional
-	ObservedRevision string `json:"observedRevision,omitempty"`
-	// LogKey is the object-store key used to fetch the archived log.
+	// LogKey is the object-store key for the archived, gzip-compressed log.
 	// +optional
 	LogKey string `json:"logKey,omitempty"`
 	// LogSizeBytes is the compressed size of the stored log object.
 	// +optional
 	LogSizeBytes int64 `json:"logSizeBytes,omitempty"`
+}
+
+// ReconcileRun represents one complete reconciliation cycle for a Workspace.
+// A cycle always includes a plan phase and, when approved, an apply phase.
+// Both phases share the same RunID.
+type ReconcileRun struct {
+	// RunID uniquely identifies this reconciliation cycle. The same ID is
+	// used for both the plan and apply phases of a single cycle.
+	RunID string `json:"runID"`
+	// Trigger records what caused this reconciliation cycle to start.
+	// +optional
+	Trigger RunTrigger `json:"trigger,omitempty"`
+	// TargetRevision is the ref configured on the Workspace spec at the time
+	// this cycle started, for example a branch name like "main".
+	// +optional
+	TargetRevision string `json:"targetRevision,omitempty"`
+	// ObservedRevision is the resolved git commit SHA for this cycle.
+	// +optional
+	ObservedRevision string `json:"observedRevision,omitempty"`
+	// Plan captures the outcome of the terraform plan phase.
+	// +optional
+	Plan *RunPhaseSummary `json:"plan,omitempty"`
+	// Apply captures the outcome of the terraform apply phase. Nil when the
+	// cycle has not yet reached or completed the apply phase.
+	// +optional
+	Apply *RunPhaseSummary `json:"apply,omitempty"`
+	// StartedAt is when the first phase of this cycle began.
+	// +optional
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+	// FinishedAt is when the last completed phase of this cycle finished.
+	// +optional
+	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
 }
 
 // +genclient

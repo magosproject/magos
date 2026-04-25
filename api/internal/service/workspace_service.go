@@ -37,14 +37,14 @@ type WorkspaceService interface {
 	List(ctx context.Context) ([]*apiv1alpha1.Workspace, error)
 	Get(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
 	RequestReconcile(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
-	ListRunLogs(ctx context.Context, namespace, name string, phase apiv1alpha1.RunPhase, limit int, cursor string) (*RunLogListResponse, error)
+	ListReconcileRuns(ctx context.Context, namespace, name string, limit int, cursor string) (*ReconcileRunListResponse, error)
 	GetRunLog(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase) (io.ReadCloser, error)
 	StreamCurrentRunLogs(ctx context.Context, namespace, name string, phase apiv1alpha1.RunPhase) <-chan RunLogStreamEvent
 }
 
-type RunLogListResponse struct {
-	Items      []apiv1alpha1.RunLogSummary `json:"items"`
-	NextCursor string                      `json:"nextCursor,omitempty"`
+type ReconcileRunListResponse struct {
+	Items      []apiv1alpha1.ReconcileRun `json:"items"`
+	NextCursor string                     `json:"nextCursor,omitempty"`
 }
 
 type RunLogStreamEvent struct {
@@ -161,27 +161,21 @@ func (s *workspaceService) RequestReconcile(ctx context.Context, namespace, name
 	return workspace, nil
 }
 
-func (s *workspaceService) ListRunLogs(ctx context.Context, namespace, name string, phase apiv1alpha1.RunPhase, limit int, cursor string) (*RunLogListResponse, error) {
+func (s *workspaceService) ListReconcileRuns(ctx context.Context, namespace, name string, limit int, cursor string) (*ReconcileRunListResponse, error) {
 	workspace, err := s.Get(ctx, namespace, name)
 	if err != nil {
 		return nil, err
 	}
 	if s.logStore == nil {
-		return &RunLogListResponse{}, nil
+		return &ReconcileRunListResponse{}, nil
 	}
-	result, err := s.logStore.ListRunSummaries(ctx, logstore.ListRunSummariesInput{
-		Namespace: workspace.Namespace,
-		Workspace: workspace.Name,
-		Phase:     phase,
-		Limit:     limit,
-		Cursor:    cursor,
-	})
+	runs, nextCursor, err := s.logStore.ListReconcileRuns(ctx, workspace.Namespace, workspace.Name, limit, cursor)
 	if err != nil {
 		return nil, err
 	}
-	return &RunLogListResponse{
-		Items:      result.Items,
-		NextCursor: result.NextCursor,
+	return &ReconcileRunListResponse{
+		Items:      runs,
+		NextCursor: nextCursor,
 	}, nil
 }
 
@@ -195,11 +189,8 @@ func (s *workspaceService) GetRunLog(ctx context.Context, namespace, name, runID
 		return nil, err
 	}
 
-	item, err := s.logStore.FindRunSummary(ctx, workspace.Namespace, workspace.Name, phase, runID)
-	if err != nil {
-		return nil, err
-	}
-	body, _, err := s.logStore.Get(ctx, item.LogKey)
+	key := logstore.RunLogKey(workspace.Namespace, workspace.Name, runID, phase)
+	body, err := s.logStore.GetRunLog(ctx, key)
 	if err != nil {
 		return nil, err
 	}

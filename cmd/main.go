@@ -240,11 +240,12 @@ func main() {
 			os.Exit(1)
 		}
 		if err := (&workspacecontroller.WorkspaceReconciler{
-			Client:    mgr.GetClient(),
-			Scheme:    mgr.GetScheme(),
-			JobImage:  jobImage,
-			Clientset: clientset,
-			LogStore:  runLogStore,
+			Client:       mgr.GetClient(),
+			Scheme:       mgr.GetScheme(),
+			JobImage:     jobImage,
+			Clientset:    clientset,
+			LogStore:     runLogStore,
+			LogRetention: logConfig.Retention,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Workspace")
 			os.Exit(1)

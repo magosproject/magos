@@ -107,15 +107,14 @@ func (h *WorkspaceHandler) RequestReconcile(w http.ResponseWriter, r *http.Reque
 
 // ListRuns godoc
 //
-//	@Summary	List archived runs for a Workspace
+//	@Summary	List reconcile runs for a Workspace
 //	@Tags		Workspace
 //	@Produce	json
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
-//	@Param		phase		query		string	false	"Run phase filter"
-//	@Param		limit		query		int		false	"Page size"
-//	@Param		cursor		query		string	false	"Object-store pagination cursor"
-//	@Success	200			{object}	service.RunLogListResponse
+//	@Param		limit		query		int		false	"Page size (default 20, max 100)"
+//	@Param		cursor		query		string	false	"Pagination cursor from a previous response"
+//	@Success	200			{object}	service.ReconcileRunListResponse
 //	@Failure	400			{object}	ErrorResponse
 //	@Failure	404			{object}	ErrorResponse
 //	@Router		/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs [get]
@@ -133,15 +132,14 @@ func (h *WorkspaceHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	phase := parseRunPhase(r.URL.Query().Get("phase"))
-	items, err := h.service.ListRunLogs(r.Context(), namespace, name, phase, limit, r.URL.Query().Get("cursor"))
+	items, err := h.service.ListReconcileRuns(r.Context(), namespace, name, limit, r.URL.Query().Get("cursor"))
 	if err != nil {
-		h.logger.Error("failed to list workspace run logs", "error", err, "namespace", namespace, "name", name)
+		h.logger.Error("failed to list workspace reconcile runs", "error", err, "namespace", namespace, "name", name)
 		if apierrors.IsNotFound(err) {
 			writeError(w, http.StatusNotFound, "workspace not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to list workspace run logs")
+		writeError(w, http.StatusInternalServerError, "failed to list workspace reconcile runs")
 		return
 	}
 
@@ -236,7 +234,7 @@ func parseRunPhase(raw string) apiv1alpha1.RunPhase {
 
 func parseListLimit(raw string) (int, error) {
 	if raw == "" {
-		return 5, nil
+		return 20, nil
 	}
 	value, err := strconv.Atoi(raw)
 	if err != nil || value <= 0 {

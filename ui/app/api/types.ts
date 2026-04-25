@@ -11,8 +11,9 @@ export type Condition = components["schemas"]["v1.Condition"];
 export type ObjectMeta = components["schemas"]["v1.ObjectMeta"];
 export type RolloutStep = components["schemas"]["v1alpha1.RolloutStep"];
 export type LabelSelector = components["schemas"]["v1.LabelSelector"];
-export type RunLogSummary = components["schemas"]["v1alpha1.RunLogSummary"];
-export type RunLogListResponse = components["schemas"]["service.RunLogListResponse"];
+export type RunPhaseSummary = components["schemas"]["v1alpha1.RunPhaseSummary"];
+export type ReconcileRun = components["schemas"]["v1alpha1.ReconcileRun"];
+export type ReconcileRunListResponse = components["schemas"]["service.ReconcileRunListResponse"];
 
 export type ResourceObject = {
   metadata?: ObjectMeta;

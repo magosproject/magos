@@ -78,6 +78,8 @@ spec:
         {{- if eq $name "workspace" }}
         - name: MAGOS_JOB_IMAGE
           value: "{{ $root.Values.jobImage.repository }}:{{ $root.Values.jobImage.tag | default $root.Chart.AppVersion }}"
+        - name: MAGOS_LOGS_RETENTION
+          value: {{ $root.Values.logs.retention | quote }}
         {{- include "magos.logstoreEnv" $root | nindent 8 }}
         {{- end }}
         {{- with ($controller.env | default $root.Values.podDefaults.env) }}

@@ -166,6 +166,9 @@ jobServiceAccount:
 
 logs:
   enabled: true
+  # retention is the number of reconcile runs to keep per workspace.
+  # Older runs are pruned automatically after each archive operation.
+  retention: 30
   s3:
     bucket: magos-run-logs
     # Used only for S3 request signing. For local RustFS on Kind this does not

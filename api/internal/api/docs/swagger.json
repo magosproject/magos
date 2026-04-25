@@ -90,6 +90,21 @@
                 },
                 "type": "object"
             },
+            "service.ReconcileRunListResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/v1alpha1.ReconcileRun"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "nextCursor": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.RolloutEvent": {
                 "properties": {
                     "object": {
@@ -97,21 +112,6 @@
                     },
                     "type": {
                         "$ref": "#/components/schemas/watch.EventType"
-                    }
-                },
-                "type": "object"
-            },
-            "service.RunLogListResponse": {
-                "properties": {
-                    "items": {
-                        "items": {
-                            "$ref": "#/components/schemas/v1alpha1.RunLogSummary"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "nextCursor": {
-                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -540,6 +540,40 @@
                 },
                 "type": "object"
             },
+            "v1alpha1.ReconcileRun": {
+                "properties": {
+                    "apply": {
+                        "$ref": "#/components/schemas/v1alpha1.RunPhaseSummary"
+                    },
+                    "finishedAt": {
+                        "description": "FinishedAt is when the last completed phase of this cycle finished.\n+optional",
+                        "type": "string"
+                    },
+                    "observedRevision": {
+                        "description": "ObservedRevision is the resolved git commit SHA for this cycle.\n+optional",
+                        "type": "string"
+                    },
+                    "plan": {
+                        "$ref": "#/components/schemas/v1alpha1.RunPhaseSummary"
+                    },
+                    "runID": {
+                        "description": "RunID uniquely identifies this reconciliation cycle. The same ID is\nused for both the plan and apply phases of a single cycle.",
+                        "type": "string"
+                    },
+                    "startedAt": {
+                        "description": "StartedAt is when the first phase of this cycle began.\n+optional",
+                        "type": "string"
+                    },
+                    "targetRevision": {
+                        "description": "TargetRevision is the ref configured on the Workspace spec at the time\nthis cycle started, for example a branch name like \"main\".\n+optional",
+                        "type": "string"
+                    },
+                    "trigger": {
+                        "$ref": "#/components/schemas/v1alpha1.RunTrigger"
+                    }
+                },
+                "type": "object"
+            },
             "v1alpha1.Rollout": {
                 "properties": {
                     "metadata": {
@@ -627,7 +661,7 @@
                 "type": "object"
             },
             "v1alpha1.RunLogResult": {
-                "description": "Result is the terminal result of the Job.\n+optional",
+                "description": "Result is the terminal outcome of the phase.\n+optional",
                 "enum": [
                     "Succeeded",
                     "Failed"
@@ -638,58 +672,7 @@
                     "RunLogResultFailed"
                 ]
             },
-            "v1alpha1.RunLogSummary": {
-                "properties": {
-                    "finishedAt": {
-                        "description": "FinishedAt is when the Job reached a terminal state.\n+optional",
-                        "type": "string"
-                    },
-                    "jobName": {
-                        "description": "JobName is the Kubernetes Job that produced the log.\n+optional",
-                        "type": "string"
-                    },
-                    "logKey": {
-                        "description": "LogKey is the object-store key used to fetch the archived log.\n+optional",
-                        "type": "string"
-                    },
-                    "logSizeBytes": {
-                        "description": "LogSizeBytes is the compressed size of the stored log object.\n+optional",
-                        "type": "integer"
-                    },
-                    "observedRevision": {
-                        "description": "ObservedRevision is the git revision associated with this run.\n+optional",
-                        "type": "string"
-                    },
-                    "phase": {
-                        "$ref": "#/components/schemas/v1alpha1.RunPhase"
-                    },
-                    "podName": {
-                        "description": "PodName is the pod backing the Kubernetes Job that produced the log.\n+optional",
-                        "type": "string"
-                    },
-                    "result": {
-                        "$ref": "#/components/schemas/v1alpha1.RunLogResult"
-                    },
-                    "runID": {
-                        "description": "RunID groups the plan/apply jobs that belong to one reconciliation cycle.",
-                        "type": "string"
-                    },
-                    "startedAt": {
-                        "description": "StartedAt is when the Job started running.\n+optional",
-                        "type": "string"
-                    },
-                    "targetRevision": {
-                        "description": "TargetRevision is the ref configured on the Workspace spec for this run,\nfor example a branch like \"main\".\n+optional",
-                        "type": "string"
-                    },
-                    "trigger": {
-                        "$ref": "#/components/schemas/v1alpha1.RunTrigger"
-                    }
-                },
-                "type": "object"
-            },
             "v1alpha1.RunPhase": {
-                "description": "Phase is the Terraform phase that emitted the archived log.",
                 "enum": [
                     "plan",
                     "apply"
@@ -700,8 +683,41 @@
                     "RunPhaseApply"
                 ]
             },
+            "v1alpha1.RunPhaseSummary": {
+                "description": "Apply captures the outcome of the terraform apply phase. Nil when the\ncycle has not yet reached or completed the apply phase.\n+optional",
+                "properties": {
+                    "finishedAt": {
+                        "description": "FinishedAt is when the Job reached a terminal state.\n+optional",
+                        "type": "string"
+                    },
+                    "jobName": {
+                        "description": "JobName is the Kubernetes Job that produced this phase's output.\n+optional",
+                        "type": "string"
+                    },
+                    "logKey": {
+                        "description": "LogKey is the object-store key for the archived, gzip-compressed log.\n+optional",
+                        "type": "string"
+                    },
+                    "logSizeBytes": {
+                        "description": "LogSizeBytes is the compressed size of the stored log object.\n+optional",
+                        "type": "integer"
+                    },
+                    "podName": {
+                        "description": "PodName is the Pod that backed the Kubernetes Job.\n+optional",
+                        "type": "string"
+                    },
+                    "result": {
+                        "$ref": "#/components/schemas/v1alpha1.RunLogResult"
+                    },
+                    "startedAt": {
+                        "description": "StartedAt is when the Job began running.\n+optional",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "v1alpha1.RunTrigger": {
-                "description": "Trigger records why this run was started.\n+optional",
+                "description": "Trigger records what caused this reconciliation cycle to start.\n+optional",
                 "enum": [
                     "unknown",
                     "configuration",
@@ -1508,15 +1524,7 @@
                         }
                     },
                     {
-                        "description": "Run phase filter",
-                        "in": "query",
-                        "name": "phase",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "description": "Page size",
+                        "description": "Page size (default 20, max 100)",
                         "in": "query",
                         "name": "limit",
                         "schema": {
@@ -1524,7 +1532,7 @@
                         }
                     },
                     {
-                        "description": "Object-store pagination cursor",
+                        "description": "Pagination cursor from a previous response",
                         "in": "query",
                         "name": "cursor",
                         "schema": {
@@ -1537,7 +1545,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/service.RunLogListResponse"
+                                    "$ref": "#/components/schemas/service.ReconcileRunListResponse"
                                 }
                             }
                         },
@@ -1564,7 +1572,7 @@
                         "description": "Not Found"
                     }
                 },
-                "summary": "List archived runs for a Workspace",
+                "summary": "List reconcile runs for a Workspace",
                 "tags": [
                     "Workspace"
                 ]

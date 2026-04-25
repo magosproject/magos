@@ -85,10 +85,11 @@ const (
 // WorkspaceReconciler reconciles a Workspace object
 type WorkspaceReconciler struct {
 	client.Client
-	Scheme    *runtime.Scheme
-	JobImage  string
-	Clientset kubernetes.Interface // for reading pod logs
-	LogStore  logstore.Store
+	Scheme       *runtime.Scheme
+	JobImage     string
+	Clientset    kubernetes.Interface // for reading pod logs
+	LogStore     logstore.Store
+	LogRetention int // number of reconcile runs to retain per workspace; 0 uses the logstore default
 }
 
 // getRepoCredentials finds the Git credential Secret for a given repository
@@ -755,6 +756,9 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			}
 		}
 
+		if err := r.archiveRunLogs(ctx, workspace, &planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultFailed); err != nil {
+			logger.Error(err, "Failed to archive plan logs", "job", planJobName)
+		}
 		r.updateStatus(ctx, workspace, phase, reason, message, metav1.ConditionFalse)
 
 		// Release the execution lock so the Rollout controller knows this
@@ -839,6 +843,12 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 					logger.Error(err, "Failed to consume approval annotation via Patch")
 					return ctrl.Result{}, err
 				}
+			}
+
+			// Archive the completed plan logs before moving on to apply so
+			// both phases end up in the same reconcile run record.
+			if err := r.archiveRunLogs(ctx, workspace, &planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultSucceeded); err != nil {
+				logger.Error(err, "Failed to archive plan logs", "job", planJobName)
 			}
 
 			logger.Info("Creating a new Apply Job", "job", applyJobName)
@@ -1173,6 +1183,10 @@ func terminalJobFinishedAt(job *batchv1.Job) *metav1.Time {
 	return nil
 }
 
+// archiveRunLogs reads the pod logs for the given job, compresses them, and
+// writes them to the log store. It then upserts the reconcile run summary so
+// that the plan and apply phases of the same cycle accumulate into a single
+// record. Old runs beyond the retention limit are pruned after each write.
 func (r *WorkspaceReconciler) archiveRunLogs(
 	ctx context.Context,
 	workspace *v1alpha1.Workspace,
@@ -1202,42 +1216,45 @@ func (r *WorkspaceReconciler) archiveRunLogs(
 		return err
 	}
 
-	startedAt := time.Now().UTC()
-	if job.Status.StartTime != nil {
-		startedAt = job.Status.StartTime.Time.UTC()
-	}
-
-	stored, err := r.LogStore.PutRunLog(ctx, logstore.PutRunLogInput{
-		Namespace: workspace.Namespace,
-		Workspace: workspace.Name,
-		RunID:     runID,
-		Phase:     phase,
-		StartedAt: startedAt,
-	}, compressed)
+	logKey, err := r.LogStore.PutRunLog(ctx, workspace.Namespace, workspace.Name, runID, phase, compressed)
 	if err != nil {
 		return err
 	}
 
-	summary := v1alpha1.RunLogSummary{
+	phaseSummary := &v1alpha1.RunPhaseSummary{
+		JobName:      job.Name,
+		PodName:      pod.Name,
+		StartedAt:    job.Status.StartTime,
+		FinishedAt:   terminalJobFinishedAt(job),
+		Result:       result,
+		LogKey:       logKey,
+		LogSizeBytes: int64(len(compressed)),
+	}
+
+	run := v1alpha1.ReconcileRun{
 		RunID:            runID,
-		Phase:            phase,
-		JobName:          job.Name,
-		PodName:          pod.Name,
-		StartedAt:        job.Status.StartTime,
-		FinishedAt:       terminalJobFinishedAt(job),
-		Result:           result,
 		Trigger:          workspace.Status.CurrentRunTrigger,
 		TargetRevision:   workspace.Spec.Source.TargetRevision,
 		ObservedRevision: currentRunObservedRevision(workspace),
-		LogKey:           stored.Key,
-		LogSizeBytes:     stored.SizeBytes,
+		StartedAt:        phaseSummary.StartedAt,
+	}
+	switch phase {
+	case v1alpha1.RunPhasePlan:
+		run.Plan = phaseSummary
+	case v1alpha1.RunPhaseApply:
+		run.Apply = phaseSummary
+		run.FinishedAt = phaseSummary.FinishedAt
 	}
 
-	if err := r.LogStore.PutRunSummary(ctx, workspace.Namespace, workspace.Name, summary); err != nil {
+	if err := r.LogStore.UpsertReconcileRun(ctx, workspace.Namespace, workspace.Name, run); err != nil {
 		return err
 	}
 
-	return nil
+	retention := r.LogRetention
+	if retention <= 0 {
+		retention = logstore.DefaultRetention
+	}
+	return r.LogStore.PruneOldRuns(ctx, workspace.Namespace, workspace.Name, retention)
 }
 
 // constructJobForWorkspace builds a Kubernetes Job spec for either a "plan" or

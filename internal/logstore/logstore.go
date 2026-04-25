@@ -12,9 +12,9 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -34,14 +34,17 @@ const (
 	EnvLogsS3SecretAccessKey = "MAGOS_LOGS_S3_SECRET_ACCESS_KEY"
 	EnvLogsS3ForcePathStyle  = "MAGOS_LOGS_S3_FORCE_PATH_STYLE"
 	EnvLogsS3InsecureSkipTLS = "MAGOS_LOGS_S3_INSECURE_SKIP_TLS_VERIFY"
+	EnvLogsRetention         = "MAGOS_LOGS_RETENTION"
 
-	defaultListLimit = 5
-	maxDescendingTS  = int64(math.MaxInt64)
+	DefaultRetention = 30
+
+	maxDescendingTS = int64(math.MaxInt64)
 )
 
 type Config struct {
-	Enabled bool
-	S3      S3Config
+	Enabled   bool
+	Retention int
+	S3        S3Config
 }
 
 type S3Config struct {
@@ -54,49 +57,52 @@ type S3Config struct {
 	InsecureSkipTLSVerify bool
 }
 
-type PutRunLogInput struct {
-	Namespace string
-	Workspace string
-	RunID     string
-	Phase     v1alpha1.RunPhase
-	StartedAt time.Time
-}
-
-type PutRunLogResult struct {
-	Key       string
-	SizeBytes int64
-}
-
-type ObjectMeta struct {
-	Key       string
-	SizeBytes int64
-}
-
-type ListRunSummariesInput struct {
-	Namespace string
-	Workspace string
-	Phase     v1alpha1.RunPhase
-	Limit     int
-	Cursor    string
-}
-
-type ListRunSummariesResult struct {
-	Items      []v1alpha1.RunLogSummary
-	NextCursor string
-}
-
+// Store is the interface for reading and writing run logs and reconcile run
+// summaries. The implementation is expected to be backed by an S3-compatible
+// object store.
 type Store interface {
-	PutRunLog(ctx context.Context, in PutRunLogInput, body []byte) (PutRunLogResult, error)
-	PutRunSummary(ctx context.Context, namespace, workspace string, summary v1alpha1.RunLogSummary) error
-	ListRunSummaries(ctx context.Context, in ListRunSummariesInput) (ListRunSummariesResult, error)
-	FindRunSummary(ctx context.Context, namespace, workspace string, phase v1alpha1.RunPhase, runID string) (*v1alpha1.RunLogSummary, error)
-	Get(ctx context.Context, key string) (io.ReadCloser, ObjectMeta, error)
-	Delete(ctx context.Context, key string) error
+	// PutRunLog stores the compressed log body for one phase of a reconcile
+	// run and returns the object key. The key is deterministic and can be
+	// re-derived with RunLogKey when the stored value is unavailable.
+	PutRunLog(ctx context.Context, namespace, workspace, runID string, phase v1alpha1.RunPhase, body []byte) (string, error)
+
+	// UpsertReconcileRun writes or merges a reconcile run summary. When a
+	// summary for the given RunID already exists the plan and apply fields are
+	// merged independently so the controller can call this after each phase
+	// without overwriting the other.
+	UpsertReconcileRun(ctx context.Context, namespace, workspace string, run v1alpha1.ReconcileRun) error
+
+	// ListReconcileRuns returns up to limit recent reconcile runs for the
+	// workspace, ordered newest first. Pass the cursor returned by a previous
+	// call to page through older results.
+	ListReconcileRuns(ctx context.Context, namespace, workspace string, limit int, cursor string) ([]v1alpha1.ReconcileRun, string, error)
+
+	// GetRunLog returns a reader for the decompressed log identified by key.
+	// Callers are responsible for closing the returned reader.
+	GetRunLog(ctx context.Context, key string) (io.ReadCloser, error)
+
+	// PruneOldRuns deletes the oldest reconcile run summaries and their
+	// associated log objects when the total exceeds the retention count.
+	PruneOldRuns(ctx context.Context, namespace, workspace string, retention int) error
+}
+
+// RunLogKey returns the deterministic object-store key for a phase log. The
+// key is derived entirely from the run identity so it can be reconstructed
+// without a summary lookup.
+func RunLogKey(namespace, workspace, runID string, phase v1alpha1.RunPhase) string {
+	return path.Join("run-logs", namespace, workspace, runID, string(phase)+".log.gz")
 }
 
 func LoadConfigFromEnv() Config {
+	retention := DefaultRetention
+	if raw := os.Getenv(EnvLogsRetention); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+			retention = v
+		}
+	}
 	return Config{
-		Enabled: parseBoolEnv(EnvLogsEnabled, false),
+		Enabled:   parseBoolEnv(EnvLogsEnabled, false),
+		Retention: retention,
 		S3: S3Config{
 			Bucket:                os.Getenv(EnvLogsS3Bucket),
 			Region:                envOrDefault(EnvLogsS3Region, "us-east-1"),
@@ -135,7 +141,7 @@ func NewStore(ctx context.Context, cfg Config) (Store, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	return NewS3Store(ctx, cfg.S3)
+	return newS3Store(ctx, cfg.S3)
 }
 
 type s3Store struct {
@@ -143,7 +149,7 @@ type s3Store struct {
 	bucket string
 }
 
-func NewS3Store(ctx context.Context, cfg S3Config) (Store, error) {
+func newS3Store(ctx context.Context, cfg S3Config) (Store, error) {
 	endpointURL, err := url.Parse(cfg.Endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("invalid S3 endpoint %q: %w", cfg.Endpoint, err)
@@ -195,8 +201,8 @@ func (s *s3Store) ensureBucket(ctx context.Context, region string) error {
 	return nil
 }
 
-func (s *s3Store) PutRunLog(ctx context.Context, in PutRunLogInput, body []byte) (PutRunLogResult, error) {
-	key := buildRunLogKey(in.Namespace, in.Workspace, in.Phase, in.StartedAt, in.RunID)
+func (s *s3Store) PutRunLog(ctx context.Context, namespace, workspace, runID string, phase v1alpha1.RunPhase, body []byte) (string, error) {
+	key := RunLogKey(namespace, workspace, runID, phase)
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:          aws.String(s.bucket),
 		Key:             aws.String(key),
@@ -205,19 +211,40 @@ func (s *s3Store) PutRunLog(ctx context.Context, in PutRunLogInput, body []byte)
 		ContentEncoding: aws.String("gzip"),
 	})
 	if err != nil {
-		return PutRunLogResult{}, fmt.Errorf("put object %q: %w", key, err)
+		return "", fmt.Errorf("put log object %q: %w", key, err)
 	}
-	return PutRunLogResult{Key: key, SizeBytes: int64(len(body))}, nil
+	return key, nil
 }
 
-func (s *s3Store) PutRunSummary(ctx context.Context, namespace, workspace string, summary v1alpha1.RunLogSummary) error {
-	if summary.StartedAt == nil {
-		return fmt.Errorf("run summary missing startedAt")
-	}
-	key := buildRunSummaryKey(namespace, workspace, summary.Phase, summary.StartedAt.Time, summary.RunID)
-	body, err := json.Marshal(summary)
+// UpsertReconcileRun writes or merges a reconcile run summary. If a summary
+// already exists for this RunID (identified by its deterministic key) the
+// incoming Plan and Apply fields are merged into the existing record so both
+// phases can be written independently without clobbering each other.
+func (s *s3Store) UpsertReconcileRun(ctx context.Context, namespace, workspace string, run v1alpha1.ReconcileRun) error {
+	t, err := parseRunIDTime(run.RunID)
 	if err != nil {
-		return fmt.Errorf("marshal run summary: %w", err)
+		return err
+	}
+	key := reconcileSummaryKey(namespace, workspace, t, run.RunID)
+
+	// Merge with any existing summary for this run so that archiving the plan
+	// and apply phases independently produces a single coherent record.
+	if existing, readErr := s.readReconcileRun(ctx, key); readErr == nil {
+		if run.Plan != nil {
+			existing.Plan = run.Plan
+		}
+		if run.Apply != nil {
+			existing.Apply = run.Apply
+		}
+		if run.FinishedAt != nil {
+			existing.FinishedAt = run.FinishedAt
+		}
+		run = *existing
+	}
+
+	body, err := json.Marshal(run)
+	if err != nil {
+		return fmt.Errorf("marshal reconcile run %q: %w", run.RunID, err)
 	}
 	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucket),
@@ -226,24 +253,103 @@ func (s *s3Store) PutRunSummary(ctx context.Context, namespace, workspace string
 		ContentType: aws.String("application/json"),
 	})
 	if err != nil {
-		return fmt.Errorf("put summary object %q: %w", key, err)
+		return fmt.Errorf("put reconcile run summary %q: %w", key, err)
 	}
 	return nil
 }
 
-func (s *s3Store) ListRunSummaries(ctx context.Context, in ListRunSummariesInput) (ListRunSummariesResult, error) {
-	limit := in.Limit
+// ListReconcileRuns returns up to limit reconcile run summaries for the
+// workspace, ordered newest first. The cursor is the S3 object key of the
+// last item from the previous page; pass an empty string to start from the
+// most recent run.
+//
+// Because summary keys embed a descending timestamp, S3's lexicographic
+// listing already returns runs in newest-first order. We fetch at most
+// limit+1 keys to detect whether a next page exists, then download only the
+// limit summaries we actually need, in parallel.
+func (s *s3Store) ListReconcileRuns(ctx context.Context, namespace, workspace string, limit int, cursor string) ([]v1alpha1.ReconcileRun, string, error) {
 	if limit <= 0 {
-		limit = defaultListLimit
-	}
-	prefix := summaryPrefix(in.Namespace, in.Workspace, in.Phase)
-
-	type summaryWithKey struct {
-		key     string
-		summary v1alpha1.RunLogSummary
+		limit = DefaultRetention
 	}
 
-	summaries := make([]summaryWithKey, 0)
+	prefix := reconcileSummaryPrefix(namespace, workspace)
+	input := &s3.ListObjectsV2Input{
+		Bucket:  aws.String(s.bucket),
+		Prefix:  aws.String(prefix),
+		MaxKeys: aws.Int32(int32(limit + 1)),
+	}
+	if cursor != "" {
+		input.StartAfter = aws.String(cursor)
+	}
+
+	out, err := s.client.ListObjectsV2(ctx, input)
+	if err != nil {
+		return nil, "", fmt.Errorf("list reconcile runs with prefix %q: %w", prefix, err)
+	}
+
+	hasMore := len(out.Contents) > limit
+	objects := out.Contents
+	if hasMore {
+		objects = out.Contents[:limit]
+	}
+
+	// Fetch each summary in parallel to avoid paying per-object round-trip
+	// latency sequentially.
+	type result struct {
+		index int
+		run   v1alpha1.ReconcileRun
+		err   error
+	}
+	results := make([]result, len(objects))
+	var wg sync.WaitGroup
+	for i, obj := range objects {
+		wg.Add(1)
+		go func(i int, key string) {
+			defer wg.Done()
+			run, err := s.readReconcileRun(ctx, key)
+			if err != nil {
+				results[i] = result{index: i, err: err}
+				return
+			}
+			results[i] = result{index: i, run: *run}
+		}(i, aws.ToString(obj.Key))
+	}
+	wg.Wait()
+
+	runs := make([]v1alpha1.ReconcileRun, len(objects))
+	for _, r := range results {
+		if r.err != nil {
+			return nil, "", r.err
+		}
+		runs[r.index] = r.run
+	}
+
+	nextCursor := ""
+	if hasMore {
+		nextCursor = aws.ToString(objects[len(objects)-1].Key)
+	}
+	return runs, nextCursor, nil
+}
+
+func (s *s3Store) GetRunLog(ctx context.Context, key string) (io.ReadCloser, error) {
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get log object %q: %w", key, err)
+	}
+	return out.Body, nil
+}
+
+// PruneOldRuns deletes reconcile run summaries and their log objects when the
+// total exceeds retention. Only object keys are fetched during the listing
+// phase; summary content is never downloaded here.
+func (s *s3Store) PruneOldRuns(ctx context.Context, namespace, workspace string, retention int) error {
+	prefix := reconcileSummaryPrefix(namespace, workspace)
+
+	// Collect all summary keys. We only need keys here, not content.
+	var allKeys []string
 	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(s.bucket),
 		Prefix: aws.String(prefix),
@@ -251,106 +357,53 @@ func (s *s3Store) ListRunSummaries(ctx context.Context, in ListRunSummariesInput
 	for paginator.HasMorePages() {
 		out, err := paginator.NextPage(ctx)
 		if err != nil {
-			return ListRunSummariesResult{}, fmt.Errorf("list summaries with prefix %q: %w", prefix, err)
+			return fmt.Errorf("list summaries for pruning with prefix %q: %w", prefix, err)
 		}
-
 		for _, obj := range out.Contents {
-			key := aws.ToString(obj.Key)
-			if !strings.HasSuffix(key, ".json") {
-				continue
-			}
-			summary, err := s.readSummary(ctx, key)
-			if err != nil {
-				return ListRunSummariesResult{}, err
-			}
-			summaries = append(summaries, summaryWithKey{key: key, summary: *summary})
+			allKeys = append(allKeys, aws.ToString(obj.Key))
 		}
 	}
 
-	sort.SliceStable(summaries, func(i, j int) bool {
-		left := runSummarySortTime(summaries[i].summary)
-		right := runSummarySortTime(summaries[j].summary)
-		if !left.Equal(right) {
-			return left.After(right)
+	if len(allKeys) <= retention {
+		return nil
+	}
+
+	// Keys are in ascending lexicographic order. Because we use descending
+	// timestamps the newest runs appear first. Everything beyond retention is
+	// an old run that should be deleted.
+	toDelete := allKeys[retention:]
+	for _, summaryKey := range toDelete {
+		runID := extractRunIDFromSummaryKey(summaryKey)
+		for _, phase := range []v1alpha1.RunPhase{v1alpha1.RunPhasePlan, v1alpha1.RunPhaseApply} {
+			logKey := RunLogKey(namespace, workspace, runID, phase)
+			// Best-effort: the log may not exist if only one phase ran.
+			_ = s.deleteObject(ctx, logKey)
 		}
-		return summaries[i].key > summaries[j].key
-	})
-
-	startIndex := 0
-	if in.Cursor != "" {
-		startIndex = len(summaries)
-		for i, item := range summaries {
-			if item.key == in.Cursor {
-				startIndex = i + 1
-				break
-			}
+		if err := s.deleteObject(ctx, summaryKey); err != nil {
+			return err
 		}
 	}
-
-	if startIndex > len(summaries) {
-		startIndex = len(summaries)
-	}
-
-	endIndex := startIndex + limit
-	if endIndex > len(summaries) {
-		endIndex = len(summaries)
-	}
-
-	items := make([]v1alpha1.RunLogSummary, 0, endIndex-startIndex)
-	for _, item := range summaries[startIndex:endIndex] {
-		items = append(items, item.summary)
-	}
-
-	result := ListRunSummariesResult{Items: items}
-	if endIndex < len(summaries) && endIndex > startIndex {
-		result.NextCursor = summaries[endIndex-1].key
-	}
-	return result, nil
+	return nil
 }
 
-func (s *s3Store) FindRunSummary(ctx context.Context, namespace, workspace string, phase v1alpha1.RunPhase, runID string) (*v1alpha1.RunLogSummary, error) {
-	cursor := ""
-	for {
-		page, err := s.ListRunSummaries(ctx, ListRunSummariesInput{
-			Namespace: namespace,
-			Workspace: workspace,
-			Phase:     phase,
-			Limit:     100,
-			Cursor:    cursor,
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range page.Items {
-			if item.RunID == runID {
-				found := item
-				return &found, nil
-			}
-		}
-		if page.NextCursor == "" {
-			break
-		}
-		cursor = page.NextCursor
-	}
-	return nil, fmt.Errorf("run summary %q not found", runID)
-}
-
-func (s *s3Store) Get(ctx context.Context, key string) (io.ReadCloser, ObjectMeta, error) {
+func (s *s3Store) readReconcileRun(ctx context.Context, key string) (*v1alpha1.ReconcileRun, error) {
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		return nil, ObjectMeta{}, fmt.Errorf("get object %q: %w", key, err)
+		return nil, fmt.Errorf("get reconcile run summary %q: %w", key, err)
 	}
-	size := int64(0)
-	if out.ContentLength != nil {
-		size = *out.ContentLength
+	defer func() { _ = out.Body.Close() }()
+
+	var run v1alpha1.ReconcileRun
+	if err := json.NewDecoder(out.Body).Decode(&run); err != nil {
+		return nil, fmt.Errorf("decode reconcile run summary %q: %w", key, err)
 	}
-	return out.Body, ObjectMeta{Key: key, SizeBytes: size}, nil
+	return &run, nil
 }
 
-func (s *s3Store) Delete(ctx context.Context, key string) error {
+func (s *s3Store) deleteObject(ctx context.Context, key string) error {
 	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
@@ -361,34 +414,45 @@ func (s *s3Store) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-func (s *s3Store) readSummary(ctx context.Context, key string) (*v1alpha1.RunLogSummary, error) {
-	body, _, err := s.Get(ctx, key)
+// reconcileSummaryPrefix returns the common S3 prefix for all reconcile run
+// summaries belonging to a workspace.
+func reconcileSummaryPrefix(namespace, workspace string) string {
+	return path.Join("run-summaries", namespace, workspace) + "/"
+}
+
+// reconcileSummaryKey builds the full S3 key for a reconcile run summary. The
+// descending timestamp prefix ensures that S3's lexicographic listing returns
+// the most recent runs first without any client-side sorting.
+func reconcileSummaryKey(namespace, workspace string, t time.Time, runID string) string {
+	return path.Join(reconcileSummaryPrefix(namespace, workspace), fmt.Sprintf("%s_%s.json", descendingTimestamp(t), runID))
+}
+
+// parseRunIDTime extracts the UTC timestamp encoded in the leading segment of
+// a runID. RunIDs have the form "20060102T150405-{hex}", so parsing just the
+// prefix is sufficient to reconstruct the summary key.
+func parseRunIDTime(runID string) (time.Time, error) {
+	parts := strings.SplitN(runID, "-", 2)
+	if len(parts) == 0 || parts[0] == "" {
+		return time.Time{}, fmt.Errorf("invalid runID %q: missing timestamp prefix", runID)
+	}
+	t, err := time.ParseInLocation("20060102T150405", parts[0], time.UTC)
 	if err != nil {
-		return nil, err
+		return time.Time{}, fmt.Errorf("invalid runID %q: %w", runID, err)
 	}
-	defer func() { _ = body.Close() }()
+	return t, nil
+}
 
-	var summary v1alpha1.RunLogSummary
-	if err := json.NewDecoder(body).Decode(&summary); err != nil {
-		return nil, fmt.Errorf("decode run summary %q: %w", key, err)
+// extractRunIDFromSummaryKey parses the runID out of a summary object key.
+// Summary keys have the form "run-summaries/{ns}/{ws}/{desc_ts}_{runID}.json".
+func extractRunIDFromSummaryKey(key string) string {
+	base := path.Base(key)
+	base = strings.TrimSuffix(base, ".json")
+	// Key segment is "{desc_ts}_{runID}"; the runID starts after the first "_".
+	idx := strings.Index(base, "_")
+	if idx < 0 {
+		return base
 	}
-	return &summary, nil
-}
-
-func logPrefix(namespace, workspace string, phase v1alpha1.RunPhase) string {
-	return path.Join("run-logs", namespace, workspace, string(phase)) + "/"
-}
-
-func summaryPrefix(namespace, workspace string, phase v1alpha1.RunPhase) string {
-	return path.Join("run-summaries", namespace, workspace, string(phase)) + "/"
-}
-
-func buildRunLogKey(namespace, workspace string, phase v1alpha1.RunPhase, startedAt time.Time, runID string) string {
-	return path.Join(logPrefix(namespace, workspace, phase), fmt.Sprintf("%s_%s.log.gz", descendingTimestamp(startedAt), runID))
-}
-
-func buildRunSummaryKey(namespace, workspace string, phase v1alpha1.RunPhase, startedAt time.Time, runID string) string {
-	return path.Join(summaryPrefix(namespace, workspace, phase), fmt.Sprintf("%s_%s.json", descendingTimestamp(startedAt), runID))
+	return base[idx+1:]
 }
 
 func descendingTimestamp(t time.Time) string {
@@ -399,29 +463,12 @@ func descendingTimestamp(t time.Time) string {
 	return fmt.Sprintf("%019d", value)
 }
 
-func runSummarySortTime(summary v1alpha1.RunLogSummary) time.Time {
-	if summary.FinishedAt != nil {
-		return summary.FinishedAt.Time.UTC()
-	}
-	if summary.StartedAt != nil {
-		return summary.StartedAt.Time.UTC()
-	}
-	return time.Time{}
-}
-
 func createBucketConfiguration(region string) *s3types.CreateBucketConfiguration {
 	if region == "" || region == "us-east-1" {
 		return nil
 	}
 	constraint := s3types.BucketLocationConstraint(region)
 	return &s3types.CreateBucketConfiguration{LocationConstraint: constraint}
-}
-
-func stringPtr(value string) *string {
-	if value == "" {
-		return nil
-	}
-	return &value
 }
 
 func envOrDefault(key, fallback string) string {

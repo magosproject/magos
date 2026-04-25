@@ -22,6 +22,7 @@ endif
 CONTAINER_TOOL ?= docker
 MAGOS_LOGS_S3_BUCKET ?= magos-run-logs
 MAGOS_LOGS_S3_REGION ?= us-east-1
+MAGOS_LOGS_RETENTION ?= 30
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -129,6 +130,7 @@ run: deps manifests generate fmt vet install-rustfs ## Run all components in par
 	export MAGOS_LOGS_S3_FORCE_PATH_STYLE=true; \
 	export MAGOS_LOGS_S3_ACCESS_KEY_ID="$(RUSTFS_ACCESS_KEY)"; \
 	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$(RUSTFS_SECRET_KEY)"; \
+	export MAGOS_LOGS_RETENTION=$(MAGOS_LOGS_RETENTION); \
 	$(KUBECTL) port-forward svc/magos-rustfs $(RUSTFS_S3_PORT):9000 & \
 	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
 	$(MAKE) -s run-api & \
