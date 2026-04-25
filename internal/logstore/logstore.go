@@ -3,12 +3,10 @@ package logstore
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
-	"net/http"
 	"net/url"
 	"os"
 	"path"
@@ -21,40 +19,30 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 )
 
 const (
-	EnvLogsEnabled           = "MAGOS_LOGS_ENABLED"
-	EnvLogsS3Bucket          = "MAGOS_LOGS_S3_BUCKET"
-	EnvLogsS3Region          = "MAGOS_LOGS_S3_REGION"
-	EnvLogsS3Endpoint        = "MAGOS_LOGS_S3_ENDPOINT"
-	EnvLogsS3AccessKeyID     = "MAGOS_LOGS_S3_ACCESS_KEY_ID"
-	EnvLogsS3SecretAccessKey = "MAGOS_LOGS_S3_SECRET_ACCESS_KEY"
-	EnvLogsS3ForcePathStyle  = "MAGOS_LOGS_S3_FORCE_PATH_STYLE"
-	EnvLogsS3InsecureSkipTLS = "MAGOS_LOGS_S3_INSECURE_SKIP_TLS_VERIFY"
-	EnvLogsRetention         = "MAGOS_LOGS_RETENTION"
+	envLogsEnabled           = "MAGOS_LOGS_ENABLED"
+	envLogsRetention         = "MAGOS_LOGS_RETENTION"
+	envLogsS3Endpoint        = "MAGOS_LOGS_S3_ENDPOINT"
+	envLogsS3AccessKeyID     = "MAGOS_LOGS_S3_ACCESS_KEY_ID"
+	envLogsS3SecretAccessKey = "MAGOS_LOGS_S3_SECRET_ACCESS_KEY"
 
 	DefaultRetention = 30
+	defaultBucket    = "magos-run-logs"
 
 	maxDescendingTS = int64(math.MaxInt64)
 )
 
+// Config holds the user-facing log storage settings. The storage backend is
+// an internal concern and is not exposed.
 type Config struct {
-	Enabled   bool
-	Retention int
-	S3        S3Config
-}
-
-type S3Config struct {
-	Bucket                string
-	Region                string
-	Endpoint              string
-	AccessKeyID           string
-	SecretAccessKey       string
-	ForcePathStyle        bool
-	InsecureSkipTLSVerify bool
+	Enabled         bool
+	Retention       int
+	endpoint        string
+	accessKeyID     string
+	secretAccessKey string
 }
 
 // Store is the interface for reading and writing run logs and reconcile run
@@ -95,41 +83,32 @@ func RunLogKey(namespace, workspace, runID string, phase v1alpha1.RunPhase) stri
 
 func LoadConfigFromEnv() Config {
 	retention := DefaultRetention
-	if raw := os.Getenv(EnvLogsRetention); raw != "" {
+	if raw := os.Getenv(envLogsRetention); raw != "" {
 		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
 			retention = v
 		}
 	}
 	return Config{
-		Enabled:   parseBoolEnv(EnvLogsEnabled, false),
-		Retention: retention,
-		S3: S3Config{
-			Bucket:                os.Getenv(EnvLogsS3Bucket),
-			Region:                envOrDefault(EnvLogsS3Region, "us-east-1"),
-			Endpoint:              os.Getenv(EnvLogsS3Endpoint),
-			AccessKeyID:           os.Getenv(EnvLogsS3AccessKeyID),
-			SecretAccessKey:       os.Getenv(EnvLogsS3SecretAccessKey),
-			ForcePathStyle:        parseBoolEnv(EnvLogsS3ForcePathStyle, true),
-			InsecureSkipTLSVerify: parseBoolEnv(EnvLogsS3InsecureSkipTLS, false),
-		},
+		Enabled:         parseBoolEnv(envLogsEnabled, false),
+		Retention:       retention,
+		endpoint:        os.Getenv(envLogsS3Endpoint),
+		accessKeyID:     os.Getenv(envLogsS3AccessKeyID),
+		secretAccessKey: os.Getenv(envLogsS3SecretAccessKey),
 	}
 }
 
-func (c Config) Validate() error {
+func (c Config) validate() error {
 	if !c.Enabled {
 		return nil
 	}
-	if c.S3.Bucket == "" {
-		return fmt.Errorf("%s must be set when log storage is enabled", EnvLogsS3Bucket)
+	if c.endpoint == "" {
+		return fmt.Errorf("%s must be set when log storage is enabled", envLogsS3Endpoint)
 	}
-	if c.S3.Endpoint == "" {
-		return fmt.Errorf("%s must be set when log storage is enabled", EnvLogsS3Endpoint)
+	if c.accessKeyID == "" {
+		return fmt.Errorf("%s must be set when log storage is enabled", envLogsS3AccessKeyID)
 	}
-	if c.S3.AccessKeyID == "" {
-		return fmt.Errorf("%s must be set when log storage is enabled", EnvLogsS3AccessKeyID)
-	}
-	if c.S3.SecretAccessKey == "" {
-		return fmt.Errorf("%s must be set when log storage is enabled", EnvLogsS3SecretAccessKey)
+	if c.secretAccessKey == "" {
+		return fmt.Errorf("%s must be set when log storage is enabled", envLogsS3SecretAccessKey)
 	}
 	return nil
 }
@@ -138,10 +117,10 @@ func NewStore(ctx context.Context, cfg Config) (Store, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	return newS3Store(ctx, cfg.S3)
+	return newS3Store(ctx, cfg)
 }
 
 type s3Store struct {
@@ -149,51 +128,44 @@ type s3Store struct {
 	bucket string
 }
 
-func newS3Store(ctx context.Context, cfg S3Config) (Store, error) {
-	endpointURL, err := url.Parse(cfg.Endpoint)
+func newS3Store(ctx context.Context, cfg Config) (Store, error) {
+	endpointURL, err := url.Parse(cfg.endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("invalid S3 endpoint %q: %w", cfg.Endpoint, err)
+		return nil, fmt.Errorf("invalid S3 endpoint %q: %w", cfg.endpoint, err)
 	}
 
-	httpClient := http.DefaultClient
-	if cfg.InsecureSkipTLSVerify {
-		httpClient = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
-		}
-	}
-
+	// Region is required by the AWS SDK but not meaningful for most
+	// S3-compatible backends; any non-empty value satisfies the SDK.
 	awsCfg, err := config.LoadDefaultConfig(
 		ctx,
-		config.WithRegion(cfg.Region),
-		config.WithHTTPClient(httpClient),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.SecretAccessKey, "")),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(cfg.accessKeyID, cfg.secretAccessKey, "")),
 		config.WithBaseEndpoint(endpointURL.String()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("load AWS config: %w", err)
 	}
 
+	// Path-style addressing is required for S3-compatible stores that are not
+	// AWS S3 native (virtual-hosted-style is an AWS-specific convention).
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-		o.UsePathStyle = cfg.ForcePathStyle
+		o.UsePathStyle = true
 	})
 
-	store := &s3Store{client: client, bucket: cfg.Bucket}
-	if err := store.ensureBucket(ctx, cfg.Region); err != nil {
+	store := &s3Store{client: client, bucket: defaultBucket}
+	if err := store.ensureBucket(ctx); err != nil {
 		return nil, err
 	}
 	return store, nil
 }
 
-func (s *s3Store) ensureBucket(ctx context.Context, region string) error {
+func (s *s3Store) ensureBucket(ctx context.Context) error {
 	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(s.bucket)})
 	if err == nil {
 		return nil
 	}
 	_, err = s.client.CreateBucket(ctx, &s3.CreateBucketInput{
-		Bucket:                    aws.String(s.bucket),
-		CreateBucketConfiguration: createBucketConfiguration(region),
+		Bucket: aws.String(s.bucket),
 	})
 	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "bucketalreadyownedbyyou") && !strings.Contains(strings.ToLower(err.Error()), "bucket already exists") {
 		return fmt.Errorf("ensure bucket %q: %w", s.bucket, err)
@@ -469,21 +441,6 @@ func descendingTimestamp(t time.Time) string {
 		value = 0
 	}
 	return fmt.Sprintf("%019d", value)
-}
-
-func createBucketConfiguration(region string) *s3types.CreateBucketConfiguration {
-	if region == "" || region == "us-east-1" {
-		return nil
-	}
-	constraint := s3types.BucketLocationConstraint(region)
-	return &s3types.CreateBucketConfiguration{LocationConstraint: constraint}
-}
-
-func envOrDefault(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
 }
 
 func parseBoolEnv(key string, fallback bool) bool {

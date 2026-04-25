@@ -1,4 +1,4 @@
-{{- if .Values.rustfs.enabled }}
+{{- if .Values.logs.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,26 +31,24 @@ spec:
           type: RuntimeDefault
       containers:
       - name: rustfs
-        image: "{{ .Values.rustfs.image.repository }}:{{ .Values.rustfs.image.tag }}"
-        imagePullPolicy: {{ .Values.rustfs.image.pullPolicy }}
+        image: "{{ .Values.logs.storage.image.repository }}:{{ .Values.logs.storage.image.tag }}"
+        imagePullPolicy: {{ .Values.logs.storage.image.pullPolicy }}
         args:
         - /data
         ports:
         - name: s3
-          containerPort: {{ .Values.rustfs.service.port }}
+          containerPort: {{ .Values.logs.storage.service.port }}
           protocol: TCP
         - name: console
-          containerPort: {{ .Values.rustfs.service.consolePort }}
+          containerPort: {{ .Values.logs.storage.service.consolePort }}
           protocol: TCP
         env:
         - name: RUSTFS_ADDRESS
-          value: ":{{ .Values.rustfs.service.port }}"
+          value: ":{{ .Values.logs.storage.service.port }}"
         - name: RUSTFS_CONSOLE_ADDRESS
-          value: ":{{ .Values.rustfs.service.consolePort }}"
+          value: ":{{ .Values.logs.storage.service.consolePort }}"
         - name: RUSTFS_CONSOLE_ENABLE
           value: "true"
-        - name: RUSTFS_REGION
-          value: {{ .Values.rustfs.region | quote }}
         - name: RUSTFS_ACCESS_KEY
           valueFrom:
             secretKeyRef:

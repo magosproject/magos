@@ -1,4 +1,4 @@
-{{- if .Values.rustfs.enabled }}
+{{- if .Values.logs.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -12,11 +12,11 @@ spec:
     app.kubernetes.io/component: rustfs
   ports:
   - name: s3
-    port: {{ .Values.rustfs.service.port }}
+    port: {{ .Values.logs.storage.service.port }}
     targetPort: s3
     protocol: TCP
   - name: console
-    port: {{ .Values.rustfs.service.consolePort }}
+    port: {{ .Values.logs.storage.service.consolePort }}
     targetPort: console
     protocol: TCP
 {{- end }}

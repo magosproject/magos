@@ -73,60 +73,26 @@ Create the name of the service account to use for the API
 {{- end }}
 
 {{/*
-S3 endpoint for the log store.
-Defaults to the in-cluster RustFS service when rustfs.enabled is true.
-*/}}
-{{- define "magos.logstoreEndpoint" -}}
-{{- if .Values.logs.s3.endpoint -}}
-{{- .Values.logs.s3.endpoint -}}
-{{- else if .Values.rustfs.enabled -}}
-{{- printf "http://%s-rustfs:%v" (include "magos.fullname" .) .Values.rustfs.service.port -}}
-{{- else -}}
-{{- fail "logs.s3.endpoint must be set when rustfs.enabled is false" -}}
-{{- end -}}
-{{- end }}
-
-{{/*
-Name of the Secret that holds the S3 credentials for the log store.
-Defaults to the bundled RustFS secret when rustfs.enabled is true.
-*/}}
-{{- define "magos.logstoreSecretName" -}}
-{{- if .Values.logs.s3.accessKeySecretRef.name -}}
-{{- .Values.logs.s3.accessKeySecretRef.name -}}
-{{- else if .Values.rustfs.enabled -}}
-{{- printf "%s-rustfs" (include "magos.fullname" .) -}}
-{{- else -}}
-{{- fail "logs.s3.accessKeySecretRef.name must be set when rustfs.enabled is false" -}}
-{{- end -}}
-{{- end }}
-
-{{/*
-Environment variables for the log store. Renders MAGOS_LOGS_ENABLED unconditionally;
-all S3 settings are only rendered when logs.enabled is true.
+Environment variables for the log store. Credentials and endpoint are wired
+automatically from the bundled RustFS deployment and are not user-configurable.
 */}}
 {{- define "magos.logstoreEnv" -}}
 - name: MAGOS_LOGS_ENABLED
   value: {{ .Values.logs.enabled | quote }}
+- name: MAGOS_LOGS_RETENTION
+  value: {{ .Values.logs.retention | quote }}
 {{- if .Values.logs.enabled }}
-- name: MAGOS_LOGS_S3_BUCKET
-  value: {{ .Values.logs.s3.bucket | quote }}
-- name: MAGOS_LOGS_S3_REGION
-  value: {{ .Values.logs.s3.region | quote }}
 - name: MAGOS_LOGS_S3_ENDPOINT
-  value: {{ include "magos.logstoreEndpoint" . | quote }}
-- name: MAGOS_LOGS_S3_FORCE_PATH_STYLE
-  value: {{ .Values.logs.s3.forcePathStyle | quote }}
-- name: MAGOS_LOGS_S3_INSECURE_SKIP_TLS_VERIFY
-  value: {{ .Values.logs.s3.insecureSkipTLSVerify | quote }}
+  value: {{ printf "http://%s-rustfs:%v" (include "magos.fullname" .) .Values.logs.storage.service.port | quote }}
 - name: MAGOS_LOGS_S3_ACCESS_KEY_ID
   valueFrom:
     secretKeyRef:
-      name: {{ include "magos.logstoreSecretName" . }}
-      key: {{ .Values.logs.s3.accessKeySecretRef.key }}
+      name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+      key: accessKey
 - name: MAGOS_LOGS_S3_SECRET_ACCESS_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ include "magos.logstoreSecretName" . }}
-      key: {{ .Values.logs.s3.secretKeySecretRef.key }}
+      name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+      key: secretKey
 {{- end }}
 {{- end }}
