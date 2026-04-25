@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 
 	"github.com/magosproject/magos/api/internal/service"
@@ -167,6 +168,10 @@ func (h *WorkspaceHandler) GetRunLog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "namespace, name, and runID are required")
 		return
 	}
+	if !isValidRunID(runID) {
+		writeError(w, http.StatusBadRequest, "invalid runID")
+		return
+	}
 
 	body, err := h.service.GetRunLog(r.Context(), namespace, name, runID, parseRunPhase(r.URL.Query().Get("phase")))
 	if err != nil {
@@ -230,6 +235,15 @@ func parseRunPhase(raw string) apiv1alpha1.RunPhase {
 	default:
 		return apiv1alpha1.RunPhaseApply
 	}
+}
+
+// runIDPattern matches the format produced by newRunID: a UTC timestamp
+// followed by 8 lowercase hex characters. Rejecting anything that doesn't
+// match prevents path traversal via ".." segments in the S3 key.
+var runIDPattern = regexp.MustCompile(`^\d{8}T\d{6}-[0-9a-f]{8}$`)
+
+func isValidRunID(id string) bool {
+	return runIDPattern.MatchString(id)
 }
 
 func parseListLimit(raw string) (int, error) {
