@@ -5,8 +5,6 @@ JOB_IMG ?= magos-job:$(TAG)
 UI_IMG ?= ui:$(TAG)
 API_IMG ?= magos-api:$(TAG)
 RUSTFS_S3_PORT ?= 9000
-RUSTFS_ACCESS_KEY ?= rustfsadmin
-RUSTFS_SECRET_KEY ?= ChangeMe123!
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -20,8 +18,6 @@ endif
 # scaffolded by default. However, you might want to replace it to use other
 # tools. (i.e. podman)
 CONTAINER_TOOL ?= docker
-MAGOS_LOGS_S3_BUCKET ?= magos-run-logs
-MAGOS_LOGS_S3_REGION ?= us-east-1
 MAGOS_LOGS_RETENTION ?= 30
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
@@ -124,13 +120,10 @@ run: deps manifests generate fmt vet install-rustfs ## Run all components in par
 	@$(KUBECTL) wait deployment/magos-rustfs --for=condition=available --timeout=60s
 	@trap 'kill 0' EXIT; \
 	export MAGOS_LOGS_ENABLED=true; \
-	export MAGOS_LOGS_S3_BUCKET="$(MAGOS_LOGS_S3_BUCKET)"; \
-	export MAGOS_LOGS_S3_REGION="$(MAGOS_LOGS_S3_REGION)"; \
-	export MAGOS_LOGS_S3_ENDPOINT="http://127.0.0.1:$(RUSTFS_S3_PORT)"; \
-	export MAGOS_LOGS_S3_FORCE_PATH_STYLE=true; \
-	export MAGOS_LOGS_S3_ACCESS_KEY_ID="$(RUSTFS_ACCESS_KEY)"; \
-	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$(RUSTFS_SECRET_KEY)"; \
 	export MAGOS_LOGS_RETENTION=$(MAGOS_LOGS_RETENTION); \
+	export MAGOS_LOGS_S3_ENDPOINT="http://127.0.0.1:$(RUSTFS_S3_PORT)"; \
+	export MAGOS_LOGS_S3_ACCESS_KEY_ID="$$($(KUBECTL) get secret magos-rustfs -o jsonpath='{.data.accessKey}' | base64 -d)"; \
+	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$$($(KUBECTL) get secret magos-rustfs -o jsonpath='{.data.secretKey}' | base64 -d)"; \
 	$(KUBECTL) port-forward svc/magos-rustfs $(RUSTFS_S3_PORT):9000 & \
 	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
 	$(MAKE) -s run-api & \

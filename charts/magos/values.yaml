@@ -169,38 +169,19 @@ logs:
   # retention is the number of reconcile runs to keep per workspace.
   # Older runs are pruned automatically after each archive operation.
   retention: 30
-  s3:
-    bucket: magos-run-logs
-    # Used only for S3 request signing. For local RustFS on Kind this does not
-    # represent a real cloud region; keep us-east-1 unless your backend
-    # requires a different signing region.
-    region: us-east-1
-    endpoint: ""
-    forcePathStyle: true
-    insecureSkipTLSVerify: false
-    accessKeySecretRef:
-      name: ""
-      key: accessKey
-    secretKeySecretRef:
-      name: ""
-      key: secretKey
-
-rustfs:
-  enabled: true
-  image:
-    repository: rustfs/rustfs
-    tag: latest
-    pullPolicy: IfNotPresent
-  service:
-    port: 9000
-    consolePort: 9001
-  region: us-east-1
-  persistence:
-    size: 10Gi
-    # storageClass: "" # Leave empty to use the cluster default.
-  auth:
-    accessKey: rustfsadmin
-    secretKey: ChangeMe123!
+  # Storage backend configuration. RustFS (S3-compatible) is deployed
+  # automatically when logs are enabled. Credentials are auto-generated.
+  storage:
+    image:
+      repository: rustfs/rustfs
+      tag: latest
+      pullPolicy: IfNotPresent
+    service:
+      port: 9000
+      consolePort: 9001
+    persistence:
+      size: 10Gi
+      # storageClass: "" # Leave empty to use the cluster default.
 
 policy:
   kyverno:

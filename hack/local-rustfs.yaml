@@ -5,8 +5,8 @@ metadata:
   namespace: default
 type: Opaque
 stringData:
-  RUSTFS_ACCESS_KEY: rustfsadmin
-  RUSTFS_SECRET_KEY: ChangeMe123!
+  accessKey: rustfsadmin
+  secretKey: ChangeMe123!
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -56,9 +56,16 @@ spec:
           value: "true"
         - name: RUSTFS_CONSOLE_ADDRESS
           value: ":9001"
-        envFrom:
-        - secretRef:
-            name: magos-rustfs
+        - name: RUSTFS_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: magos-rustfs
+              key: accessKey
+        - name: RUSTFS_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: magos-rustfs
+              key: secretKey
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

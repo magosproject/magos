@@ -1,4 +1,4 @@
-{{- if .Values.rustfs.enabled }}
+{{- if .Values.logs.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -9,10 +9,10 @@ metadata:
 spec:
   accessModes:
   - ReadWriteOnce
-  {{- with .Values.rustfs.persistence.storageClass }}
+  {{- with .Values.logs.storage.persistence.storageClass }}
   storageClassName: {{ . }}
   {{- end }}
   resources:
     requests:
-      storage: {{ .Values.rustfs.persistence.size }}
+      storage: {{ .Values.logs.storage.persistence.size }}
 {{- end }}
