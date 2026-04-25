@@ -343,44 +343,52 @@ func (s *s3Store) GetRunLog(ctx context.Context, key string) (io.ReadCloser, err
 }
 
 // PruneOldRuns deletes reconcile run summaries and their log objects when the
-// total exceeds retention. Only object keys are fetched during the listing
-// phase; summary content is never downloaded here.
+// total exceeds retention. In steady state the workspace holds at most
+// retention+1 summaries (the retention kept runs plus the one just written),
+// so the first ListObjectsV2 call returns at most retention+1 keys and the
+// function exits without scanning further. A full paginated scan only occurs
+// on the first prune after a large backlog has accumulated.
 func (s *s3Store) PruneOldRuns(ctx context.Context, namespace, workspace string, retention int) error {
 	prefix := reconcileSummaryPrefix(namespace, workspace)
 
-	// Collect all summary keys. We only need keys here, not content.
-	var allKeys []string
+	// Fetch one more than the retention limit. If we get retention or fewer
+	// keys back there is nothing to prune and we are done in one API call.
+	firstPage, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket:  aws.String(s.bucket),
+		Prefix:  aws.String(prefix),
+		MaxKeys: aws.Int32(int32(retention + 1)),
+	})
+	if err != nil {
+		return fmt.Errorf("list summaries for pruning with prefix %q: %w", prefix, err)
+	}
+	if len(firstPage.Contents) <= retention {
+		return nil
+	}
+
+	// The key at index retention is the oldest run we want to keep. Everything
+	// lexicographically after it is a candidate for deletion.
+	cutoffKey := aws.ToString(firstPage.Contents[retention].Key)
+
 	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.bucket),
-		Prefix: aws.String(prefix),
+		Bucket:     aws.String(s.bucket),
+		Prefix:     aws.String(prefix),
+		StartAfter: aws.String(cutoffKey),
 	})
 	for paginator.HasMorePages() {
 		out, err := paginator.NextPage(ctx)
 		if err != nil {
-			return fmt.Errorf("list summaries for pruning with prefix %q: %w", prefix, err)
+			return fmt.Errorf("list old summaries for deletion with prefix %q: %w", prefix, err)
 		}
 		for _, obj := range out.Contents {
-			allKeys = append(allKeys, aws.ToString(obj.Key))
-		}
-	}
-
-	if len(allKeys) <= retention {
-		return nil
-	}
-
-	// Keys are in ascending lexicographic order. Because we use descending
-	// timestamps the newest runs appear first. Everything beyond retention is
-	// an old run that should be deleted.
-	toDelete := allKeys[retention:]
-	for _, summaryKey := range toDelete {
-		runID := extractRunIDFromSummaryKey(summaryKey)
-		for _, phase := range []v1alpha1.RunPhase{v1alpha1.RunPhasePlan, v1alpha1.RunPhaseApply} {
-			logKey := RunLogKey(namespace, workspace, runID, phase)
-			// Best-effort: the log may not exist if only one phase ran.
-			_ = s.deleteObject(ctx, logKey)
-		}
-		if err := s.deleteObject(ctx, summaryKey); err != nil {
-			return err
+			summaryKey := aws.ToString(obj.Key)
+			runID := extractRunIDFromSummaryKey(summaryKey)
+			for _, phase := range []v1alpha1.RunPhase{v1alpha1.RunPhasePlan, v1alpha1.RunPhaseApply} {
+				// Best-effort: the log may not exist if only one phase ran.
+				_ = s.deleteObject(ctx, RunLogKey(namespace, workspace, runID, phase))
+			}
+			if err := s.deleteObject(ctx, summaryKey); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
