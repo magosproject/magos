@@ -18,7 +18,7 @@ endif
 # scaffolded by default. However, you might want to replace it to use other
 # tools. (i.e. podman)
 CONTAINER_TOOL ?= docker
-MAGOS_LOGS_RETENTION ?= 30
+MAGOS_LOGS_RETENTION ?= 10
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
