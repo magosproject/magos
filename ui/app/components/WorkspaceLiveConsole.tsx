@@ -1,7 +1,7 @@
 import { Code, Loader, ScrollArea, Stack, Text, Title } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiUrl } from "../api/base";
-import type { Phase, ReconcileRun } from "../api/types";
+import type { Phase, Run } from "../api/types";
 
 type StreamEvent = {
   type?: "status" | "line" | "error" | "eof";
@@ -83,7 +83,7 @@ export default function WorkspaceLiveConsole({
     )
       .then(async (response) => {
         if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
-        return response.json() as Promise<{ items?: ReconcileRun[] }>;
+        return response.json() as Promise<{ items?: Run[] }>;
       })
       .then(async (payload) => {
         const latest = payload.items?.[0];

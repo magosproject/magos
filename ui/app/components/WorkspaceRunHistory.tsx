@@ -15,7 +15,7 @@ import {
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { apiUrl } from "../api/base";
-import type { Phase, ReconcileRun, ReconcileRunListResponse, RunPhaseSummary } from "../api/types";
+import type { Phase, Run, RunListResponse, RunPhaseSummary } from "../api/types";
 import { formatDateTime } from "../utils/formatDateTime";
 import { flashColorVar } from "../utils/colors";
 import SectionTable from "./SectionTable";
@@ -30,11 +30,11 @@ function formatDuration(startedAt?: string, finishedAt?: string) {
   return `${seconds}s`;
 }
 
-function displayRevision(run: ReconcileRun) {
+function displayRevision(run: Run) {
   return run.targetRevision?.trim() || run.observedRevision?.trim() || "—";
 }
 
-function runFinishedAt(run: ReconcileRun) {
+function runFinishedAt(run: Run) {
   return run.finishedAt ?? run.apply?.finishedAt ?? run.plan?.finishedAt ?? run.startedAt;
 }
 
@@ -145,13 +145,13 @@ function LogPane({ namespace, workspaceName, runID, phase, summary }: LogPanePro
 interface Props {
   namespace: string;
   workspaceName: string;
-  initialRuns: ReconcileRunListResponse;
+  initialRuns: RunListResponse;
   phase?: Phase;
   currentRunID?: string;
 }
 
 interface PageState {
-  items: ReconcileRun[];
+  items: Run[];
   nextCursor: string;
   cursor: string;
 }
@@ -171,7 +171,7 @@ export default function WorkspaceRunHistory({
     },
   ]);
   const [activePage, setActivePage] = useState(1);
-  const [selected, setSelected] = useState<ReconcileRun | null>(null);
+  const [selected, setSelected] = useState<Run | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [loadingPage, setLoadingPage] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -203,7 +203,7 @@ export default function WorkspaceRunHistory({
         { cache: "no-store" }
       );
       if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
-      const page = (await res.json()) as ReconcileRunListResponse;
+      const page = (await res.json()) as RunListResponse;
       setPages((current) => [
         ...current,
         { items: page.items ?? [], nextCursor: page.nextCursor ?? "", cursor },
@@ -229,10 +229,10 @@ export default function WorkspaceRunHistory({
       { cache: "no-store" }
     );
     if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
-    return (await res.json()) as ReconcileRunListResponse;
+    return (await res.json()) as RunListResponse;
   }
 
-  function applyLatestPage(runs: ReconcileRunListResponse) {
+  function applyLatestPage(runs: RunListResponse) {
     const previousIDs = new Set(pages[0]?.items.map((r) => r.runID ?? "").filter(Boolean));
     const newIDs = (runs.items ?? [])
       .map((r) => r.runID ?? "")

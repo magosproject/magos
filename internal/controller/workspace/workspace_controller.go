@@ -1252,8 +1252,8 @@ func (r *WorkspaceReconciler) archiveRunLogs(
 		LogSizeBytes: int64(len(compressed)),
 	}
 
-	run := v1alpha1.ReconcileRun{
-		RunID:            runID,
+	run := v1alpha1.Run{
+		ID:               runID,
 		Trigger:          workspace.Status.CurrentRunTrigger,
 		TargetRevision:   workspace.Spec.Source.TargetRevision,
 		ObservedRevision: currentRunObservedRevision(workspace),
@@ -1267,7 +1267,7 @@ func (r *WorkspaceReconciler) archiveRunLogs(
 		run.FinishedAt = phaseSummary.FinishedAt
 	}
 
-	if err := r.LogStore.UpsertReconcileRun(ctx, workspace.Namespace, workspace.Name, run); err != nil {
+	if err := r.LogStore.UpsertRun(ctx, workspace.Namespace, workspace.Name, run); err != nil {
 		return err
 	}
 

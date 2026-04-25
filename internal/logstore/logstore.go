@@ -53,16 +53,16 @@ type Store interface {
 	// The returned key must be deterministic and re-derivable via RunLogKey.
 	PutRunPhaseLog(ctx context.Context, namespace, workspace, runID string, phase v1alpha1.RunPhase, body []byte) (string, error)
 
-	// UpsertReconcileRun writes or merges a reconcile run summary.
+	// UpsertRun writes or merges a reconcile run summary.
 	// If a summary for the given RunID already exists, the plan and apply
 	// fields are merged independently so updates from each phase do not
 	// overwrite one another.
-	UpsertReconcileRun(ctx context.Context, namespace, workspace string, run v1alpha1.ReconcileRun) error
+	UpsertRun(ctx context.Context, namespace, workspace string, run v1alpha1.Run) error
 
-	// ListReconcileRuns returns up to limit recent reconcile runs for the
+	// ListRuns returns up to limit recent reconcile runs for the
 	// workspace, ordered newest first. To retrieve older results, pass the
 	// cursor returned by a previous call.
-	ListReconcileRuns(ctx context.Context, namespace, workspace string, limit int, cursor string) ([]v1alpha1.ReconcileRun, string, error)
+	ListRuns(ctx context.Context, namespace, workspace string, limit int, cursor string) ([]v1alpha1.Run, string, error)
 
 	// GetRunPhaseLog returns a reader for the decompressed log identified
 	// by key. The caller must close the returned reader.
@@ -186,20 +186,20 @@ func (s *s3Store) PutRunPhaseLog(ctx context.Context, namespace, workspace, runI
 	return key, nil
 }
 
-// UpsertReconcileRun writes or merges a reconcile run summary. If a summary
+// UpsertRun writes or merges a reconcile run summary. If a summary
 // already exists for this RunID (identified by its deterministic key) the
 // incoming Plan and Apply fields are merged into the existing record so both
 // phases can be written independently without clobbering each other.
-func (s *s3Store) UpsertReconcileRun(ctx context.Context, namespace, workspace string, run v1alpha1.ReconcileRun) error {
-	t, err := parseRunIDTime(run.RunID)
+func (s *s3Store) UpsertRun(ctx context.Context, namespace, workspace string, run v1alpha1.Run) error {
+	t, err := parseRunIDTime(run.ID)
 	if err != nil {
 		return err
 	}
-	key := reconcileSummaryKey(namespace, workspace, t, run.RunID)
+	key := reconcileSummaryKey(namespace, workspace, t, run.ID)
 
 	// Merge with any existing summary for this run so that archiving the plan
 	// and apply phases independently produces a single coherent record.
-	if existing, readErr := s.readReconcileRun(ctx, key); readErr == nil {
+	if existing, readErr := s.readRun(ctx, key); readErr == nil {
 		if run.Plan != nil {
 			existing.Plan = run.Plan
 		}
@@ -214,7 +214,7 @@ func (s *s3Store) UpsertReconcileRun(ctx context.Context, namespace, workspace s
 
 	body, err := json.Marshal(run)
 	if err != nil {
-		return fmt.Errorf("marshal reconcile run %q: %w", run.RunID, err)
+		return fmt.Errorf("marshal reconcile run %q: %w", run.ID, err)
 	}
 	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucket),
@@ -228,7 +228,7 @@ func (s *s3Store) UpsertReconcileRun(ctx context.Context, namespace, workspace s
 	return nil
 }
 
-// ListReconcileRuns returns up to limit reconcile run summaries for the
+// ListRuns returns up to limit reconcile run summaries for the
 // workspace, ordered newest first. The cursor is the S3 object key of the last
 // item from the previous page; pass an empty string to start from the most
 // recent run.
@@ -237,7 +237,7 @@ func (s *s3Store) UpsertReconcileRun(ctx context.Context, namespace, workspace s
 // already returns runs in newest-first order. We fetch at most limit+1 keys to
 // detect whether a next page exists, then download only the limit summaries we
 // actually need, in parallel.
-func (s *s3Store) ListReconcileRuns(ctx context.Context, namespace, workspace string, limit int, cursor string) ([]v1alpha1.ReconcileRun, string, error) {
+func (s *s3Store) ListRuns(ctx context.Context, namespace, workspace string, limit int, cursor string) ([]v1alpha1.Run, string, error) {
 	if limit <= 0 {
 		limit = DefaultRetention
 	}
@@ -267,7 +267,7 @@ func (s *s3Store) ListReconcileRuns(ctx context.Context, namespace, workspace st
 	// latency sequentially.
 	type result struct {
 		index int
-		run   v1alpha1.ReconcileRun
+		run   v1alpha1.Run
 		err   error
 	}
 	results := make([]result, len(objects))
@@ -276,7 +276,7 @@ func (s *s3Store) ListReconcileRuns(ctx context.Context, namespace, workspace st
 		wg.Add(1)
 		go func(i int, key string) {
 			defer wg.Done()
-			run, err := s.readReconcileRun(ctx, key)
+			run, err := s.readRun(ctx, key)
 			if err != nil {
 				results[i] = result{index: i, err: err}
 				return
@@ -286,7 +286,7 @@ func (s *s3Store) ListReconcileRuns(ctx context.Context, namespace, workspace st
 	}
 	wg.Wait()
 
-	runs := make([]v1alpha1.ReconcileRun, len(objects))
+	runs := make([]v1alpha1.Run, len(objects))
 	for _, r := range results {
 		if r.err != nil {
 			return nil, "", r.err
@@ -364,7 +364,7 @@ func (s *s3Store) PruneOldRuns(ctx context.Context, namespace, workspace string,
 	return nil
 }
 
-func (s *s3Store) readReconcileRun(ctx context.Context, key string) (*v1alpha1.ReconcileRun, error) {
+func (s *s3Store) readRun(ctx context.Context, key string) (*v1alpha1.Run, error) {
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
@@ -374,7 +374,7 @@ func (s *s3Store) readReconcileRun(ctx context.Context, key string) (*v1alpha1.R
 	}
 	defer func() { _ = out.Body.Close() }()
 
-	var run v1alpha1.ReconcileRun
+	var run v1alpha1.Run
 	if err := json.NewDecoder(out.Body).Decode(&run); err != nil {
 		return nil, fmt.Errorf("decode reconcile run summary %q: %w", key, err)
 	}

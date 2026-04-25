@@ -90,21 +90,6 @@
                 },
                 "type": "object"
             },
-            "service.ReconcileRunListResponse": {
-                "properties": {
-                    "items": {
-                        "items": {
-                            "$ref": "#/components/schemas/v1alpha1.ReconcileRun"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "nextCursor": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "service.RolloutEvent": {
                 "properties": {
                     "object": {
@@ -112,6 +97,21 @@
                     },
                     "type": {
                         "$ref": "#/components/schemas/watch.EventType"
+                    }
+                },
+                "type": "object"
+            },
+            "service.RunListResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/v1alpha1.Run"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "nextCursor": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -540,40 +540,6 @@
                 },
                 "type": "object"
             },
-            "v1alpha1.ReconcileRun": {
-                "properties": {
-                    "apply": {
-                        "$ref": "#/components/schemas/v1alpha1.RunPhaseSummary"
-                    },
-                    "finishedAt": {
-                        "description": "FinishedAt is when the last completed phase of this cycle finished.\n+optional",
-                        "type": "string"
-                    },
-                    "observedRevision": {
-                        "description": "ObservedRevision is the resolved git commit SHA for this cycle.\n+optional",
-                        "type": "string"
-                    },
-                    "plan": {
-                        "$ref": "#/components/schemas/v1alpha1.RunPhaseSummary"
-                    },
-                    "runID": {
-                        "description": "RunID uniquely identifies this reconciliation cycle. The same ID is\nused for both the plan and apply phases of a single cycle.",
-                        "type": "string"
-                    },
-                    "startedAt": {
-                        "description": "StartedAt is when the first phase of this cycle began.\n+optional",
-                        "type": "string"
-                    },
-                    "targetRevision": {
-                        "description": "TargetRevision is the ref configured on the Workspace spec at the time\nthis cycle started, for example a branch name like \"main\".\n+optional",
-                        "type": "string"
-                    },
-                    "trigger": {
-                        "$ref": "#/components/schemas/v1alpha1.RunTrigger"
-                    }
-                },
-                "type": "object"
-            },
             "v1alpha1.Rollout": {
                 "properties": {
                     "metadata": {
@@ -660,6 +626,40 @@
                 },
                 "type": "object"
             },
+            "v1alpha1.Run": {
+                "properties": {
+                    "apply": {
+                        "$ref": "#/components/schemas/v1alpha1.RunPhaseSummary"
+                    },
+                    "finishedAt": {
+                        "description": "FinishedAt is when the last completed phase of this run finished.\n+optional",
+                        "type": "string"
+                    },
+                    "observedRevision": {
+                        "description": "ObservedRevision is the resolved git commit SHA for this run.\n+optional",
+                        "type": "string"
+                    },
+                    "plan": {
+                        "$ref": "#/components/schemas/v1alpha1.RunPhaseSummary"
+                    },
+                    "runID": {
+                        "description": "ID uniquely identifies this plan and apply run. The same ID is used for\nboth the plan and apply jobs so their logs can be grouped together.",
+                        "type": "string"
+                    },
+                    "startedAt": {
+                        "description": "StartedAt is when the plan phase of this run began.\n+optional",
+                        "type": "string"
+                    },
+                    "targetRevision": {
+                        "description": "TargetRevision is the ref configured on the Workspace spec when this run\nstarted, for example a branch name like \"main\".\n+optional",
+                        "type": "string"
+                    },
+                    "trigger": {
+                        "$ref": "#/components/schemas/v1alpha1.RunTrigger"
+                    }
+                },
+                "type": "object"
+            },
             "v1alpha1.RunLogResult": {
                 "description": "Result is the terminal outcome of the phase.\n+optional",
                 "enum": [
@@ -684,7 +684,7 @@
                 ]
             },
             "v1alpha1.RunPhaseSummary": {
-                "description": "Apply captures the outcome of the terraform apply phase. Nil when the\ncycle has not yet reached or completed the apply phase.\n+optional",
+                "description": "Apply captures the outcome of the terraform apply phase. Nil when the\nrun has not yet reached or completed the apply phase.\n+optional",
                 "properties": {
                     "finishedAt": {
                         "description": "FinishedAt is when the Job reached a terminal state.\n+optional",
@@ -717,7 +717,7 @@
                 "type": "object"
             },
             "v1alpha1.RunTrigger": {
-                "description": "Trigger records what caused this reconciliation cycle to start.\n+optional",
+                "description": "Trigger records what caused this plan and apply run to start.\n+optional",
                 "enum": [
                     "unknown",
                     "configuration",
@@ -889,7 +889,7 @@
                         "uniqueItems": false
                     },
                     "currentRunID": {
-                        "description": "CurrentRunID identifies the current reconciliation run that the\ncontroller is executing. The same run ID is shared across the plan/apply\npair for a single cycle and is replaced when the next cycle starts.\n+optional",
+                        "description": "CurrentRunID is the identifier for the plan and apply run that is currently\nin progress. A run begins when the controller determines the workspace\nneeds to act on a change and ends when it reaches a terminal phase\n(Applied, Failed, or ValidationFailed). Both the plan job and the\nsubsequent apply job share this ID so their logs can be stored and\nretrieved as a single unit. The controller replaces this value when a\nnew run starts.\n+optional",
                         "type": "string"
                     },
                     "currentRunTrigger": {
@@ -919,7 +919,7 @@
                         "$ref": "#/components/schemas/v1alpha1.Phase"
                     },
                     "policyViolations": {
-                        "description": "PolicyViolations records violations from the most recent policy validation\nrun. Populated when the plan job evaluates ValidatingPolicy resources and\none or more rules fail. Cleared at the start of each new plan cycle.\n+optional",
+                        "description": "PolicyViolations records violations from the most recent policy validation\nrun. Populated when the plan job evaluates ValidatingPolicy resources and\none or more rules fail. Cleared at the start of each new plan and apply run.\n+optional",
                         "items": {
                             "$ref": "#/components/schemas/v1alpha1.PolicyViolation"
                         },
@@ -1545,7 +1545,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/service.ReconcileRunListResponse"
+                                    "$ref": "#/components/schemas/service.RunListResponse"
                                 }
                             }
                         },
@@ -1572,7 +1572,7 @@
                         "description": "Not Found"
                     }
                 },
-                "summary": "List reconcile runs for a Workspace",
+                "summary": "List runs for a Workspace",
                 "tags": [
                     "Workspace"
                 ]
@@ -1600,7 +1600,7 @@
                         }
                     },
                     {
-                        "description": "Run phase filter",
+                        "description": "Phase to stream: plan or apply (defaults to apply)",
                         "in": "query",
                         "name": "phase",
                         "schema": {
@@ -1640,7 +1640,7 @@
                         "description": "Not Found"
                     }
                 },
-                "summary": "Stream live logs for the current Workspace run",
+                "summary": "Stream live logs from the active phase of the in-progress plan and apply run",
                 "tags": [
                     "Workspace"
                 ]
@@ -1677,7 +1677,7 @@
                         }
                     },
                     {
-                        "description": "Run phase filter",
+                        "description": "Phase to retrieve: plan or apply (defaults to apply)",
                         "in": "query",
                         "name": "phase",
                         "schema": {
@@ -1694,7 +1694,7 @@
                                 }
                             }
                         },
-                        "description": "OK"
+                        "description": "Plain text log content"
                     },
                     "400": {
                         "content": {
@@ -1717,7 +1717,7 @@
                         "description": "Not Found"
                     }
                 },
-                "summary": "Get archived run log for a Workspace run",
+                "summary": "Get the archived log for one phase of a plan and apply run",
                 "tags": [
                     "Workspace"
                 ]

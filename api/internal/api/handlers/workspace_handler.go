@@ -108,14 +108,14 @@ func (h *WorkspaceHandler) RequestReconcile(w http.ResponseWriter, r *http.Reque
 
 // ListRuns godoc
 //
-//	@Summary	List reconcile runs for a Workspace
+//	@Summary	List runs for a Workspace
 //	@Tags		Workspace
 //	@Produce	json
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
 //	@Param		limit		query		int		false	"Page size (default 20, max 100)"
 //	@Param		cursor		query		string	false	"Pagination cursor from a previous response"
-//	@Success	200			{object}	service.ReconcileRunListResponse
+//	@Success	200			{object}	service.RunListResponse
 //	@Failure	400			{object}	ErrorResponse
 //	@Failure	404			{object}	ErrorResponse
 //	@Router		/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs [get]
@@ -133,7 +133,7 @@ func (h *WorkspaceHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items, err := h.service.ListReconcileRuns(r.Context(), namespace, name, limit, r.URL.Query().Get("cursor"))
+	items, err := h.service.ListRuns(r.Context(), namespace, name, limit, r.URL.Query().Get("cursor"))
 	if err != nil {
 		h.logger.Error("failed to list workspace reconcile runs", "error", err, "namespace", namespace, "name", name)
 		if apierrors.IsNotFound(err) {

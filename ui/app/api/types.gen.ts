@@ -654,7 +654,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List reconcile runs for a Workspace */
+        /** List runs for a Workspace */
         get: {
             parameters: {
                 query?: {
@@ -680,7 +680,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["service.ReconcileRunListResponse"];
+                        "application/json": components["schemas"]["service.RunListResponse"];
                     };
                 };
                 /** @description Bad Request */
@@ -718,11 +718,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Stream live logs for the current Workspace run */
+        /** Stream live logs from the active phase of the in-progress plan and apply run */
         get: {
             parameters: {
                 query?: {
-                    /** @description Run phase filter */
+                    /** @description Phase to stream: plan or apply (defaults to apply) */
                     phase?: string;
                 };
                 header?: never;
@@ -780,11 +780,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get archived run log for a Workspace run */
+        /** Get the archived log for one phase of a plan and apply run */
         get: {
             parameters: {
                 query?: {
-                    /** @description Run phase filter */
+                    /** @description Phase to retrieve: plan or apply (defaults to apply) */
                     phase?: string;
                 };
                 header?: never;
@@ -800,7 +800,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
+                /** @description Plain text log content */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -952,13 +952,13 @@ export interface components {
             object?: components["schemas"]["v1alpha1.Project"];
             type?: components["schemas"]["watch.EventType"];
         };
-        "service.ReconcileRunListResponse": {
-            items?: components["schemas"]["v1alpha1.ReconcileRun"][];
-            nextCursor?: string;
-        };
         "service.RolloutEvent": {
             object?: components["schemas"]["v1alpha1.Rollout"];
             type?: components["schemas"]["watch.EventType"];
+        };
+        "service.RunListResponse": {
+            items?: components["schemas"]["v1alpha1.Run"][];
+            nextCursor?: string;
         };
         "service.RunLogStreamEvent": {
             line?: string;
@@ -1446,37 +1446,6 @@ export interface components {
              */
             reason?: string;
         };
-        "v1alpha1.ReconcileRun": {
-            apply?: components["schemas"]["v1alpha1.RunPhaseSummary"];
-            /**
-             * @description FinishedAt is when the last completed phase of this cycle finished.
-             *     +optional
-             */
-            finishedAt?: string;
-            /**
-             * @description ObservedRevision is the resolved git commit SHA for this cycle.
-             *     +optional
-             */
-            observedRevision?: string;
-            plan?: components["schemas"]["v1alpha1.RunPhaseSummary"];
-            /**
-             * @description RunID uniquely identifies this reconciliation cycle. The same ID is
-             *     used for both the plan and apply phases of a single cycle.
-             */
-            runID?: string;
-            /**
-             * @description StartedAt is when the first phase of this cycle began.
-             *     +optional
-             */
-            startedAt?: string;
-            /**
-             * @description TargetRevision is the ref configured on the Workspace spec at the time
-             *     this cycle started, for example a branch name like "main".
-             *     +optional
-             */
-            targetRevision?: string;
-            trigger?: components["schemas"]["v1alpha1.RunTrigger"];
-        };
         "v1alpha1.Rollout": {
             metadata?: components["schemas"]["v1.ObjectMeta"];
             spec?: components["schemas"]["v1alpha1.RolloutSpec"];
@@ -1547,6 +1516,37 @@ export interface components {
              */
             steps?: components["schemas"]["v1alpha1.RolloutStep"][];
         };
+        "v1alpha1.Run": {
+            apply?: components["schemas"]["v1alpha1.RunPhaseSummary"];
+            /**
+             * @description FinishedAt is when the last completed phase of this run finished.
+             *     +optional
+             */
+            finishedAt?: string;
+            /**
+             * @description ObservedRevision is the resolved git commit SHA for this run.
+             *     +optional
+             */
+            observedRevision?: string;
+            plan?: components["schemas"]["v1alpha1.RunPhaseSummary"];
+            /**
+             * @description ID uniquely identifies this plan and apply run. The same ID is used for
+             *     both the plan and apply jobs so their logs can be grouped together.
+             */
+            runID?: string;
+            /**
+             * @description StartedAt is when the plan phase of this run began.
+             *     +optional
+             */
+            startedAt?: string;
+            /**
+             * @description TargetRevision is the ref configured on the Workspace spec when this run
+             *     started, for example a branch name like "main".
+             *     +optional
+             */
+            targetRevision?: string;
+            trigger?: components["schemas"]["v1alpha1.RunTrigger"];
+        };
         /**
          * @description Result is the terminal outcome of the phase.
          *     +optional
@@ -1557,7 +1557,7 @@ export interface components {
         "v1alpha1.RunPhase": "plan" | "apply";
         /**
          * @description Apply captures the outcome of the terraform apply phase. Nil when the
-         *     cycle has not yet reached or completed the apply phase.
+         *     run has not yet reached or completed the apply phase.
          *     +optional
          */
         "v1alpha1.RunPhaseSummary": {
@@ -1594,7 +1594,7 @@ export interface components {
             startedAt?: string;
         };
         /**
-         * @description Trigger records what caused this reconciliation cycle to start.
+         * @description Trigger records what caused this plan and apply run to start.
          *     +optional
          * @enum {string}
          */
@@ -1755,9 +1755,13 @@ export interface components {
              */
             conditions?: components["schemas"]["v1.Condition"][];
             /**
-             * @description CurrentRunID identifies the current reconciliation run that the
-             *     controller is executing. The same run ID is shared across the plan/apply
-             *     pair for a single cycle and is replaced when the next cycle starts.
+             * @description CurrentRunID is the identifier for the plan and apply run that is currently
+             *     in progress. A run begins when the controller determines the workspace
+             *     needs to act on a change and ends when it reaches a terminal phase
+             *     (Applied, Failed, or ValidationFailed). Both the plan job and the
+             *     subsequent apply job share this ID so their logs can be stored and
+             *     retrieved as a single unit. The controller replaces this value when a
+             *     new run starts.
              *     +optional
              */
             currentRunID?: string;
@@ -1799,7 +1803,7 @@ export interface components {
             /**
              * @description PolicyViolations records violations from the most recent policy validation
              *     run. Populated when the plan job evaluates ValidatingPolicy resources and
-             *     one or more rules fail. Cleared at the start of each new plan cycle.
+             *     one or more rules fail. Cleared at the start of each new plan and apply run.
              *     +optional
              */
             policyViolations?: components["schemas"]["v1alpha1.PolicyViolation"][];

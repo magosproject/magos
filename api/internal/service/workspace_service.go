@@ -37,14 +37,14 @@ type WorkspaceService interface {
 	List(ctx context.Context) ([]*apiv1alpha1.Workspace, error)
 	Get(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
 	RequestReconcile(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
-	ListReconcileRuns(ctx context.Context, namespace, name string, limit int, cursor string) (*ReconcileRunListResponse, error)
+	ListRuns(ctx context.Context, namespace, name string, limit int, cursor string) (*RunListResponse, error)
 	GetRunPhaseLog(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase) (io.ReadCloser, error)
 	StreamCurrentRunLogs(ctx context.Context, namespace, name string, phase apiv1alpha1.RunPhase) <-chan RunLogStreamEvent
 }
 
-type ReconcileRunListResponse struct {
-	Items      []apiv1alpha1.ReconcileRun `json:"items"`
-	NextCursor string                     `json:"nextCursor,omitempty"`
+type RunListResponse struct {
+	Items      []apiv1alpha1.Run `json:"items"`
+	NextCursor string            `json:"nextCursor,omitempty"`
 }
 
 type RunLogStreamEvent struct {
@@ -161,19 +161,19 @@ func (s *workspaceService) RequestReconcile(ctx context.Context, namespace, name
 	return workspace, nil
 }
 
-func (s *workspaceService) ListReconcileRuns(ctx context.Context, namespace, name string, limit int, cursor string) (*ReconcileRunListResponse, error) {
+func (s *workspaceService) ListRuns(ctx context.Context, namespace, name string, limit int, cursor string) (*RunListResponse, error) {
 	workspace, err := s.Get(ctx, namespace, name)
 	if err != nil {
 		return nil, err
 	}
 	if s.logStore == nil {
-		return &ReconcileRunListResponse{}, nil
+		return &RunListResponse{}, nil
 	}
-	runs, nextCursor, err := s.logStore.ListReconcileRuns(ctx, workspace.Namespace, workspace.Name, limit, cursor)
+	runs, nextCursor, err := s.logStore.ListRuns(ctx, workspace.Namespace, workspace.Name, limit, cursor)
 	if err != nil {
 		return nil, err
 	}
-	return &ReconcileRunListResponse{
+	return &RunListResponse{
 		Items:      runs,
 		NextCursor: nextCursor,
 	}, nil

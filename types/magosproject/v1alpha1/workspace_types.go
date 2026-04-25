@@ -294,14 +294,14 @@ type RunPhaseSummary struct {
 	LogSizeBytes int64 `json:"logSizeBytes,omitempty"`
 }
 
-// ReconcileRun represents one complete plan and apply run for a Workspace. A run
+// Run represents one complete plan and apply run for a Workspace. A run
 // always includes a plan phase and, when approved, an apply phase. Both phases
 // share the same RunID and are stored together so callers can retrieve the
 // full history of what ran and why.
-type ReconcileRun struct {
-	// RunID uniquely identifies this plan and apply run. The same ID is used for
+type Run struct {
+	// ID uniquely identifies this plan and apply run. The same ID is used for
 	// both the plan and apply jobs so their logs can be grouped together.
-	RunID string `json:"runID"`
+	ID string `json:"runID"`
 	// Trigger records what caused this plan and apply run to start.
 	// +optional
 	Trigger RunTrigger `json:"trigger,omitempty"`

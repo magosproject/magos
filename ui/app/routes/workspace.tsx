@@ -13,7 +13,7 @@ import WorkspaceLiveConsole from "../components/WorkspaceLiveConsole";
 import WorkspaceOverview from "../components/WorkspaceOverview";
 import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
-import type { Phase, Project, ReconcileRunListResponse, Workspace as WorkspaceType } from "../api/types";
+import type { Phase, Project, RunListResponse, Workspace as WorkspaceType } from "../api/types";
 import { useSSEItem } from "../hooks/useSSEItem";
 import { useFlashOnChange } from "../hooks/useFlashOnChange";
 import { flashColorVar } from "../utils/colors";
@@ -49,7 +49,7 @@ export async function clientLoader({ params }: { params: { namespace: string; na
       },
     }
   );
-  const initialRuns: ReconcileRunListResponse = runs ?? { items: [] };
+  const initialRuns: RunListResponse = runs ?? { items: [] };
 
   return { workspace: ws, project, initialRuns };
 }
