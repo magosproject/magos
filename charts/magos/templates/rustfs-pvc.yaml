@@ -9,6 +9,9 @@ metadata:
 spec:
   accessModes:
   - ReadWriteOnce
+  {{- with .Values.rustfs.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
   resources:
     requests:
       storage: {{ .Values.rustfs.persistence.size }}

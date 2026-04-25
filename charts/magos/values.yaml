@@ -191,8 +191,10 @@ rustfs:
   service:
     port: 9000
     consolePort: 9001
+  region: us-east-1
   persistence:
     size: 10Gi
+    # storageClass: "" # Leave empty to use the cluster default.
   auth:
     accessKey: rustfsadmin
     secretKey: ChangeMe123!

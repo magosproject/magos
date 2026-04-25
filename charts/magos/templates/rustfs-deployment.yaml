@@ -49,6 +49,8 @@ spec:
           value: ":{{ .Values.rustfs.service.consolePort }}"
         - name: RUSTFS_CONSOLE_ENABLE
           value: "true"
+        - name: RUSTFS_REGION
+          value: {{ .Values.rustfs.region | quote }}
         - name: RUSTFS_ACCESS_KEY
           valueFrom:
             secretKeyRef:
@@ -65,11 +67,16 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: false
+          runAsNonRoot: true
         volumeMounts:
         - name: data
           mountPath: /data
+        - name: logs
+          mountPath: /logs
       volumes:
       - name: data
         persistentVolumeClaim:
           claimName: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+      - name: logs
+        emptyDir: {}
 {{- end }}

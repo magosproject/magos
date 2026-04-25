@@ -43,28 +43,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        - name: MAGOS_LOGS_ENABLED
-          value: {{ .Values.logs.enabled | quote }}
-        - name: MAGOS_LOGS_S3_BUCKET
-          value: {{ .Values.logs.s3.bucket | quote }}
-        - name: MAGOS_LOGS_S3_REGION
-          value: {{ .Values.logs.s3.region | quote }}
-        - name: MAGOS_LOGS_S3_ENDPOINT
-          value: {{ default (printf "http://%s-rustfs:%v" (include "magos.fullname" .) .Values.rustfs.service.port) .Values.logs.s3.endpoint | quote }}
-        - name: MAGOS_LOGS_S3_FORCE_PATH_STYLE
-          value: {{ .Values.logs.s3.forcePathStyle | quote }}
-        - name: MAGOS_LOGS_S3_INSECURE_SKIP_TLS_VERIFY
-          value: {{ .Values.logs.s3.insecureSkipTLSVerify | quote }}
-        - name: MAGOS_LOGS_S3_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: {{ default (printf "%s-rustfs" (include "magos.fullname" .)) .Values.logs.s3.accessKeySecretRef.name }}
-              key: {{ .Values.logs.s3.accessKeySecretRef.key }}
-        - name: MAGOS_LOGS_S3_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: {{ default (printf "%s-rustfs" (include "magos.fullname" .)) .Values.logs.s3.secretKeySecretRef.name }}
-              key: {{ .Values.logs.s3.secretKeySecretRef.key }}
+        {{- include "magos.logstoreEnv" . | nindent 8 }}
         {{- with .Values.api.env }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
