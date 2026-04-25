@@ -122,7 +122,7 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/events", s.workspaceHandler.Events)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}", s.workspaceHandler.Get)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs", s.workspaceHandler.ListRuns)
-	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/log", s.workspaceHandler.GetRunLog)
+	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/log", s.workspaceHandler.GetRunPhaseLog)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/current/log/stream", s.workspaceHandler.StreamCurrentRunLog)
 	mux.HandleFunc("POST /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile", s.workspaceHandler.RequestReconcile)
 

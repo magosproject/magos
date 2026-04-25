@@ -362,6 +362,10 @@ func newRunID() string {
 	return fmt.Sprintf("%s-%s", now.Format("20060102T150405"), hex.EncodeToString(suffix[:]))
 }
 
+// ensureRunID returns the workspace's current run ID, minting a new one if the
+// field is empty. This is called at job-creation time rather than at reset time
+// so the ID is stable across the multiple reconcile invocations that make up a
+// single plan and apply run.
 func ensureRunID(workspace *v1alpha1.Workspace) string {
 	if workspace.Status.CurrentRunID == "" {
 		workspace.Status.CurrentRunID = newRunID()
@@ -583,7 +587,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// detected-revision annotation on the Workspace with the new SHA. That
 	// annotation is the handoff signal between the two controllers: the
 	// RefWatcher writes it, and we consume it here by starting a fresh
-	// plan/apply cycle immediately rather than waiting for the sync interval.
+	// plan and apply run immediately rather than waiting for the sync interval.
 	//
 	// The phase guard below is critical. The reset path deliberately preserves
 	// the detected-revision annotation so that Step 8 can read the exact commit
@@ -593,7 +597,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// reconcile, creating an infinite loop because it is never cleared until
 	// Step 8. By restricting to terminal phases (Applied, Failed) and the
 	// initial empty phase, we guarantee the reset fires exactly once per new
-	// commit: the Workspace resets, progresses through its plan/apply cycle,
+	// commit: the Workspace resets, progresses through its plan and apply run,
 	// and only then is the annotation consumed.
 	if !needsReset && workspace.Annotations != nil &&
 		(workspace.Status.Phase == "" || workspace.Status.Phase == v1alpha1.PhaseApplied || workspace.Status.Phase == v1alpha1.PhaseFailed) {
@@ -607,7 +611,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// Manual reconcile requests behave similarly, but unlike
 	// detected-revision they do not carry data that must survive the cycle.
 	// The same phase guard ensures the request triggers exactly one fresh
-	// plan/apply cycle and does not keep resetting an in-progress run.
+	// plan and apply run and does not keep resetting an in-progress run.
 	if !needsReset && workspace.Annotations != nil &&
 		(workspace.Status.Phase == "" || workspace.Status.Phase == v1alpha1.PhaseApplied || workspace.Status.Phase == v1alpha1.PhaseFailed) {
 		if req := workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation]; req != "" {
@@ -637,6 +641,10 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		// before earlier ones (e.g. dev) have even started their new cycle.
 		// Writing Pending first closes that window: the Rollout sees
 		// PhasePending and knows the Workspace still has work to do.
+		// Stamp a fresh run ID and trigger reason before writing Pending.
+		// Both values are shared across the plan job and the apply job that
+		// follows it so the log store can group both into a single run record
+		// and report what originally caused this plan and apply run to start.
 		workspace.Status.CurrentRunID = newRunID()
 		workspace.Status.CurrentRunTrigger = runTriggerFromResetReason(resetReason)
 		r.updateStatus(ctx, workspace, v1alpha1.PhasePending, resetReason, resetMessage, metav1.ConditionUnknown)
@@ -916,7 +924,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// three controllers. The RefWatcher writes it with the commit SHA when it
 	// discovers that a branch or tag moved. Step 3 sees the annotation, resets
 	// the Workspace to Pending, and intentionally preserves the annotation so
-	// the SHA survives the plan/apply cycle. Here in Step 8 we read the SHA
+	// the SHA survives the plan and apply run. Here in Step 8 we read the SHA
 	// from the annotation and record it as status.observedRevision, then delete
 	// the annotation so it does not trigger another reset. The Rollout
 	// controller's workspaceFullyApplied() also checks for the absence of this
@@ -936,7 +944,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	//
 	// If this run was triggered by a manual reconcile request, we consume that
 	// annotation here as well. It is a one-shot trigger for exactly one fresh
-	// plan/apply cycle, not a durable desired-state flag.
+	// plan and apply run, not a durable desired-state flag.
 	logger.Info("Apply Job completed successfully", "job", applyJobName)
 	if err := r.archiveRunLogs(ctx, workspace, &applyJob, v1alpha1.RunPhaseApply, v1alpha1.RunLogResultSucceeded); err != nil {
 		logger.Error(err, "Failed to archive apply logs", "job", applyJobName)
@@ -1195,7 +1203,7 @@ func terminalJobFinishedAt(job *batchv1.Job) *metav1.Time {
 
 // archiveRunLogs reads the pod logs for the given job, compresses them, and
 // writes them to the log store. It then upserts the reconcile run summary so
-// that the plan and apply phases of the same cycle accumulate into a single
+// that the plan and apply phases of the same plan and apply run accumulate into a single
 // record. Old runs beyond the retention limit are pruned after each write.
 func (r *WorkspaceReconciler) archiveRunLogs(
 	ctx context.Context,
@@ -1208,6 +1216,9 @@ func (r *WorkspaceReconciler) archiveRunLogs(
 		return nil
 	}
 
+	// CurrentRunID is set when a plan and apply run starts and shared by both the
+	// plan and apply jobs. If it is absent the workspace has not started a run
+	// yet and there is nothing to archive.
 	runID := workspace.Status.CurrentRunID
 	if runID == "" {
 		return nil
@@ -1226,7 +1237,7 @@ func (r *WorkspaceReconciler) archiveRunLogs(
 		return err
 	}
 
-	logKey, err := r.LogStore.PutRunLog(ctx, workspace.Namespace, workspace.Name, runID, phase, compressed)
+	logKey, err := r.LogStore.PutRunPhaseLog(ctx, workspace.Namespace, workspace.Name, runID, phase, compressed)
 	if err != nil {
 		return err
 	}
@@ -1507,6 +1518,10 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 			needsUpdate = true
 		}
 
+		// Carry the run ID and trigger forward when a new plan and apply run has
+		// started in the in-memory copy. Both fields are written before the
+		// first status update of a run, so they must survive the
+		// optimistic-concurrency retry just as phase and message do.
 		if workspace.Status.CurrentRunID != "" && latest.Status.CurrentRunID != workspace.Status.CurrentRunID {
 			latest.Status.CurrentRunID = workspace.Status.CurrentRunID
 			needsUpdate = true

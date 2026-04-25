@@ -194,17 +194,25 @@ type WorkspaceStatus struct {
 
 	// PolicyViolations records violations from the most recent policy validation
 	// run. Populated when the plan job evaluates ValidatingPolicy resources and
-	// one or more rules fail. Cleared at the start of each new plan cycle.
+	// one or more rules fail. Cleared at the start of each new plan and apply run.
 	// +optional
 	PolicyViolations []PolicyViolation `json:"policyViolations,omitempty"`
 
-	// CurrentRunID identifies the current reconciliation run that the
-	// controller is executing. The same run ID is shared across the plan/apply
-	// pair for a single cycle and is replaced when the next cycle starts.
+	// CurrentRunID is the identifier for the plan and apply run that is currently
+	// in progress. A run begins when the controller determines the workspace
+	// needs to act on a change and ends when it reaches a terminal phase
+	// (Applied, Failed, or ValidationFailed). Both the plan job and the
+	// subsequent apply job share this ID so their logs can be stored and
+	// retrieved as a single unit. The controller replaces this value when a
+	// new run starts.
 	// +optional
 	CurrentRunID string `json:"currentRunID,omitempty"`
 
-	// CurrentRunTrigger records why the current reconciliation run was started.
+	// CurrentRunTrigger records what caused the current plan and apply run to
+	// start. It is set when the run begins and is preserved across the multiple
+	// reconcile invocations that make up a run so that the archived log record
+	// always reflects the original trigger, even though the apply job may be
+	// created long after the plan job completed.
 	// +optional
 	CurrentRunTrigger RunTrigger `json:"currentRunTrigger,omitempty"`
 
@@ -261,7 +269,7 @@ const (
 )
 
 // RunPhaseSummary captures the outcome and log reference for one Terraform
-// phase (plan or apply) within a reconciliation cycle.
+// phase (plan or apply) within a plan and apply run.
 type RunPhaseSummary struct {
 	// JobName is the Kubernetes Job that produced this phase's output.
 	// +optional
@@ -286,34 +294,35 @@ type RunPhaseSummary struct {
 	LogSizeBytes int64 `json:"logSizeBytes,omitempty"`
 }
 
-// ReconcileRun represents one complete reconciliation cycle for a Workspace.
-// A cycle always includes a plan phase and, when approved, an apply phase.
-// Both phases share the same RunID.
+// ReconcileRun represents one complete plan and apply run for a Workspace. A run
+// always includes a plan phase and, when approved, an apply phase. Both phases
+// share the same RunID and are stored together so callers can retrieve the
+// full history of what ran and why.
 type ReconcileRun struct {
-	// RunID uniquely identifies this reconciliation cycle. The same ID is
-	// used for both the plan and apply phases of a single cycle.
+	// RunID uniquely identifies this plan and apply run. The same ID is used for
+	// both the plan and apply jobs so their logs can be grouped together.
 	RunID string `json:"runID"`
-	// Trigger records what caused this reconciliation cycle to start.
+	// Trigger records what caused this plan and apply run to start.
 	// +optional
 	Trigger RunTrigger `json:"trigger,omitempty"`
-	// TargetRevision is the ref configured on the Workspace spec at the time
-	// this cycle started, for example a branch name like "main".
+	// TargetRevision is the ref configured on the Workspace spec when this run
+	// started, for example a branch name like "main".
 	// +optional
 	TargetRevision string `json:"targetRevision,omitempty"`
-	// ObservedRevision is the resolved git commit SHA for this cycle.
+	// ObservedRevision is the resolved git commit SHA for this run.
 	// +optional
 	ObservedRevision string `json:"observedRevision,omitempty"`
 	// Plan captures the outcome of the terraform plan phase.
 	// +optional
 	Plan *RunPhaseSummary `json:"plan,omitempty"`
 	// Apply captures the outcome of the terraform apply phase. Nil when the
-	// cycle has not yet reached or completed the apply phase.
+	// run has not yet reached or completed the apply phase.
 	// +optional
 	Apply *RunPhaseSummary `json:"apply,omitempty"`
-	// StartedAt is when the first phase of this cycle began.
+	// StartedAt is when the plan phase of this run began.
 	// +optional
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
-	// FinishedAt is when the last completed phase of this cycle finished.
+	// FinishedAt is when the last completed phase of this run finished.
 	// +optional
 	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
 }

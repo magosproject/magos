@@ -65,4 +65,3 @@ func FilteredStreamSSE[T any](w http.ResponseWriter, r *http.Request, watchFn Wa
 		}
 	}
 }
-

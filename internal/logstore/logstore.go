@@ -35,8 +35,8 @@ const (
 	maxDescendingTS = int64(math.MaxInt64)
 )
 
-// Config holds the user-facing log storage settings. The storage backend is
-// an internal concern and is not exposed.
+// Config holds the user-facing log storage settings. The storage backend is an
+// internal concern and is not exposed.
 type Config struct {
 	Enabled         bool
 	Retention       int
@@ -45,38 +45,37 @@ type Config struct {
 	secretAccessKey string
 }
 
-// Store is the interface for reading and writing run logs and reconcile run
-// summaries. The implementation is expected to be backed by an S3-compatible
-// object store.
+// Store provides persistence for run logs and reconcile run summaries.
+// Most implementations use an S3-compatible object store.
 type Store interface {
-	// PutRunLog stores the compressed log body for one phase of a reconcile
-	// run and returns the object key. The key is deterministic and can be
-	// re-derived with RunLogKey when the stored value is unavailable.
-	PutRunLog(ctx context.Context, namespace, workspace, runID string, phase v1alpha1.RunPhase, body []byte) (string, error)
+	// PutRunPhaseLog stores the compressed log body for a single phase
+	// (plan or apply) of a run and returns its object key.
+	// The returned key must be deterministic and re-derivable via RunLogKey.
+	PutRunPhaseLog(ctx context.Context, namespace, workspace, runID string, phase v1alpha1.RunPhase, body []byte) (string, error)
 
-	// UpsertReconcileRun writes or merges a reconcile run summary. When a
-	// summary for the given RunID already exists the plan and apply fields are
-	// merged independently so the controller can call this after each phase
-	// without overwriting the other.
+	// UpsertReconcileRun writes or merges a reconcile run summary.
+	// If a summary for the given RunID already exists, the plan and apply
+	// fields are merged independently so updates from each phase do not
+	// overwrite one another.
 	UpsertReconcileRun(ctx context.Context, namespace, workspace string, run v1alpha1.ReconcileRun) error
 
 	// ListReconcileRuns returns up to limit recent reconcile runs for the
-	// workspace, ordered newest first. Pass the cursor returned by a previous
-	// call to page through older results.
+	// workspace, ordered newest first. To retrieve older results, pass the
+	// cursor returned by a previous call.
 	ListReconcileRuns(ctx context.Context, namespace, workspace string, limit int, cursor string) ([]v1alpha1.ReconcileRun, string, error)
 
-	// GetRunLog returns a reader for the decompressed log identified by key.
-	// Callers are responsible for closing the returned reader.
-	GetRunLog(ctx context.Context, key string) (io.ReadCloser, error)
+	// GetRunPhaseLog returns a reader for the decompressed log identified
+	// by key. The caller must close the returned reader.
+	GetRunPhaseLog(ctx context.Context, key string) (io.ReadCloser, error)
 
 	// PruneOldRuns deletes the oldest reconcile run summaries and their
 	// associated log objects when the total exceeds the retention count.
 	PruneOldRuns(ctx context.Context, namespace, workspace string, retention int) error
 }
 
-// RunLogKey returns the deterministic object-store key for a phase log. The
-// key is derived entirely from the run identity so it can be reconstructed
-// without a summary lookup.
+// RunLogKey returns the deterministic object-store key for a phase log. The key
+// is derived entirely from the run identity so it can be reconstructed without
+// a summary lookup.
 func RunLogKey(namespace, workspace, runID string, phase v1alpha1.RunPhase) string {
 	return path.Join("run-logs", namespace, workspace, runID, string(phase)+".log.gz")
 }
@@ -134,8 +133,8 @@ func newS3Store(ctx context.Context, cfg Config) (Store, error) {
 		return nil, fmt.Errorf("invalid S3 endpoint %q: %w", cfg.endpoint, err)
 	}
 
-	// Region is required by the AWS SDK but not meaningful for most
-	// S3-compatible backends; any non-empty value satisfies the SDK.
+	// Region is required by the AWS SDK but ignored by most S3-compatible
+	// backends; any non-empty value is sufficient.
 	awsCfg, err := config.LoadDefaultConfig(
 		ctx,
 		config.WithRegion("us-east-1"),
@@ -146,8 +145,7 @@ func newS3Store(ctx context.Context, cfg Config) (Store, error) {
 		return nil, fmt.Errorf("load AWS config: %w", err)
 	}
 
-	// Path-style addressing is required for S3-compatible stores that are not
-	// AWS S3 native (virtual-hosted-style is an AWS-specific convention).
+	// Path-style is required for S3-compatible stores other than AWS S3.
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		o.UsePathStyle = true
 	})
@@ -173,7 +171,7 @@ func (s *s3Store) ensureBucket(ctx context.Context) error {
 	return nil
 }
 
-func (s *s3Store) PutRunLog(ctx context.Context, namespace, workspace, runID string, phase v1alpha1.RunPhase, body []byte) (string, error) {
+func (s *s3Store) PutRunPhaseLog(ctx context.Context, namespace, workspace, runID string, phase v1alpha1.RunPhase, body []byte) (string, error) {
 	key := RunLogKey(namespace, workspace, runID, phase)
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:          aws.String(s.bucket),
@@ -231,14 +229,14 @@ func (s *s3Store) UpsertReconcileRun(ctx context.Context, namespace, workspace s
 }
 
 // ListReconcileRuns returns up to limit reconcile run summaries for the
-// workspace, ordered newest first. The cursor is the S3 object key of the
-// last item from the previous page; pass an empty string to start from the
-// most recent run.
+// workspace, ordered newest first. The cursor is the S3 object key of the last
+// item from the previous page; pass an empty string to start from the most
+// recent run.
 //
-// Because summary keys embed a descending timestamp, S3's lexicographic
-// listing already returns runs in newest-first order. We fetch at most
-// limit+1 keys to detect whether a next page exists, then download only the
-// limit summaries we actually need, in parallel.
+// Because summary keys embed a descending timestamp, S3's lexicographic listing
+// already returns runs in newest-first order. We fetch at most limit+1 keys to
+// detect whether a next page exists, then download only the limit summaries we
+// actually need, in parallel.
 func (s *s3Store) ListReconcileRuns(ctx context.Context, namespace, workspace string, limit int, cursor string) ([]v1alpha1.ReconcileRun, string, error) {
 	if limit <= 0 {
 		limit = DefaultRetention
@@ -303,7 +301,7 @@ func (s *s3Store) ListReconcileRuns(ctx context.Context, namespace, workspace st
 	return runs, nextCursor, nil
 }
 
-func (s *s3Store) GetRunLog(ctx context.Context, key string) (io.ReadCloser, error) {
+func (s *s3Store) GetRunPhaseLog(ctx context.Context, key string) (io.ReadCloser, error) {
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
@@ -316,10 +314,10 @@ func (s *s3Store) GetRunLog(ctx context.Context, key string) (io.ReadCloser, err
 
 // PruneOldRuns deletes reconcile run summaries and their log objects when the
 // total exceeds retention. In steady state the workspace holds at most
-// retention+1 summaries (the retention kept runs plus the one just written),
-// so the first ListObjectsV2 call returns at most retention+1 keys and the
-// function exits without scanning further. A full paginated scan only occurs
-// on the first prune after a large backlog has accumulated.
+// retention+1 summaries (the retention kept runs plus the one just written), so
+// the first ListObjectsV2 call returns at most retention+1 keys and the
+// function exits without scanning further. A full paginated scan only occurs on
+// the first prune after a large backlog has accumulated.
 func (s *s3Store) PruneOldRuns(ctx context.Context, namespace, workspace string, retention int) error {
 	prefix := reconcileSummaryPrefix(namespace, workspace)
 
@@ -407,8 +405,8 @@ func reconcileSummaryKey(namespace, workspace string, t time.Time, runID string)
 	return path.Join(reconcileSummaryPrefix(namespace, workspace), fmt.Sprintf("%s_%s.json", descendingTimestamp(t), runID))
 }
 
-// parseRunIDTime extracts the UTC timestamp encoded in the leading segment of
-// a runID. RunIDs have the form "20060102T150405-{hex}", so parsing just the
+// parseRunIDTime extracts the UTC timestamp encoded in the leading segment of a
+// runID. RunIDs have the form "20060102T150405-{hex}", so parsing just the
 // prefix is sufficient to reconstruct the summary key.
 func parseRunIDTime(runID string) (time.Time, error) {
 	parts := strings.SplitN(runID, "-", 2)
@@ -428,11 +426,11 @@ func extractRunIDFromSummaryKey(key string) string {
 	base := path.Base(key)
 	base = strings.TrimSuffix(base, ".json")
 	// Key segment is "{desc_ts}_{runID}"; the runID starts after the first "_".
-	idx := strings.Index(base, "_")
-	if idx < 0 {
+	_, after, ok := strings.Cut(base, "_")
+	if !ok {
 		return base
 	}
-	return base[idx+1:]
+	return after
 }
 
 func descendingTimestamp(t time.Time) string {

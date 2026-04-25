@@ -48,4 +48,3 @@ func (b *Broadcaster[T]) Send(event T) {
 		}
 	}
 }
-

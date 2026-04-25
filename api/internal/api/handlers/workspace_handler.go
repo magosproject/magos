@@ -147,20 +147,20 @@ func (h *WorkspaceHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
-// GetRunLog godoc
+// GetRunPhaseLog godoc
 //
-//	@Summary	Get archived run log for a Workspace run
+//	@Summary	Get the archived log for one phase of a plan and apply run
 //	@Tags		Workspace
 //	@Produce	plain
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
 //	@Param		runID		path		string	true	"Run ID"
-//	@Param		phase		query		string	false	"Run phase filter"
-//	@Success	200			{string}	string
+//	@Param		phase		query		string	false	"Phase to retrieve: plan or apply (defaults to apply)"
+//	@Success	200			{string}	string	"Plain text log content"
 //	@Failure	400			{object}	ErrorResponse
 //	@Failure	404			{object}	ErrorResponse
 //	@Router		/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/log [get]
-func (h *WorkspaceHandler) GetRunLog(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandler) GetRunPhaseLog(w http.ResponseWriter, r *http.Request) {
 	namespace := r.PathValue("namespace")
 	name := r.PathValue("name")
 	runID := r.PathValue("runID")
@@ -173,7 +173,7 @@ func (h *WorkspaceHandler) GetRunLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := h.service.GetRunLog(r.Context(), namespace, name, runID, parseRunPhase(r.URL.Query().Get("phase")))
+	body, err := h.service.GetRunPhaseLog(r.Context(), namespace, name, runID, parseRunPhase(r.URL.Query().Get("phase")))
 	if err != nil {
 		h.logger.Error("failed to get workspace run log", "error", err, "namespace", namespace, "name", name, "runID", runID)
 		if apierrors.IsNotFound(err) {
@@ -196,12 +196,12 @@ func (h *WorkspaceHandler) GetRunLog(w http.ResponseWriter, r *http.Request) {
 
 // StreamCurrentRunLog godoc
 //
-//	@Summary	Stream live logs for the current Workspace run
+//	@Summary	Stream live logs from the active phase of the in-progress plan and apply run
 //	@Tags		Workspace
 //	@Produce	text/event-stream
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
-//	@Param		phase		query		string	false	"Run phase filter"
+//	@Param		phase		query		string	false	"Phase to stream: plan or apply (defaults to apply)"
 //	@Success	200			{object}	service.RunLogStreamEvent
 //	@Failure	400			{object}	ErrorResponse
 //	@Failure	404			{object}	ErrorResponse

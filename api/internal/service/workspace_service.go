@@ -38,7 +38,7 @@ type WorkspaceService interface {
 	Get(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
 	RequestReconcile(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
 	ListReconcileRuns(ctx context.Context, namespace, name string, limit int, cursor string) (*ReconcileRunListResponse, error)
-	GetRunLog(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase) (io.ReadCloser, error)
+	GetRunPhaseLog(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase) (io.ReadCloser, error)
 	StreamCurrentRunLogs(ctx context.Context, namespace, name string, phase apiv1alpha1.RunPhase) <-chan RunLogStreamEvent
 }
 
@@ -179,7 +179,7 @@ func (s *workspaceService) ListReconcileRuns(ctx context.Context, namespace, nam
 	}, nil
 }
 
-func (s *workspaceService) GetRunLog(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase) (io.ReadCloser, error) {
+func (s *workspaceService) GetRunPhaseLog(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase) (io.ReadCloser, error) {
 	if s.logStore == nil {
 		return nil, fmt.Errorf("run log storage is not configured")
 	}
@@ -190,7 +190,7 @@ func (s *workspaceService) GetRunLog(ctx context.Context, namespace, name, runID
 	}
 
 	key := logstore.RunLogKey(workspace.Namespace, workspace.Name, runID, phase)
-	body, err := s.logStore.GetRunLog(ctx, key)
+	body, err := s.logStore.GetRunPhaseLog(ctx, key)
 	if err != nil {
 		return nil, err
 	}
