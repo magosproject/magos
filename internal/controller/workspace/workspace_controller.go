@@ -352,11 +352,14 @@ func isScheduledReconcileDue(existing *metav1.Time) bool {
 }
 
 func newRunID() string {
+	now := time.Now().UTC()
 	var suffix [4]byte
 	if _, err := crand.Read(suffix[:]); err != nil {
-		return time.Now().UTC().Format("20060102T150405.000000000")
+		// Fall back to a timestamp-derived suffix so the ID is always in the
+		// form "20060102T150405-{hex}" that parseRunIDTime expects.
+		return fmt.Sprintf("%s-%08x", now.Format("20060102T150405"), now.UnixNano()&0xffffffff)
 	}
-	return fmt.Sprintf("%s-%s", time.Now().UTC().Format("20060102T150405"), hex.EncodeToString(suffix[:]))
+	return fmt.Sprintf("%s-%s", now.Format("20060102T150405"), hex.EncodeToString(suffix[:]))
 }
 
 func ensureRunID(workspace *v1alpha1.Workspace) string {
@@ -1140,6 +1143,8 @@ func (r *WorkspaceReconciler) getJobPod(ctx context.Context, namespace, jobName 
 	return &podList.Items[0], nil
 }
 
+const maxLogBytes = 50 * 1024 * 1024 // 50 MiB
+
 func (r *WorkspaceReconciler) readPodLogs(ctx context.Context, namespace, podName string) ([]byte, error) {
 	logStream, err := r.Clientset.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{}).Stream(ctx)
 	if err != nil {
@@ -1151,9 +1156,14 @@ func (r *WorkspaceReconciler) readPodLogs(ctx context.Context, namespace, podNam
 		}
 	}()
 
-	data, err := io.ReadAll(logStream)
+	// Cap the read at maxLogBytes. LimitReader stops silently at the limit, so
+	// we read one byte beyond to detect truncation and append a clear marker.
+	data, err := io.ReadAll(io.LimitReader(logStream, maxLogBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read pod log stream for %s: %w", podName, err)
+	}
+	if len(data) > maxLogBytes {
+		data = append(data[:maxLogBytes], []byte("\n[log truncated: exceeded 50 MiB limit]")...)
 	}
 	return data, nil
 }
