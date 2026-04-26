@@ -1,0 +1,18 @@
+{{- if .Values.logs.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+  labels:
+    {{- include "magos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rustfs
+spec:
+  accessModes:
+  - ReadWriteOnce
+  {{- with .Values.logs.storage.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.logs.storage.persistence.size }}
+{{- end }}

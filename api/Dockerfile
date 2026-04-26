@@ -12,6 +12,7 @@ RUN apk add --no-cache git ca-certificates tzdata make
 # Copy root module (needed for replace directive in api/go.mod)
 COPY go.mod go.sum ./
 COPY types/ types/
+COPY internal/logstore/ internal/logstore/
 
 # Copy go mod files and download dependencies
 COPY api/go.mod api/go.sum api/

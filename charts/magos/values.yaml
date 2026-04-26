@@ -164,6 +164,25 @@ jobServiceAccount:
   annotations: {}
   automount: true
 
+logs:
+  enabled: true
+  # retention is the number of reconcile runs to keep per workspace.
+  # Older runs are pruned automatically after each archive operation.
+  retention: 30
+  # Storage backend configuration. RustFS (S3-compatible) is deployed
+  # automatically when logs are enabled. Credentials are auto-generated.
+  storage:
+    image:
+      repository: rustfs/rustfs
+      tag: latest
+      pullPolicy: IfNotPresent
+    service:
+      port: 9000
+      consolePort: 9001
+    persistence:
+      size: 10Gi
+      # storageClass: "" # Leave empty to use the cluster default.
+
 policy:
   kyverno:
     # Install the policies.kyverno.io ValidatingPolicy CRD. The magos job reads

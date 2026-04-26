@@ -1,10 +1,4 @@
-import {
-  Button,
-  Group,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Button, Group, Stack, Tabs, Text, Title } from "@mantine/core";
 import { IconRefresh } from "@tabler/icons-react";
 import { useMemo, useState, type CSSProperties } from "react";
 import { useLoaderData, useParams } from "react-router";
@@ -14,10 +8,12 @@ import KubeBadge from "../components/KubeBadge";
 import ConditionsTable from "../components/ConditionsTable";
 import PolicyViolationsTable from "../components/PolicyViolationsTable";
 import ProjectLineageGraph from "../components/ProjectLineageGraph";
+import WorkspaceRunHistory from "../components/WorkspaceRunHistory";
+import WorkspaceLiveConsole from "../components/WorkspaceLiveConsole";
 import WorkspaceOverview from "../components/WorkspaceOverview";
 import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
-import type { Phase, Project, Workspace as WorkspaceType } from "../api/types";
+import type { Phase, Project, RunListResponse, Workspace as WorkspaceType } from "../api/types";
 import { useSSEItem } from "../hooks/useSSEItem";
 import { useFlashOnChange } from "../hooks/useFlashOnChange";
 import { flashColorVar } from "../utils/colors";
@@ -27,11 +23,7 @@ export function meta({ params }: { params: { namespace: string; name: string } }
   return [{ title: `${params.name} – magos` }];
 }
 
-export async function clientLoader({
-  params,
-}: {
-  params: { namespace: string; name: string };
-}) {
+export async function clientLoader({ params }: { params: { namespace: string; name: string } }) {
   const { data: ws } = await apiClient.GET(
     "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}",
     { params: { path: { namespace: params.namespace, name: params.name } } }
@@ -48,7 +40,18 @@ export async function clientLoader({
     project = data;
   }
 
-  return { workspace: ws, project };
+  const { data: runs } = await apiClient.GET(
+    "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs",
+    {
+      params: {
+        path: { namespace: params.namespace, name: params.name },
+        query: { limit: 20 },
+      },
+    }
+  );
+  const initialRuns: RunListResponse = runs ?? { items: [] };
+
+  return { workspace: ws, project, initialRuns };
 }
 
 export default function Workspace() {
@@ -70,7 +73,10 @@ export default function Workspace() {
   const flash = useFlashOnChange(phase);
   const flashStyle = { "--flash-color": flashColorVar(phaseLabel) } as CSSProperties;
   const wsId = resourceId(ws);
-  const lineageFlashIds = useMemo(() => (flash ? new Set([wsId]) : new Set<string>()), [flash, wsId]);
+  const lineageFlashIds = useMemo(
+    () => (flash ? new Set([wsId]) : new Set<string>()),
+    [flash, wsId]
+  );
   const canReconcile = phase ? RECONCILABLE_PHASES.has(phase) : false;
   const reconcileDisabled = isSubmittingReconcile || !canReconcile || !namespace || !name;
 
@@ -79,9 +85,12 @@ export default function Workspace() {
 
     setIsSubmittingReconcile(true);
     try {
-      await apiClient.POST("/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile", {
-        params: { path: { namespace, name } },
-      });
+      await apiClient.POST(
+        "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile",
+        {
+          params: { path: { namespace, name } },
+        }
+      );
     } finally {
       setIsSubmittingReconcile(false);
     }
@@ -108,45 +117,79 @@ export default function Workspace() {
         </Button>
       </Group>
 
-      {namespace && (
-        <WorkspaceOverview
-          namespace={namespace}
-          workspace={ws}
-          phaseLabel={phaseLabel}
-          projectName={projectName}
-          flash={flash}
-          flashStyle={flashStyle}
-        />
-      )}
+      <Tabs defaultValue="overview">
+        <Tabs.List>
+          <Tabs.Tab value="overview">Overview</Tabs.Tab>
+          <Tabs.Tab value="runs">Runs</Tabs.Tab>
+        </Tabs.List>
 
-      {ws.status?.message && (
-        <Text size="sm" c="dimmed" fs="italic">
-          {ws.status.message}
-        </Text>
-      )}
+        <Tabs.Panel value="overview" pt="md">
+          <Stack gap="lg">
+            {namespace && (
+              <WorkspaceOverview
+                namespace={namespace}
+                workspace={ws}
+                phaseLabel={phaseLabel}
+                projectName={projectName}
+                flash={flash}
+                flashStyle={flashStyle}
+              />
+            )}
 
-      {ws.status?.conditions && ws.status.conditions.length > 0 && (
-        <ConditionsTable conditions={ws.status.conditions} />
-      )}
+            {ws.status?.message && (
+              <Text size="sm" c="dimmed" fs="italic">
+                {ws.status.message}
+              </Text>
+            )}
 
-      {ws.status?.policyViolations && ws.status.policyViolations.length > 0 && (
-        <PolicyViolationsTable violations={ws.status.policyViolations} />
-      )}
+            {ws.status?.conditions && ws.status.conditions.length > 0 && (
+              <ConditionsTable conditions={ws.status.conditions} />
+            )}
 
-      {project && (
-        <Stack gap="xs">
-          <Title order={4}>Inheritance Lineage</Title>
-          <Text size="sm" c="dimmed">
-            Variable sets flow into the project and are inherited by this workspace.
-          </Text>
-          <ProjectLineageGraph
-            project={project}
-            variableSetRefs={variableSetRefs}
-            workspaces={[ws]}
-            flashIds={lineageFlashIds}
-          />
-        </Stack>
-      )}
+            {ws.status?.policyViolations && ws.status.policyViolations.length > 0 && (
+              <PolicyViolationsTable violations={ws.status.policyViolations} />
+            )}
+
+            {project && (
+              <Stack gap="xs">
+                <Title order={4}>Inheritance Lineage</Title>
+                <Text size="sm" c="dimmed">
+                  Variable sets flow into the project and are inherited by this workspace.
+                </Text>
+                <ProjectLineageGraph
+                  project={project}
+                  variableSetRefs={variableSetRefs}
+                  workspaces={[ws]}
+                  flashIds={lineageFlashIds}
+                />
+              </Stack>
+            )}
+          </Stack>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="runs" pt="md">
+          <Stack gap="lg">
+            {namespace && name && (
+              <WorkspaceLiveConsole
+                namespace={namespace}
+                workspaceName={name}
+                phase={phase}
+                currentRunID={ws.status?.currentRunID}
+              />
+            )}
+
+            {namespace && name && (
+              <WorkspaceRunHistory
+                namespace={namespace}
+                workspaceName={name}
+                initialRuns={initial.initialRuns}
+                phase={phase}
+                currentRunID={ws.status?.currentRunID}
+              />
+            )}
+          </Stack>
+        </Tabs.Panel>
+      </Tabs>
     </Stack>
   );
 }

@@ -3,6 +3,7 @@ import { IconFolder, IconGitBranch } from "@tabler/icons-react";
 import type { CSSProperties } from "react";
 import { Link } from "react-router";
 import type { Workspace } from "../api/types";
+import { formatDateTime } from "../utils/formatDateTime";
 import InfoCard from "./InfoCard";
 import StatusBadge from "./StatusBadge";
 import { repoIcon } from "../utils/repoIcon";
@@ -19,7 +20,12 @@ function AppliedRevisionValue({
   repoURL: string;
   observedRevision: string;
 }) {
-  if (!observedRevision) return <Text size="sm" c="dimmed">—</Text>;
+  if (!observedRevision)
+    return (
+      <Text size="sm" c="dimmed">
+        —
+      </Text>
+    );
 
   const isSHA = observedRevision.length === 40;
   if (isSHA) {
@@ -48,7 +54,12 @@ function AppliedRevisionValue({
 }
 
 function TerraformVersionValue({ version }: { version: string }) {
-  if (!version) return <Text size="sm" c="dimmed">—</Text>;
+  if (!version)
+    return (
+      <Text size="sm" c="dimmed">
+        —
+      </Text>
+    );
 
   const href = terraformReleaseUrl(version);
   return href ? (
@@ -85,11 +96,7 @@ export default function WorkspaceOverview({
 
   return (
     <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
-      <InfoCard
-        label="Status"
-        className={flash ? "flash-highlight" : undefined}
-        style={flashStyle}
-      >
+      <InfoCard label="Status" className={flash ? "flash-highlight" : undefined} style={flashStyle}>
         <StatusBadge status={phaseLabel} size="md" />
       </InfoCard>
 
@@ -142,13 +149,13 @@ export default function WorkspaceOverview({
 
       {workspace.status?.lastReconcileTime && (
         <InfoCard label="Last reconcile">
-          <Text size="sm">{formatDate(workspace.status.lastReconcileTime)}</Text>
+          <Text size="sm">{formatDateTime(workspace.status.lastReconcileTime)}</Text>
         </InfoCard>
       )}
 
       {workspace.status?.nextReconcileTime && (
         <InfoCard label="Next reconcile">
-          <Text size="sm">{formatDate(workspace.status.nextReconcileTime)}</Text>
+          <Text size="sm">{formatDateTime(workspace.status.nextReconcileTime)}</Text>
         </InfoCard>
       )}
     </SimpleGrid>

@@ -293,6 +293,24 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              currentRunID:
+                description: |-
+                  CurrentRunID is the identifier for the plan and apply run that is currently
+                  in progress. A run begins when the controller determines the workspace
+                  needs to act on a change and ends when it reaches a terminal phase
+                  (Applied, Failed, or ValidationFailed). Both the plan job and the
+                  subsequent apply job share this ID so their logs can be stored and
+                  retrieved as a single unit. The controller replaces this value when a
+                  new run starts.
+                type: string
+              currentRunTrigger:
+                description: |-
+                  CurrentRunTrigger records what caused the current plan and apply run to
+                  start. It is set when the run begins and is preserved across the multiple
+                  reconcile invocations that make up a run so that the archived log record
+                  always reflects the original trigger, even though the apply job may be
+                  created long after the plan job completed.
+                type: string
               lastReconcileTime:
                 description: LastReconcileTime is the timestamp of the last reconciliation
                 format: date-time
@@ -341,7 +359,7 @@ spec:
                 description: |-
                   PolicyViolations records violations from the most recent policy validation
                   run. Populated when the plan job evaluates ValidatingPolicy resources and
-                  one or more rules fail. Cleared at the start of each new plan cycle.
+                  one or more rules fail. Cleared at the start of each new plan and apply run.
                 items:
                   description: |-
                     PolicyViolation records a single failed policy assertion from a

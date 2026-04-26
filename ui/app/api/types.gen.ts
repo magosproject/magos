@@ -647,6 +647,196 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List runs for a Workspace */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Page size (default 20, max 100) */
+                    limit?: number;
+                    /** @description Pagination cursor from a previous response */
+                    cursor?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Namespace */
+                    namespace: string;
+                    /** @description Name */
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["service.RunListResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/current/log/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream live logs from the active phase of the in-progress plan and apply run */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Phase to stream: plan or apply (defaults to apply) */
+                    phase?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Namespace */
+                    namespace: string;
+                    /** @description Name */
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": components["schemas"]["service.RunLogStreamEvent"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the archived log for one phase of a plan and apply run */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Phase to retrieve: plan or apply (defaults to apply) */
+                    phase?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Namespace */
+                    namespace: string;
+                    /** @description Name */
+                    name: string;
+                    /** @description Run ID */
+                    runID: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Plain text log content */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": string;
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -765,6 +955,18 @@ export interface components {
         "service.RolloutEvent": {
             object?: components["schemas"]["v1alpha1.Rollout"];
             type?: components["schemas"]["watch.EventType"];
+        };
+        "service.RunListResponse": {
+            items?: components["schemas"]["v1alpha1.Run"][];
+            nextCursor?: string;
+        };
+        "service.RunLogStreamEvent": {
+            line?: string;
+            message?: string;
+            phase?: components["schemas"]["v1alpha1.RunPhase"];
+            podName?: string;
+            runID?: string;
+            type?: string;
         };
         "service.VariableSetEvent": {
             object?: components["schemas"]["v1alpha1.VariableSet"];
@@ -1314,6 +1516,89 @@ export interface components {
              */
             steps?: components["schemas"]["v1alpha1.RolloutStep"][];
         };
+        "v1alpha1.Run": {
+            apply?: components["schemas"]["v1alpha1.RunPhaseSummary"];
+            /**
+             * @description FinishedAt is when the last completed phase of this run finished.
+             *     +optional
+             */
+            finishedAt?: string;
+            /**
+             * @description ObservedRevision is the resolved git commit SHA for this run.
+             *     +optional
+             */
+            observedRevision?: string;
+            plan?: components["schemas"]["v1alpha1.RunPhaseSummary"];
+            /**
+             * @description ID uniquely identifies this plan and apply run. The same ID is used for
+             *     both the plan and apply jobs so their logs can be grouped together.
+             */
+            runID?: string;
+            /**
+             * @description StartedAt is when the plan phase of this run began.
+             *     +optional
+             */
+            startedAt?: string;
+            /**
+             * @description TargetRevision is the ref configured on the Workspace spec when this run
+             *     started, for example a branch name like "main".
+             *     +optional
+             */
+            targetRevision?: string;
+            trigger?: components["schemas"]["v1alpha1.RunTrigger"];
+        };
+        /**
+         * @description Result is the terminal outcome of the phase.
+         *     +optional
+         * @enum {string}
+         */
+        "v1alpha1.RunLogResult": "Succeeded" | "Failed";
+        /** @enum {string} */
+        "v1alpha1.RunPhase": "plan" | "apply";
+        /**
+         * @description Apply captures the outcome of the terraform apply phase. Nil when the
+         *     run has not yet reached or completed the apply phase.
+         *     +optional
+         */
+        "v1alpha1.RunPhaseSummary": {
+            /**
+             * @description FinishedAt is when the Job reached a terminal state.
+             *     +optional
+             */
+            finishedAt?: string;
+            /**
+             * @description JobName is the Kubernetes Job that produced this phase's output.
+             *     +optional
+             */
+            jobName?: string;
+            /**
+             * @description LogKey is the object-store key for the archived, gzip-compressed log.
+             *     +optional
+             */
+            logKey?: string;
+            /**
+             * @description LogSizeBytes is the compressed size of the stored log object.
+             *     +optional
+             */
+            logSizeBytes?: number;
+            /**
+             * @description PodName is the Pod that backed the Kubernetes Job.
+             *     +optional
+             */
+            podName?: string;
+            result?: components["schemas"]["v1alpha1.RunLogResult"];
+            /**
+             * @description StartedAt is when the Job began running.
+             *     +optional
+             */
+            startedAt?: string;
+        };
+        /**
+         * @description Trigger records what caused this plan and apply run to start.
+         *     +optional
+         * @enum {string}
+         */
+        "v1alpha1.RunTrigger": "unknown" | "configuration" | "manual" | "scheduled" | "revision" | "retry";
         /**
          * @description Source defines the Git repository configuration
          *     +required
@@ -1470,6 +1755,18 @@ export interface components {
              */
             conditions?: components["schemas"]["v1.Condition"][];
             /**
+             * @description CurrentRunID is the identifier for the plan and apply run that is currently
+             *     in progress. A run begins when the controller determines the workspace
+             *     needs to act on a change and ends when it reaches a terminal phase
+             *     (Applied, Failed, or ValidationFailed). Both the plan job and the
+             *     subsequent apply job share this ID so their logs can be stored and
+             *     retrieved as a single unit. The controller replaces this value when a
+             *     new run starts.
+             *     +optional
+             */
+            currentRunID?: string;
+            currentRunTrigger?: components["schemas"]["v1alpha1.RunTrigger"];
+            /**
              * @description LastReconcileTime is the timestamp of the last reconciliation
              *     +optional
              */
@@ -1506,7 +1803,7 @@ export interface components {
             /**
              * @description PolicyViolations records violations from the most recent policy validation
              *     run. Populated when the plan job evaluates ValidatingPolicy resources and
-             *     one or more rules fail. Cleared at the start of each new plan cycle.
+             *     one or more rules fail. Cleared at the start of each new plan and apply run.
              *     +optional
              */
             policyViolations?: components["schemas"]["v1alpha1.PolicyViolation"][];

@@ -101,6 +101,44 @@
                 },
                 "type": "object"
             },
+            "service.RunListResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/v1alpha1.Run"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "nextCursor": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.RunLogStreamEvent": {
+                "properties": {
+                    "line": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "phase": {
+                        "$ref": "#/components/schemas/v1alpha1.RunPhase"
+                    },
+                    "podName": {
+                        "type": "string"
+                    },
+                    "runID": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.VariableSetEvent": {
                 "properties": {
                     "object": {
@@ -588,6 +626,116 @@
                 },
                 "type": "object"
             },
+            "v1alpha1.Run": {
+                "properties": {
+                    "apply": {
+                        "$ref": "#/components/schemas/v1alpha1.RunPhaseSummary"
+                    },
+                    "finishedAt": {
+                        "description": "FinishedAt is when the last completed phase of this run finished.\n+optional",
+                        "type": "string"
+                    },
+                    "observedRevision": {
+                        "description": "ObservedRevision is the resolved git commit SHA for this run.\n+optional",
+                        "type": "string"
+                    },
+                    "plan": {
+                        "$ref": "#/components/schemas/v1alpha1.RunPhaseSummary"
+                    },
+                    "runID": {
+                        "description": "ID uniquely identifies this plan and apply run. The same ID is used for\nboth the plan and apply jobs so their logs can be grouped together.",
+                        "type": "string"
+                    },
+                    "startedAt": {
+                        "description": "StartedAt is when the plan phase of this run began.\n+optional",
+                        "type": "string"
+                    },
+                    "targetRevision": {
+                        "description": "TargetRevision is the ref configured on the Workspace spec when this run\nstarted, for example a branch name like \"main\".\n+optional",
+                        "type": "string"
+                    },
+                    "trigger": {
+                        "$ref": "#/components/schemas/v1alpha1.RunTrigger"
+                    }
+                },
+                "type": "object"
+            },
+            "v1alpha1.RunLogResult": {
+                "description": "Result is the terminal outcome of the phase.\n+optional",
+                "enum": [
+                    "Succeeded",
+                    "Failed"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "RunLogResultSucceeded",
+                    "RunLogResultFailed"
+                ]
+            },
+            "v1alpha1.RunPhase": {
+                "enum": [
+                    "plan",
+                    "apply"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "RunPhasePlan",
+                    "RunPhaseApply"
+                ]
+            },
+            "v1alpha1.RunPhaseSummary": {
+                "description": "Apply captures the outcome of the terraform apply phase. Nil when the\nrun has not yet reached or completed the apply phase.\n+optional",
+                "properties": {
+                    "finishedAt": {
+                        "description": "FinishedAt is when the Job reached a terminal state.\n+optional",
+                        "type": "string"
+                    },
+                    "jobName": {
+                        "description": "JobName is the Kubernetes Job that produced this phase's output.\n+optional",
+                        "type": "string"
+                    },
+                    "logKey": {
+                        "description": "LogKey is the object-store key for the archived, gzip-compressed log.\n+optional",
+                        "type": "string"
+                    },
+                    "logSizeBytes": {
+                        "description": "LogSizeBytes is the compressed size of the stored log object.\n+optional",
+                        "type": "integer"
+                    },
+                    "podName": {
+                        "description": "PodName is the Pod that backed the Kubernetes Job.\n+optional",
+                        "type": "string"
+                    },
+                    "result": {
+                        "$ref": "#/components/schemas/v1alpha1.RunLogResult"
+                    },
+                    "startedAt": {
+                        "description": "StartedAt is when the Job began running.\n+optional",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "v1alpha1.RunTrigger": {
+                "description": "Trigger records what caused this plan and apply run to start.\n+optional",
+                "enum": [
+                    "unknown",
+                    "configuration",
+                    "manual",
+                    "scheduled",
+                    "revision",
+                    "retry"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "RunTriggerUnknown",
+                    "RunTriggerConfig",
+                    "RunTriggerManual",
+                    "RunTriggerScheduled",
+                    "RunTriggerRevision",
+                    "RunTriggerRetry"
+                ]
+            },
             "v1alpha1.SourceSpec": {
                 "description": "Source defines the Git repository configuration\n+required",
                 "properties": {
@@ -740,6 +888,13 @@
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "currentRunID": {
+                        "description": "CurrentRunID is the identifier for the plan and apply run that is currently\nin progress. A run begins when the controller determines the workspace\nneeds to act on a change and ends when it reaches a terminal phase\n(Applied, Failed, or ValidationFailed). Both the plan job and the\nsubsequent apply job share this ID so their logs can be stored and\nretrieved as a single unit. The controller replaces this value when a\nnew run starts.\n+optional",
+                        "type": "string"
+                    },
+                    "currentRunTrigger": {
+                        "$ref": "#/components/schemas/v1alpha1.RunTrigger"
+                    },
                     "lastReconcileTime": {
                         "description": "LastReconcileTime is the timestamp of the last reconciliation\n+optional",
                         "type": "string"
@@ -764,7 +919,7 @@
                         "$ref": "#/components/schemas/v1alpha1.Phase"
                     },
                     "policyViolations": {
-                        "description": "PolicyViolations records violations from the most recent policy validation\nrun. Populated when the plan job evaluates ValidatingPolicy resources and\none or more rules fail. Cleared at the start of each new plan cycle.\n+optional",
+                        "description": "PolicyViolations records violations from the most recent policy validation\nrun. Populated when the plan job evaluates ValidatingPolicy resources and\none or more rules fail. Cleared at the start of each new plan and apply run.\n+optional",
                         "items": {
                             "$ref": "#/components/schemas/v1alpha1.PolicyViolation"
                         },
@@ -1342,6 +1497,227 @@
                     }
                 },
                 "summary": "Request Workspace reconcile",
+                "tags": [
+                    "Workspace"
+                ]
+            }
+        },
+        "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page size (default 20, max 100)",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Pagination cursor from a previous response",
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/service.RunListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "List runs for a Workspace",
+                "tags": [
+                    "Workspace"
+                ]
+            }
+        },
+        "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/current/log/stream": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Phase to stream: plan or apply (defaults to apply)",
+                        "in": "query",
+                        "name": "phase",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/service.RunLogStreamEvent"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Stream live logs from the active phase of the in-progress plan and apply run",
+                "tags": [
+                    "Workspace"
+                ]
+            }
+        },
+        "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/log": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Run ID",
+                        "in": "path",
+                        "name": "runID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Phase to retrieve: plan or apply (defaults to apply)",
+                        "in": "query",
+                        "name": "phase",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "Plain text log content"
+                    },
+                    "400": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get the archived log for one phase of a plan and apply run",
                 "tags": [
                     "Workspace"
                 ]

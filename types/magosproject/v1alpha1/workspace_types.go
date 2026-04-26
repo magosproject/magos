@@ -194,9 +194,27 @@ type WorkspaceStatus struct {
 
 	// PolicyViolations records violations from the most recent policy validation
 	// run. Populated when the plan job evaluates ValidatingPolicy resources and
-	// one or more rules fail. Cleared at the start of each new plan cycle.
+	// one or more rules fail. Cleared at the start of each new plan and apply run.
 	// +optional
 	PolicyViolations []PolicyViolation `json:"policyViolations,omitempty"`
+
+	// CurrentRunID is the identifier for the plan and apply run that is currently
+	// in progress. A run begins when the controller determines the workspace
+	// needs to act on a change and ends when it reaches a terminal phase
+	// (Applied, Failed, or ValidationFailed). Both the plan job and the
+	// subsequent apply job share this ID so their logs can be stored and
+	// retrieved as a single unit. The controller replaces this value when a
+	// new run starts.
+	// +optional
+	CurrentRunID string `json:"currentRunID,omitempty"`
+
+	// CurrentRunTrigger records what caused the current plan and apply run to
+	// start. It is set when the run begins and is preserved across the multiple
+	// reconcile invocations that make up a run so that the archived log record
+	// always reflects the original trigger, even though the apply job may be
+	// created long after the plan job completed.
+	// +optional
+	CurrentRunTrigger RunTrigger `json:"currentRunTrigger,omitempty"`
 
 	// conditions represent the current state of the Workspace resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
@@ -220,6 +238,93 @@ type PolicyViolation struct {
 	Policy string `json:"policy"`
 	// Message is the human-readable violation message from the rule definition.
 	Message string `json:"message"`
+}
+
+// RunPhase identifies which Terraform phase produced a stored run log.
+type RunPhase string
+
+const (
+	RunPhasePlan  RunPhase = "plan"
+	RunPhaseApply RunPhase = "apply"
+)
+
+// RunLogResult is the terminal outcome for a run log entry.
+type RunLogResult string
+
+const (
+	RunLogResultSucceeded RunLogResult = "Succeeded"
+	RunLogResultFailed    RunLogResult = "Failed"
+)
+
+// RunTrigger identifies what caused a reconciliation run to start.
+type RunTrigger string
+
+const (
+	RunTriggerUnknown   RunTrigger = "unknown"
+	RunTriggerConfig    RunTrigger = "configuration"
+	RunTriggerManual    RunTrigger = "manual"
+	RunTriggerScheduled RunTrigger = "scheduled"
+	RunTriggerRevision  RunTrigger = "revision"
+	RunTriggerRetry     RunTrigger = "retry"
+)
+
+// RunPhaseSummary captures the outcome and log reference for one Terraform
+// phase (plan or apply) within a plan and apply run.
+type RunPhaseSummary struct {
+	// JobName is the Kubernetes Job that produced this phase's output.
+	// +optional
+	JobName string `json:"jobName,omitempty"`
+	// PodName is the Pod that backed the Kubernetes Job.
+	// +optional
+	PodName string `json:"podName,omitempty"`
+	// StartedAt is when the Job began running.
+	// +optional
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+	// FinishedAt is when the Job reached a terminal state.
+	// +optional
+	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
+	// Result is the terminal outcome of the phase.
+	// +optional
+	Result RunLogResult `json:"result,omitempty"`
+	// LogKey is the object-store key for the archived, gzip-compressed log.
+	// +optional
+	LogKey string `json:"logKey,omitempty"`
+	// LogSizeBytes is the compressed size of the stored log object.
+	// +optional
+	LogSizeBytes int64 `json:"logSizeBytes,omitempty"`
+}
+
+// Run represents one complete plan and apply run for a Workspace. A run
+// always includes a plan phase and, when approved, an apply phase. Both phases
+// share the same RunID and are stored together so callers can retrieve the
+// full history of what ran and why.
+type Run struct {
+	// ID uniquely identifies this plan and apply run. The same ID is used for
+	// both the plan and apply jobs so their logs can be grouped together.
+	ID string `json:"runID"`
+	// Trigger records what caused this plan and apply run to start.
+	// +optional
+	Trigger RunTrigger `json:"trigger,omitempty"`
+	// TargetRevision is the ref configured on the Workspace spec when this run
+	// started, for example a branch name like "main".
+	// +optional
+	TargetRevision string `json:"targetRevision,omitempty"`
+	// ObservedRevision is the resolved git commit SHA for this run.
+	// +optional
+	ObservedRevision string `json:"observedRevision,omitempty"`
+	// Plan captures the outcome of the terraform plan phase.
+	// +optional
+	Plan *RunPhaseSummary `json:"plan,omitempty"`
+	// Apply captures the outcome of the terraform apply phase. Nil when the
+	// run has not yet reached or completed the apply phase.
+	// +optional
+	Apply *RunPhaseSummary `json:"apply,omitempty"`
+	// StartedAt is when the plan phase of this run began.
+	// +optional
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+	// FinishedAt is when the last completed phase of this run finished.
+	// +optional
+	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
 }
 
 // +genclient
