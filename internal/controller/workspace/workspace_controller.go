@@ -332,25 +332,6 @@ func computeNextReconcileTime(ws *v1alpha1.Workspace, existing *metav1.Time) (me
 	return metav1.NewTime(next), interval, due
 }
 
-func computeNextScheduledReconcileTime(existing *metav1.Time, interval time.Duration) metav1.Time {
-	now := time.Now()
-
-	if existing == nil || existing.IsZero() {
-		return metav1.NewTime(now.Add(interval))
-	}
-
-	next := existing.Time
-	for !next.After(now) {
-		next = next.Add(interval)
-	}
-
-	return metav1.NewTime(next)
-}
-
-func isScheduledReconcileDue(existing *metav1.Time) bool {
-	return existing != nil && !existing.IsZero() && !existing.After(time.Now())
-}
-
 func newRunID() string {
 	now := time.Now().UTC()
 	var suffix [4]byte
