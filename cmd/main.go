@@ -240,13 +240,18 @@ func main() {
 			setupLog.Error(err, "unable to create run log store")
 			os.Exit(1)
 		}
+		runRecorder, err := workspacecontroller.NewHTTPRunRecorderFromEnv()
+		if err != nil {
+			setupLog.Error(err, "unable to create run log recorder")
+			os.Exit(1)
+		}
 		if err := (&workspacecontroller.WorkspaceReconciler{
-			Client:       mgr.GetClient(),
-			Scheme:       mgr.GetScheme(),
-			JobImage:     jobImage,
-			Clientset:    clientset,
-			LogStore:     runLogStore,
-			LogRetention: logConfig.Retention,
+			Client:      mgr.GetClient(),
+			Scheme:      mgr.GetScheme(),
+			JobImage:    jobImage,
+			Clientset:   clientset,
+			LogStore:    runLogStore,
+			RunRecorder: runRecorder,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Workspace")
 			os.Exit(1)

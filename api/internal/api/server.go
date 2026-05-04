@@ -14,6 +14,7 @@ import (
 	"github.com/magosproject/magos/api/internal/api/handlers"
 	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
+	"github.com/magosproject/magos/api/internal/logsummary"
 	"github.com/magosproject/magos/api/internal/service"
 	"github.com/magosproject/magos/internal/logstore"
 
@@ -38,11 +39,11 @@ type Server struct {
 }
 
 // NewServer creates a new API server with the given Kubernetes client.
-func NewServer(logger *slog.Logger, vc versioned.Interface, kube kubernetes.Interface, logs logstore.Store) *Server {
+func NewServer(logger *slog.Logger, vc versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runSummaries service.RunSummaryStore, logRetention int) *Server {
 	factory := externalversions.NewSharedInformerFactory(vc, 5*time.Minute)
 
 	projectSvc := service.NewProjectService(logger, factory)
-	workspaceSvc := service.NewWorkspaceService(logger, factory, vc, kube, logs)
+	workspaceSvc := service.NewWorkspaceService(logger, factory, vc, kube, logs, runSummaries, logRetention)
 	rolloutSvc := service.NewRolloutService(logger, factory)
 	variableSetSvc := service.NewVariableSetService(logger, factory)
 
@@ -89,7 +90,13 @@ func NewServerWithDefaults(logger *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("failed to create log store: %w", err)
 	}
 
-	return NewServer(logger, vc, kube, logs), nil
+	logSummaryConfig := logsummary.LoadConfigFromEnv()
+	runSummaries, err := logsummary.NewStore(context.Background(), logSummaryConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create run summary store: %w", err)
+	}
+
+	return NewServer(logger, vc, kube, logs, runSummaries, logSummaryConfig.Retention), nil
 }
 
 // Router returns the HTTP handler with all routes configured.
@@ -125,6 +132,10 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/log", s.workspaceHandler.GetRunPhaseLog)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/current/log/stream", s.workspaceHandler.StreamCurrentRunLog)
 	mux.HandleFunc("POST /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile", s.workspaceHandler.RequestReconcile)
+
+	// Internal log ingestion endpoint used by the workspace controller after
+	// archiving a completed phase log to RustFS.
+	mux.HandleFunc("PUT /internal/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/phases/{phase}", s.workspaceHandler.RecordRunPhase)
 
 	// Rollouts
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/rollouts", s.rolloutHandler.List)

@@ -25,6 +25,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
+const defaultLogRetention = 30
+
 type WorkspaceEvent struct {
 	Type   watch.EventType        `json:"type"`
 	Object *apiv1alpha1.Workspace `json:"object"`
@@ -39,7 +41,15 @@ type WorkspaceService interface {
 	RequestReconcile(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
 	ListRuns(ctx context.Context, namespace, name string, limit int, cursor string) (*RunListResponse, error)
 	GetRunPhaseLog(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase) (io.ReadCloser, error)
+	RecordRunPhase(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase, run apiv1alpha1.Run) error
 	StreamCurrentRunLogs(ctx context.Context, namespace, name string, phase apiv1alpha1.RunPhase) <-chan RunLogStreamEvent
+}
+
+type RunSummaryStore interface {
+	UpsertRun(ctx context.Context, namespace, workspace string, run apiv1alpha1.Run) error
+	ListRuns(ctx context.Context, namespace, workspace string, limit int, cursor string) ([]apiv1alpha1.Run, string, error)
+	GetRunPhase(ctx context.Context, namespace, workspace, runID string, phase apiv1alpha1.RunPhase) (*apiv1alpha1.RunPhaseSummary, error)
+	PruneOldRuns(ctx context.Context, namespace, workspace string, retention int) ([]string, error)
 }
 
 type RunListResponse struct {
@@ -57,26 +67,30 @@ type RunLogStreamEvent struct {
 }
 
 type workspaceService struct {
-	logger   *slog.Logger
-	client   versioned.Interface
-	kube     kubernetes.Interface
-	informer cache.SharedIndexInformer
-	lister   listerv1alpha1.WorkspaceLister
-	events   *Broadcaster[WorkspaceEvent]
-	logStore logstore.Store
+	logger    *slog.Logger
+	client    versioned.Interface
+	kube      kubernetes.Interface
+	informer  cache.SharedIndexInformer
+	lister    listerv1alpha1.WorkspaceLister
+	events    *Broadcaster[WorkspaceEvent]
+	logStore  logstore.Store
+	runStore  RunSummaryStore
+	retention int
 }
 
-func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory, client versioned.Interface, kube kubernetes.Interface, logs logstore.Store) WorkspaceService {
+func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory, client versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runs RunSummaryStore, retention int) WorkspaceService {
 	workspaceInformer := factory.Magosproject().V1alpha1().Workspaces()
 
 	svc := &workspaceService{
-		logger:   logger,
-		client:   client,
-		kube:     kube,
-		lister:   workspaceInformer.Lister(),
-		informer: workspaceInformer.Informer(),
-		events:   NewBroadcaster[WorkspaceEvent](),
-		logStore: logs,
+		logger:    logger,
+		client:    client,
+		kube:      kube,
+		lister:    workspaceInformer.Lister(),
+		informer:  workspaceInformer.Informer(),
+		events:    NewBroadcaster[WorkspaceEvent](),
+		logStore:  logs,
+		runStore:  runs,
+		retention: retention,
 	}
 
 	workspaceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -166,10 +180,10 @@ func (s *workspaceService) ListRuns(ctx context.Context, namespace, name string,
 	if err != nil {
 		return nil, err
 	}
-	if s.logStore == nil {
+	if s.runStore == nil {
 		return &RunListResponse{}, nil
 	}
-	runs, nextCursor, err := s.logStore.ListRuns(ctx, workspace.Namespace, workspace.Name, limit, cursor)
+	runs, nextCursor, err := s.runStore.ListRuns(ctx, workspace.Namespace, workspace.Name, limit, cursor)
 	if err != nil {
 		return nil, err
 	}
@@ -183,6 +197,9 @@ func (s *workspaceService) GetRunPhaseLog(ctx context.Context, namespace, name, 
 	if s.logStore == nil {
 		return nil, fmt.Errorf("run log storage is not configured")
 	}
+	if s.runStore == nil {
+		return nil, fmt.Errorf("run summary storage is not configured")
+	}
 
 	workspace, err := s.Get(ctx, namespace, name)
 	if err != nil {
@@ -190,16 +207,63 @@ func (s *workspaceService) GetRunPhaseLog(ctx context.Context, namespace, name, 
 	}
 
 	key := logstore.RunLogKey(workspace.Namespace, workspace.Name, runID, phase)
+	summary, err := s.runStore.GetRunPhase(ctx, workspace.Namespace, workspace.Name, runID, phase)
+	if err != nil {
+		return nil, err
+	}
+	if summary.LogKey != "" {
+		key = summary.LogKey
+	}
+
 	body, err := s.logStore.GetRunPhaseLog(ctx, key)
 	if err != nil {
 		return nil, err
 	}
-	gz, err := gzip.NewReader(body)
-	if err != nil {
-		_ = body.Close()
-		return nil, fmt.Errorf("open gzip run log: %w", err)
+	return decodeRunPhaseLog(body)
+}
+
+func (s *workspaceService) RecordRunPhase(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase, run apiv1alpha1.Run) error {
+	if s.runStore == nil {
+		return fmt.Errorf("run summary storage is not configured")
 	}
-	return &gzipReadCloser{Reader: gz, body: body}, nil
+	if run.ID != runID {
+		return fmt.Errorf("runID in path and payload do not match")
+	}
+	switch phase {
+	case apiv1alpha1.RunPhasePlan:
+		if run.Plan == nil {
+			return fmt.Errorf("plan phase summary is required")
+		}
+	case apiv1alpha1.RunPhaseApply:
+		if run.Apply == nil {
+			return fmt.Errorf("apply phase summary is required")
+		}
+	default:
+		return fmt.Errorf("phase must be plan or apply")
+	}
+
+	if err := s.runStore.UpsertRun(ctx, namespace, name, run); err != nil {
+		return err
+	}
+
+	retention := s.retention
+	if retention <= 0 {
+		retention = defaultLogRetention
+	}
+	keys, err := s.runStore.PruneOldRuns(ctx, namespace, name, retention)
+	if err != nil {
+		return err
+	}
+
+	if s.logStore == nil {
+		return nil
+	}
+	for _, key := range keys {
+		if err := s.logStore.DeleteRunPhaseLog(ctx, key); err != nil {
+			s.logger.Error("failed to delete pruned run log", "error", err, "key", key, "namespace", namespace, "name", name)
+		}
+	}
+	return nil
 }
 
 func (s *workspaceService) StreamCurrentRunLogs(ctx context.Context, namespace, name string, phase apiv1alpha1.RunPhase) <-chan RunLogStreamEvent {
@@ -351,4 +415,31 @@ func (g *gzipReadCloser) Close() error {
 		return readerErr
 	}
 	return bodyErr
+}
+
+type plainReadCloser struct {
+	io.Reader
+	body io.Closer
+}
+
+func (p *plainReadCloser) Close() error {
+	return p.body.Close()
+}
+
+func decodeRunPhaseLog(body io.ReadCloser) (io.ReadCloser, error) {
+	reader := bufio.NewReader(body)
+	header, err := reader.Peek(2)
+	if err != nil && err != io.EOF {
+		_ = body.Close()
+		return nil, err
+	}
+	if len(header) >= 2 && header[0] == 0x1f && header[1] == 0x8b {
+		gz, err := gzip.NewReader(reader)
+		if err != nil {
+			_ = body.Close()
+			return nil, fmt.Errorf("open gzip run log: %w", err)
+		}
+		return &gzipReadCloser{Reader: gz, body: body}, nil
+	}
+	return &plainReadCloser{Reader: reader, body: body}, nil
 }

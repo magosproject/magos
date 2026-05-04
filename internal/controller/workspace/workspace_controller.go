@@ -85,11 +85,11 @@ const (
 // WorkspaceReconciler reconciles a Workspace object
 type WorkspaceReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	JobImage     string
-	Clientset    kubernetes.Interface // for reading pod logs
-	LogStore     logstore.Store
-	LogRetention int // number of reconcile runs to retain per workspace; 0 uses the logstore default
+	Scheme      *runtime.Scheme
+	JobImage    string
+	Clientset   kubernetes.Interface // for reading pod logs
+	LogStore    logstore.Store
+	RunRecorder RunRecorder
 }
 
 // getRepoCredentials finds the Git credential Secret for a given repository
@@ -336,8 +336,8 @@ func newRunID() string {
 	now := time.Now().UTC()
 	var suffix [4]byte
 	if _, err := crand.Read(suffix[:]); err != nil {
-		// Fall back to a timestamp-derived suffix so the ID is always in the
-		// form "20060102T150405-{hex}" that parseRunIDTime expects.
+		// Fall back to a timestamp-derived suffix so the ID keeps the stable
+		// "20060102T150405-{hex}" shape used by API validation and sorting.
 		return fmt.Sprintf("%s-%08x", now.Format("20060102T150405"), now.UnixNano()&0xffffffff)
 	}
 	return fmt.Sprintf("%s-%s", now.Format("20060102T150405"), hex.EncodeToString(suffix[:]))
@@ -1182,10 +1182,10 @@ func terminalJobFinishedAt(job *batchv1.Job) *metav1.Time {
 	return nil
 }
 
-// archiveRunLogs reads the pod logs for the given job, compresses them, and
-// writes them to the log store. It then upserts the reconcile run summary so
-// that the plan and apply phases of the same plan and apply run accumulate into a single
-// record. Old runs beyond the retention limit are pruned after each write.
+// archiveRunLogs reads the pod logs for the given job, compresses them, writes
+// the blob to RustFS, and records summary metadata through the API. The API owns
+// SQLite-backed run summaries and retention so the controller never writes the
+// SQLite database directly.
 func (r *WorkspaceReconciler) archiveRunLogs(
 	ctx context.Context,
 	workspace *v1alpha1.Workspace,
@@ -1193,7 +1193,7 @@ func (r *WorkspaceReconciler) archiveRunLogs(
 	phase v1alpha1.RunPhase,
 	result v1alpha1.RunLogResult,
 ) error {
-	if r.LogStore == nil || r.Clientset == nil {
+	if r.LogStore == nil || r.Clientset == nil || r.RunRecorder == nil {
 		return nil
 	}
 
@@ -1248,15 +1248,7 @@ func (r *WorkspaceReconciler) archiveRunLogs(
 		run.FinishedAt = phaseSummary.FinishedAt
 	}
 
-	if err := r.LogStore.UpsertRun(ctx, workspace.Namespace, workspace.Name, run); err != nil {
-		return err
-	}
-
-	retention := r.LogRetention
-	if retention <= 0 {
-		retention = logstore.DefaultRetention
-	}
-	return r.LogStore.PruneOldRuns(ctx, workspace.Namespace, workspace.Name, retention)
+	return r.RunRecorder.RecordRunPhase(ctx, workspace.Namespace, workspace.Name, runID, phase, run)
 }
 
 // constructJobForWorkspace builds a Kubernetes Job spec for either a "plan" or

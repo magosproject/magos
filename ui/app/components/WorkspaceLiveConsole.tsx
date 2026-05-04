@@ -94,7 +94,13 @@ export default function WorkspaceLiveConsole({
         }
 
         // Prefer the apply log; fall back to plan when apply did not run.
-        const logPhase = latest.apply?.logKey ? "apply" : "plan";
+        const logPhase = latest.apply ? "apply" : latest.plan ? "plan" : null;
+        if (!logPhase) {
+          setContent("");
+          setStatus("No logs recorded yet");
+          return;
+        }
+
         const response = await fetch(
           apiUrl(
             `/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs/${latest.runID}/log?phase=${logPhase}`
@@ -121,6 +127,7 @@ export default function WorkspaceLiveConsole({
   useEffect(() => {
     if (!isActive || !streamPhase) return;
 
+    const pending = pendingRef.current;
     const source = new EventSource(
       apiUrl(
         `/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs/current/log/stream?phase=${streamPhase}`
@@ -134,7 +141,7 @@ export default function WorkspaceLiveConsole({
           setStatus(payload.message || `Waiting for live logs from ${streamPhase} job ${currentRunID}`);
           break;
         case "line":
-          pendingRef.current.push(payload.line ?? "");
+          pending.push(payload.line ?? "");
           if (revealTimerRef.current == null) {
             revealTimerRef.current = window.setInterval(flushPendingLines, 60);
           }
@@ -156,7 +163,6 @@ export default function WorkspaceLiveConsole({
     return () => {
       source.close();
       stopRevealTimer();
-      const pending = pendingRef.current;
       while (pending.length > 0) {
         flushPendingLines();
       }

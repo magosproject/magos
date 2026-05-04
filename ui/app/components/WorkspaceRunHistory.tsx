@@ -66,16 +66,16 @@ interface LogPaneProps {
 }
 
 // LogPane fetches and renders the archived log for one phase. It is always
-// rendered with a key derived from the log key so React remounts it when the
-// selection changes, which avoids the need to reset state inside an effect.
+// rendered with a key derived from the run and phase so React remounts it when
+// the selection changes, which avoids the need to reset state inside an effect.
 function LogPane({ namespace, workspaceName, runID, phase, summary }: LogPaneProps) {
-  const hasLog = Boolean(summary?.logKey);
+  const hasLog = Boolean(summary);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(hasLog);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!summary?.logKey) return;
+    if (!hasLog) return;
 
     const controller = new AbortController();
 
@@ -100,7 +100,7 @@ function LogPane({ namespace, workspaceName, runID, phase, summary }: LogPanePro
       });
 
     return () => controller.abort();
-  }, [namespace, workspaceName, runID, phase, summary?.logKey]);
+  }, [namespace, workspaceName, runID, phase, hasLog]);
 
   if (!summary) {
     return (
@@ -221,50 +221,44 @@ export default function WorkspaceRunHistory({
     setActivePage((p) => p - 1);
   }
 
-  async function loadLatestPage() {
-    const res = await fetch(
-      apiUrl(
-        `/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs?limit=${pageSize}`
-      ),
-      { cache: "no-store" }
-    );
-    if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
-    return (await res.json()) as RunListResponse;
-  }
-
-  function applyLatestPage(runs: RunListResponse) {
-    const previousIDs = new Set(pages[0]?.items.map((r) => r.runID ?? "").filter(Boolean));
-    const newIDs = (runs.items ?? [])
-      .map((r) => r.runID ?? "")
-      .filter((id) => id && !previousIDs.has(id));
-
-    if (flashTimeoutRef.current != null) {
-      window.clearTimeout(flashTimeoutRef.current);
-      flashTimeoutRef.current = null;
-    }
-
-    setPages([{ items: runs.items ?? [], nextCursor: runs.nextCursor ?? "", cursor: "" }]);
-    setActivePage(1);
-
-    if (newIDs.length > 0) {
-      setFlashingIDs(new Set(newIDs));
-      flashTimeoutRef.current = window.setTimeout(() => {
-        setFlashingIDs(new Set());
-        flashTimeoutRef.current = null;
-      }, 1400);
-    }
-  }
-
   const refreshToLatest = useCallback(async () => {
     setRefreshing(true);
     try {
-      applyLatestPage(await loadLatestPage());
+      const res = await fetch(
+        apiUrl(
+          `/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs?limit=${pageSize}`
+        ),
+        { cache: "no-store" }
+      );
+      if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
+
+      const runs = (await res.json()) as RunListResponse;
+      const previousIDs = new Set(pages[0]?.items.map((r) => r.runID ?? "").filter(Boolean));
+      const newIDs = (runs.items ?? [])
+        .map((r) => r.runID ?? "")
+        .filter((id) => id && !previousIDs.has(id));
+
+      if (flashTimeoutRef.current != null) {
+        window.clearTimeout(flashTimeoutRef.current);
+        flashTimeoutRef.current = null;
+      }
+
+      setPages([{ items: runs.items ?? [], nextCursor: runs.nextCursor ?? "", cursor: "" }]);
+      setActivePage(1);
+
+      if (newIDs.length > 0) {
+        setFlashingIDs(new Set(newIDs));
+        flashTimeoutRef.current = window.setTimeout(() => {
+          setFlashingIDs(new Set());
+          flashTimeoutRef.current = null;
+        }, 1400);
+      }
     } catch (err) {
       console.error(err);
     } finally {
       setRefreshing(false);
     }
-  }, [namespace, workspaceName]);
+  }, [namespace, pages, workspaceName]);
 
   // Refresh the list when a run cycle completes so new entries appear without
   // requiring a manual reload.
@@ -389,7 +383,7 @@ export default function WorkspaceRunHistory({
 
             <Tabs.Panel value="plan" pt="md">
               <LogPane
-                key={`${selected.runID}:plan:${selected.plan?.logKey ?? ""}`}
+                key={`${selected.runID}:plan`}
                 namespace={namespace}
                 workspaceName={workspaceName}
                 runID={selected.runID ?? ""}
@@ -400,7 +394,7 @@ export default function WorkspaceRunHistory({
 
             <Tabs.Panel value="apply" pt="md">
               <LogPane
-                key={`${selected.runID}:apply:${selected.apply?.logKey ?? ""}`}
+                key={`${selected.runID}:apply`}
                 namespace={namespace}
                 workspaceName={workspaceName}
                 runID={selected.runID ?? ""}
