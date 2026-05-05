@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -20,8 +19,7 @@ import (
 )
 
 const (
-	envLogsEnabled = "MAGOS_LOGS_ENABLED"
-	envSQLitePath  = "MAGOS_SQLITE_PATH"
+	envSQLitePath = "MAGOS_SQLITE_PATH"
 
 	defaultListLimit  = 30
 	defaultSQLitePath = "/tmp/magos.db"
@@ -33,7 +31,6 @@ var (
 )
 
 type Config struct {
-	Enabled    bool
 	SQLitePath string
 }
 
@@ -56,30 +53,10 @@ func LoadConfigFromEnv() Config {
 	if sqlitePath == "" {
 		sqlitePath = defaultSQLitePath
 	}
-
-	return Config{
-		Enabled:    parseBoolEnv(envLogsEnabled, false),
-		SQLitePath: sqlitePath,
-	}
-}
-
-func (c Config) Validate() error {
-	if !c.Enabled {
-		return nil
-	}
-	if c.SQLitePath == "" {
-		return fmt.Errorf("%s must be set when log storage is enabled", envSQLitePath)
-	}
-	return nil
+	return Config{SQLitePath: sqlitePath}
 }
 
 func NewStore(ctx context.Context, cfg Config) (*Store, error) {
-	if !cfg.Enabled {
-		return nil, nil
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
 	if !strings.HasPrefix(cfg.SQLitePath, "file:") {
 		if err := os.MkdirAll(filepath.Dir(cfg.SQLitePath), 0o755); err != nil {
 			return nil, fmt.Errorf("create sqlite directory: %w", err)
@@ -510,14 +487,4 @@ func nullEmpty(value string) any {
 	return value
 }
 
-func parseBoolEnv(key string, fallback bool) bool {
-	value := os.Getenv(key)
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
-}
+

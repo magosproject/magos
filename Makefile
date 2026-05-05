@@ -117,15 +117,15 @@ deps:
 .PHONY: run
 run: deps manifests generate fmt vet install-rustfs ## Run all components in parallel.
 	@$(KUBECTL) wait deployment/magos-rustfs --for=condition=available --timeout=60s
-	@rm -rf .data/
+	@rm -f /tmp/magos.db /tmp/magos.db-wal /tmp/magos.db-shm
 	@trap 'kill 0' EXIT; \
-	export MAGOS_LOGS_ENABLED=true; \
 	export MAGOS_LOGS_S3_ENDPOINT="http://127.0.0.1:$(RUSTFS_S3_PORT)"; \
 	export MAGOS_LOGS_S3_ACCESS_KEY_ID="$$($(KUBECTL) get secret magos-rustfs -o jsonpath='{.data.accessKey}' | base64 -d)"; \
 	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$$($(KUBECTL) get secret magos-rustfs -o jsonpath='{.data.secretKey}' | base64 -d)"; \
 	export MAGOS_LOGS_API_URL="http://127.0.0.1:8080"; \
 	export MAGOS_SQLITE_PATH="/tmp/magos.db"; \
 	$(KUBECTL) port-forward svc/magos-rustfs $(RUSTFS_S3_PORT):9000 & \
+	until curl -so /dev/null http://127.0.0.1:$(RUSTFS_S3_PORT)/ 2>/dev/null; do sleep 0.5; done; \
 	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
 	$(MAKE) -s run-api & \
 	$(MAKE) -s run-ui & \

@@ -34,7 +34,7 @@ type recordRunPhaseRequest struct {
 }
 
 func NewHTTPRunRecorderFromEnv() (RunRecorder, error) {
-	if !logstore.LoadConfigFromEnv().Enabled {
+	if !logstore.LoadConfigFromEnv().Enabled() {
 		return nil, nil
 	}
 

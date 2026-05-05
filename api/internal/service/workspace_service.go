@@ -175,9 +175,6 @@ func (s *workspaceService) ListRuns(ctx context.Context, namespace, name string,
 	if err != nil {
 		return nil, err
 	}
-	if s.runStore == nil {
-		return &RunListResponse{}, nil
-	}
 	runs, nextCursor, err := s.runStore.ListRuns(ctx, workspace.Namespace, workspace.Name, limit, cursor)
 	if err != nil {
 		return nil, err
@@ -191,9 +188,6 @@ func (s *workspaceService) ListRuns(ctx context.Context, namespace, name string,
 func (s *workspaceService) GetRunPhaseLog(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase) (io.ReadCloser, error) {
 	if s.logStore == nil {
 		return nil, fmt.Errorf("run log storage is not configured")
-	}
-	if s.runStore == nil {
-		return nil, fmt.Errorf("run summary storage is not configured")
 	}
 
 	workspace, err := s.Get(ctx, namespace, name)
@@ -218,9 +212,6 @@ func (s *workspaceService) GetRunPhaseLog(ctx context.Context, namespace, name, 
 }
 
 func (s *workspaceService) RecordRunPhase(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase, run apiv1alpha1.Run) error {
-	if s.runStore == nil {
-		return fmt.Errorf("run summary storage is not configured")
-	}
 	if run.ID != runID {
 		return fmt.Errorf("runID in path and payload do not match")
 	}

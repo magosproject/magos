@@ -77,9 +77,6 @@ Environment variables for the log store. Credentials and endpoint are wired
 automatically from the bundled RustFS deployment and are not user-configurable.
 */}}
 {{- define "magos.logstoreEnv" -}}
-- name: MAGOS_LOGS_ENABLED
-  value: {{ .Values.logs.enabled | quote }}
-{{- if .Values.logs.enabled }}
 - name: MAGOS_LOGS_S3_ENDPOINT
   value: {{ printf "http://%s-rustfs:%v" (include "magos.fullname" .) .Values.logs.storage.service.port | quote }}
 - name: MAGOS_LOGS_S3_ACCESS_KEY_ID
@@ -92,5 +89,4 @@ automatically from the bundled RustFS deployment and are not user-configurable.
     secretKeyRef:
       name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
       key: secretKey
-{{- end }}
 {{- end }}

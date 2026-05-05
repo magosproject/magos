@@ -1,4 +1,3 @@
-{{- if .Values.logs.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -19,4 +18,3 @@ spec:
     port: {{ .Values.logs.storage.service.consolePort }}
     targetPort: console
     protocol: TCP
-{{- end }}

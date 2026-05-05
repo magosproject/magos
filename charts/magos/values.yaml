@@ -165,9 +165,6 @@ jobServiceAccount:
   automount: true
 
 logs:
-  enabled: true
-  # Storage backend configuration. RustFS (S3-compatible) is deployed
-  # automatically when logs are enabled. Credentials are auto-generated.
   storage:
     image:
       repository: rustfs/rustfs

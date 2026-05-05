@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -19,7 +18,6 @@ import (
 )
 
 const (
-	envLogsEnabled           = "MAGOS_LOGS_ENABLED"
 	envLogsS3Endpoint        = "MAGOS_LOGS_S3_ENDPOINT"
 	envLogsS3AccessKeyID     = "MAGOS_LOGS_S3_ACCESS_KEY_ID"
 	envLogsS3SecretAccessKey = "MAGOS_LOGS_S3_SECRET_ACCESS_KEY"
@@ -27,13 +25,14 @@ const (
 	defaultBucket = "magos-run-logs"
 )
 
-// Config holds the user-facing log storage settings. The storage backend is an
-// internal concern and is not exposed.
 type Config struct {
-	Enabled         bool
 	endpoint        string
 	accessKeyID     string
 	secretAccessKey string
+}
+
+func (c Config) Enabled() bool {
+	return c.endpoint != ""
 }
 
 // Store provides persistence for compressed run log blobs.
@@ -61,7 +60,6 @@ func RunLogKey(namespace, workspace, runID string, phase v1alpha1.RunPhase) stri
 
 func LoadConfigFromEnv() Config {
 	return Config{
-		Enabled:         parseBoolEnv(envLogsEnabled, false),
 		endpoint:        os.Getenv(envLogsS3Endpoint),
 		accessKeyID:     os.Getenv(envLogsS3AccessKeyID),
 		secretAccessKey: os.Getenv(envLogsS3SecretAccessKey),
@@ -69,9 +67,6 @@ func LoadConfigFromEnv() Config {
 }
 
 func (c Config) validate() error {
-	if !c.Enabled {
-		return nil
-	}
 	if c.endpoint == "" {
 		return fmt.Errorf("%s must be set when log storage is enabled", envLogsS3Endpoint)
 	}
@@ -85,7 +80,7 @@ func (c Config) validate() error {
 }
 
 func NewStore(ctx context.Context, cfg Config) (Store, error) {
-	if !cfg.Enabled {
+	if !cfg.Enabled() {
 		return nil, nil
 	}
 	if err := cfg.validate(); err != nil {
@@ -178,16 +173,4 @@ func (s *s3Store) DeleteRunPhaseLog(ctx context.Context, key string) error {
 		return fmt.Errorf("delete object %q: %w", key, err)
 	}
 	return nil
-}
-
-func parseBoolEnv(key string, fallback bool) bool {
-	value := os.Getenv(key)
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
 }
