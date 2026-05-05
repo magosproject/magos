@@ -1,6 +1,6 @@
 {{- if .Values.api.enabled }}
 {{- if and .Values.logs.enabled (gt (int .Values.api.replicaCount) 1) }}
-{{- fail "api.replicaCount must be 1 when logs.enabled is true because run summaries are stored in an API-owned SQLite database" }}
+{{- fail "api.replicaCount must be 1 when logs.enabled is true because the API owns a SQLite database on a persistent volume" }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment
@@ -53,7 +53,7 @@ spec:
         {{- include "magos.logstoreEnv" . | nindent 8 }}
         {{- if .Values.logs.enabled }}
         - name: MAGOS_SQLITE_PATH
-          value: {{ printf "%s/magos.db" .Values.logs.summaries.mountPath | quote }}
+          value: {{ printf "%s/magos.db" .Values.sqlite.mountPath | quote }}
         {{- end }}
         {{- with .Values.api.env }}
         {{- toYaml . | nindent 8 }}
@@ -76,15 +76,15 @@ spec:
           {{- toYaml .Values.api.resources | nindent 10 }}
         {{- if .Values.logs.enabled }}
         volumeMounts:
-        - name: log-summaries
-          mountPath: {{ .Values.logs.summaries.mountPath | quote }}
+        - name: sqlite-data
+          mountPath: {{ .Values.sqlite.mountPath | quote }}
         {{- end }}
       {{- if .Values.logs.enabled }}
       volumes:
-      - name: log-summaries
-        {{- if .Values.logs.summaries.persistence.enabled }}
+      - name: sqlite-data
+        {{- if .Values.sqlite.persistence.enabled }}
         persistentVolumeClaim:
-          claimName: {{ printf "%s-api-logs" (include "magos.fullname" .) }}
+          claimName: {{ printf "%s-api-sqlite" (include "magos.fullname" .) }}
         {{- else }}
         emptyDir: {}
         {{- end }}

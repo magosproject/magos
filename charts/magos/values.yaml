@@ -179,14 +179,15 @@ logs:
     persistence:
       size: 10Gi
       # storageClass: "" # Leave empty to use the cluster default.
-  summaries:
-    # SQLite run-summary database owned by the API. RustFS remains the storage
-    # backend for the compressed log bodies.
-    mountPath: /var/lib/magos/logs
-    persistence:
-      enabled: true
-      size: 1Gi
-      # storageClass: "" # Leave empty to use the cluster default.
+
+sqlite:
+  # SQLite database owned by the API pod. Used for run summaries and future
+  # operational metadata. RustFS remains the storage backend for log blobs.
+  mountPath: /var/lib/magos/sqlite
+  persistence:
+    enabled: true
+    size: 1Gi
+    # storageClass: "" # Leave empty to use the cluster default.
 
 policy:
   kyverno:

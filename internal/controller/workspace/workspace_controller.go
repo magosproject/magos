@@ -1184,8 +1184,7 @@ func terminalJobFinishedAt(job *batchv1.Job) *metav1.Time {
 
 // archiveRunLogs reads the pod logs for the given job, compresses them, writes
 // the blob to RustFS, and records summary metadata through the API. The API owns
-// SQLite-backed run summaries and retention so the controller never writes the
-// SQLite database directly.
+// SQLite-backed run summaries, so the controller never writes the SQLite database directly.
 func (r *WorkspaceReconciler) archiveRunLogs(
 	ctx context.Context,
 	workspace *v1alpha1.Workspace,
