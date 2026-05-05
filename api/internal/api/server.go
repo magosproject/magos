@@ -39,11 +39,11 @@ type Server struct {
 }
 
 // NewServer creates a new API server with the given Kubernetes client.
-func NewServer(logger *slog.Logger, vc versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runSummaries service.RunSummaryStore, logRetention int) *Server {
+func NewServer(logger *slog.Logger, vc versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runSummaries service.RunSummaryStore) *Server {
 	factory := externalversions.NewSharedInformerFactory(vc, 5*time.Minute)
 
 	projectSvc := service.NewProjectService(logger, factory)
-	workspaceSvc := service.NewWorkspaceService(logger, factory, vc, kube, logs, runSummaries, logRetention)
+	workspaceSvc := service.NewWorkspaceService(logger, factory, vc, kube, logs, runSummaries)
 	rolloutSvc := service.NewRolloutService(logger, factory)
 	variableSetSvc := service.NewVariableSetService(logger, factory)
 
@@ -96,7 +96,7 @@ func NewServerWithDefaults(logger *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("failed to create run summary store: %w", err)
 	}
 
-	return NewServer(logger, vc, kube, logs, runSummaries, logSummaryConfig.Retention), nil
+	return NewServer(logger, vc, kube, logs, runSummaries), nil
 }
 
 // Router returns the HTTP handler with all routes configured.

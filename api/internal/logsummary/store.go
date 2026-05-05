@@ -20,11 +20,10 @@ import (
 )
 
 const (
-	envLogsEnabled   = "MAGOS_LOGS_ENABLED"
-	envLogsRetention = "MAGOS_LOGS_RETENTION"
-	envSQLitePath    = "MAGOS_SQLITE_PATH"
+	envLogsEnabled = "MAGOS_LOGS_ENABLED"
+	envSQLitePath  = "MAGOS_SQLITE_PATH"
 
-	defaultRetention  = 30
+	defaultListLimit  = 30
 	defaultSQLitePath = "/tmp/magos.db"
 )
 
@@ -35,7 +34,6 @@ var (
 
 type Config struct {
 	Enabled    bool
-	Retention  int
 	SQLitePath string
 }
 
@@ -54,13 +52,6 @@ type listedRun struct {
 }
 
 func LoadConfigFromEnv() Config {
-	retention := defaultRetention
-	if raw := os.Getenv(envLogsRetention); raw != "" {
-		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
-			retention = v
-		}
-	}
-
 	sqlitePath := os.Getenv(envSQLitePath)
 	if sqlitePath == "" {
 		sqlitePath = defaultSQLitePath
@@ -68,7 +59,6 @@ func LoadConfigFromEnv() Config {
 
 	return Config{
 		Enabled:    parseBoolEnv(envLogsEnabled, false),
-		Retention:  retention,
 		SQLitePath: sqlitePath,
 	}
 }
@@ -239,7 +229,7 @@ func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run 
 
 func (s *Store) ListRuns(ctx context.Context, namespace, workspace string, limit int, cursor string) ([]v1alpha1.Run, string, error) {
 	if limit <= 0 {
-		limit = defaultRetention
+		limit = defaultListLimit
 	}
 
 	var cur *listCursor
@@ -317,104 +307,6 @@ func (s *Store) GetRunPhase(ctx context.Context, namespace, workspace, runID str
 	return s.getRunPhase(ctx, namespace, workspace, runID, phase)
 }
 
-func (s *Store) PruneOldRuns(ctx context.Context, namespace, workspace string, retention int) ([]string, error) {
-	if retention <= 0 {
-		retention = defaultRetention
-	}
-
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("begin prune transaction: %w", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
-
-	rows, err := tx.QueryContext(ctx, `
-		SELECT run_id
-		FROM runs
-		WHERE namespace = ? AND workspace = ?
-		ORDER BY sort_time DESC, run_id DESC
-		LIMIT -1 OFFSET ?`,
-		namespace,
-		workspace,
-		retention,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list old run summaries: %w", err)
-	}
-
-	oldRunIDs := make([]string, 0)
-	for rows.Next() {
-		var runID string
-		if err := rows.Scan(&runID); err != nil {
-			_ = rows.Close()
-			return nil, fmt.Errorf("scan old run summary: %w", err)
-		}
-		oldRunIDs = append(oldRunIDs, runID)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("close old run summary rows: %w", err)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate old run summaries: %w", err)
-	}
-	if len(oldRunIDs) == 0 {
-		if err = tx.Commit(); err != nil {
-			return nil, fmt.Errorf("commit empty prune transaction: %w", err)
-		}
-		committed = true
-		return nil, nil
-	}
-
-	logKeys := make([]string, 0, len(oldRunIDs)*2)
-	for _, runID := range oldRunIDs {
-		keyRows, err := tx.QueryContext(ctx, `
-			SELECT log_key
-			FROM run_phases
-			WHERE namespace = ? AND workspace = ? AND run_id = ? AND log_key <> ''`,
-			namespace,
-			workspace,
-			runID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("list old run log keys: %w", err)
-		}
-		for keyRows.Next() {
-			var key string
-			if err := keyRows.Scan(&key); err != nil {
-				_ = keyRows.Close()
-				return nil, fmt.Errorf("scan old run log key: %w", err)
-			}
-			logKeys = append(logKeys, key)
-		}
-		if err := keyRows.Close(); err != nil {
-			return nil, fmt.Errorf("close old run log key rows: %w", err)
-		}
-		if err := keyRows.Err(); err != nil {
-			return nil, fmt.Errorf("iterate old run log keys: %w", err)
-		}
-
-		if _, err := tx.ExecContext(ctx, `
-			DELETE FROM runs
-			WHERE namespace = ? AND workspace = ? AND run_id = ?`,
-			namespace,
-			workspace,
-			runID,
-		); err != nil {
-			return nil, fmt.Errorf("delete old run summary %q: %w", runID, err)
-		}
-	}
-
-	if err = tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit prune transaction: %w", err)
-	}
-	committed = true
-	return logKeys, nil
-}
 
 func upsertPhase(ctx context.Context, tx *sql.Tx, namespace, workspace, runID string, phase v1alpha1.RunPhase, summary *v1alpha1.RunPhaseSummary) error {
 	_, err := tx.ExecContext(ctx, `

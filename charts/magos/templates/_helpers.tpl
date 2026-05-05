@@ -79,8 +79,6 @@ automatically from the bundled RustFS deployment and are not user-configurable.
 {{- define "magos.logstoreEnv" -}}
 - name: MAGOS_LOGS_ENABLED
   value: {{ .Values.logs.enabled | quote }}
-- name: MAGOS_LOGS_RETENTION
-  value: {{ .Values.logs.retention | quote }}
 {{- if .Values.logs.enabled }}
 - name: MAGOS_LOGS_S3_ENDPOINT
   value: {{ printf "http://%s-rustfs:%v" (include "magos.fullname" .) .Values.logs.storage.service.port | quote }}

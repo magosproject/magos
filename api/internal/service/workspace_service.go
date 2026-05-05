@@ -25,8 +25,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-const defaultLogRetention = 30
-
 type WorkspaceEvent struct {
 	Type   watch.EventType        `json:"type"`
 	Object *apiv1alpha1.Workspace `json:"object"`
@@ -49,7 +47,6 @@ type RunSummaryStore interface {
 	UpsertRun(ctx context.Context, namespace, workspace string, run apiv1alpha1.Run) error
 	ListRuns(ctx context.Context, namespace, workspace string, limit int, cursor string) ([]apiv1alpha1.Run, string, error)
 	GetRunPhase(ctx context.Context, namespace, workspace, runID string, phase apiv1alpha1.RunPhase) (*apiv1alpha1.RunPhaseSummary, error)
-	PruneOldRuns(ctx context.Context, namespace, workspace string, retention int) ([]string, error)
 }
 
 type RunListResponse struct {
@@ -67,30 +64,28 @@ type RunLogStreamEvent struct {
 }
 
 type workspaceService struct {
-	logger    *slog.Logger
-	client    versioned.Interface
-	kube      kubernetes.Interface
-	informer  cache.SharedIndexInformer
-	lister    listerv1alpha1.WorkspaceLister
-	events    *Broadcaster[WorkspaceEvent]
-	logStore  logstore.Store
-	runStore  RunSummaryStore
-	retention int
+	logger   *slog.Logger
+	client   versioned.Interface
+	kube     kubernetes.Interface
+	informer cache.SharedIndexInformer
+	lister   listerv1alpha1.WorkspaceLister
+	events   *Broadcaster[WorkspaceEvent]
+	logStore logstore.Store
+	runStore RunSummaryStore
 }
 
-func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory, client versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runs RunSummaryStore, retention int) WorkspaceService {
+func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory, client versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runs RunSummaryStore) WorkspaceService {
 	workspaceInformer := factory.Magosproject().V1alpha1().Workspaces()
 
 	svc := &workspaceService{
-		logger:    logger,
-		client:    client,
-		kube:      kube,
-		lister:    workspaceInformer.Lister(),
-		informer:  workspaceInformer.Informer(),
-		events:    NewBroadcaster[WorkspaceEvent](),
-		logStore:  logs,
-		runStore:  runs,
-		retention: retention,
+		logger:   logger,
+		client:   client,
+		kube:     kube,
+		lister:   workspaceInformer.Lister(),
+		informer: workspaceInformer.Informer(),
+		events:   NewBroadcaster[WorkspaceEvent](),
+		logStore: logs,
+		runStore: runs,
 	}
 
 	workspaceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -246,23 +241,6 @@ func (s *workspaceService) RecordRunPhase(ctx context.Context, namespace, name, 
 		return err
 	}
 
-	retention := s.retention
-	if retention <= 0 {
-		retention = defaultLogRetention
-	}
-	keys, err := s.runStore.PruneOldRuns(ctx, namespace, name, retention)
-	if err != nil {
-		return err
-	}
-
-	if s.logStore == nil {
-		return nil
-	}
-	for _, key := range keys {
-		if err := s.logStore.DeleteRunPhaseLog(ctx, key); err != nil {
-			s.logger.Error("failed to delete pruned run log", "error", err, "key", key, "namespace", namespace, "name", name)
-		}
-	}
 	return nil
 }
 
