@@ -5,6 +5,7 @@ JOB_IMG ?= magos-job:$(TAG)
 UI_IMG ?= ui:$(TAG)
 API_IMG ?= magos-api:$(TAG)
 RUSTFS_S3_PORT ?= 9000
+DEV_CLUSTER ?= kind
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -107,6 +108,16 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
+.PHONY: dev-cluster
+dev-cluster: kind ## Create a Kind cluster for local development with port mappings for RustFS.
+	@case "$$($(KIND) get clusters)" in \
+		*"$(DEV_CLUSTER)"*) \
+			echo "Kind cluster '$(DEV_CLUSTER)' already exists. Skipping creation." ;; \
+		*) \
+			echo "Creating Kind cluster '$(DEV_CLUSTER)'..."; \
+			$(KIND) create cluster --name $(DEV_CLUSTER) --config hack/kind-config.yaml ;; \
+	esac
+
 .PHONY: deps
 deps:
 	go mod tidy
@@ -124,8 +135,6 @@ run: deps manifests generate fmt vet install-rustfs ## Run all components in par
 	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$$($(KUBECTL) get secret magos-rustfs -o jsonpath='{.data.secretKey}' | base64 -d)"; \
 	export MAGOS_LOGS_API_URL="http://127.0.0.1:8080"; \
 	export MAGOS_SQLITE_PATH="/tmp/magos.db"; \
-	$(KUBECTL) port-forward svc/magos-rustfs $(RUSTFS_S3_PORT):9000 & \
-	until curl -so /dev/null http://127.0.0.1:$(RUSTFS_S3_PORT)/ 2>/dev/null; do sleep 0.5; done; \
 	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
 	$(MAKE) -s run-api & \
 	$(MAKE) -s run-ui & \

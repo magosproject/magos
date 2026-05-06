@@ -91,12 +91,14 @@ metadata:
   name: magos-rustfs
   namespace: default
 spec:
+  type: NodePort
   selector:
     app.kubernetes.io/name: magos-rustfs
   ports:
   - name: s3
     port: 9000
     targetPort: s3
+    nodePort: 31900
     protocol: TCP
   - name: console
     port: 9001
