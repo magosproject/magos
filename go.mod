@@ -10,7 +10,7 @@ require (
 	github.com/go-git/go-git/v5 v5.18.0
 	github.com/magosproject/go-version v1.9.0
 	github.com/magosproject/hc-install v0.9.4
-	github.com/magosproject/terraform-exec v0.25.1
+	github.com/magosproject/terraform-exec v0.25.2-0.20260427002320-19c93ed9b500
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/prometheus/client_golang v1.23.2

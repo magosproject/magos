@@ -1,9 +1,9 @@
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:
-  name: require-random-id-byte-length-1
+  name: require-subnet-entropy-1
   labels:
-    policy.magosproject.io/category: security-1
+    policy.magosproject.io/category: network-security-1
 spec:
   evaluation:
     mode: JSON
@@ -11,7 +11,7 @@ spec:
     - name: is-terraform-plan
       expression: 'has(object.planned_values) && has(object.terraform_version)'
   validations:
-    - message: 'Require random_id.server its byte_lenght to be 1'
+    - message: 'Require random_id.server byte_length to be 1'
       expression: |
         (
           (has(object.planned_values.root_module.resources) &&

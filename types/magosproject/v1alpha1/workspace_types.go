@@ -49,6 +49,11 @@ const (
 
 	// WorkspaceGitPollIntervalAnnotation overrides the default git remote poll interval for this workspace.
 	WorkspaceGitPollIntervalAnnotation = "magosproject.io/git-poll-interval"
+
+	// WorkspaceTFLogLevelAnnotation sets the TF_LOG level for Terraform runs on this workspace.
+	// Accepted values: TRACE, DEBUG, INFO, WARN, ERROR. Remove the annotation to disable logging.
+	// Changes to this annotation do not trigger a new plan or apply run.
+	WorkspaceTFLogLevelAnnotation = "magosproject.io/tf-log-level"
 )
 
 // ProjectReference references a Project resource

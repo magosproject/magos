@@ -1,0 +1,14 @@
+apiVersion: magosproject.io/v1alpha1
+kind: Project
+metadata:
+  name: payments-platform
+  namespace: default
+spec:
+  description: Payments Platform
+  validation:
+    policySelector:
+      matchExpressions:
+        - key: policy.magosproject.io/category
+          operator: In
+          values:
+            - compliance

@@ -49,6 +49,7 @@ type Config struct {
 	JobType        string
 	PlanFile       string
 	PolicySelector string // a label selector for kyverno policies to evaluate the plan against, e.g. "env=prod"
+	TFLogLevel     string // TF_LOG level (TRACE, DEBUG, INFO, WARN, ERROR); empty means logging is suppressed
 }
 
 // loadConfig reads the job configuration from environment variables. The
@@ -70,6 +71,7 @@ func loadConfig() (*Config, error) {
 		JobType:        os.Getenv("MAGOS_JOB_TYPE"),
 		PlanFile:       os.Getenv("MAGOS_PLAN_FILE"),
 		PolicySelector: os.Getenv("MAGOS_POLICY_SELECTOR"),
+		TFLogLevel:     os.Getenv("MAGOS_TF_LOG_LEVEL"),
 	}
 
 	if cfg.RepoURL == "" || cfg.TargetRevision == "" || cfg.TFVersion == "" || cfg.JobType == "" || cfg.PlanFile == "" {
@@ -170,14 +172,36 @@ func cloneRepository(ctx context.Context, cfg *Config, dest string) error {
 // briefly before giving up. Once terraform apply succeeds we delete the plan
 // file so it cannot be reused and cannot leak sensitive values from the state
 // diff.
+// pluginCacheMount is the directory on the workspace PVC where Terraform
+// provider binaries are cached between runs. Using the PVC means a provider
+// downloaded during one plan job is reused by the next plan or apply job for
+// the same workspace, avoiding repeated downloads.
+const pluginCacheMount = "/workspace-data/plugin-cache"
+
 func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 	workDir := cloneDir
 	if cfg.TFPath != "" && cfg.TFPath != "." {
 		workDir = filepath.Join(cloneDir, cfg.TFPath)
 	}
 
+	// Enable provider plugin caching on the persistent workspace volume.
+	var clientOpts []terraform.Option
+	if err := os.MkdirAll(pluginCacheMount, 0o755); err != nil {
+		log.Printf("Warning: failed to create plugin cache dir %q, caching disabled: %v", pluginCacheMount, err)
+	} else {
+		log.Printf("Provider plugin cache enabled at %s", pluginCacheMount)
+		clientOpts = append(clientOpts, terraform.WithEnv(map[string]string{
+			"TF_PLUGIN_CACHE_DIR": pluginCacheMount,
+		}))
+	}
+
+	if cfg.TFLogLevel != "" {
+		log.Printf("Terraform log level set to %s", cfg.TFLogLevel)
+		clientOpts = append(clientOpts, terraform.WithLog(cfg.TFLogLevel, "/dev/stderr"))
+	}
+
 	log.Printf("Initializing Terraform %s in %s", cfg.TFVersion, workDir)
-	tfClient, err := terraform.NewClientFromInstall(ctx, workDir, cfg.TFVersion, "")
+	tfClient, err := terraform.NewClientFromInstall(ctx, workDir, cfg.TFVersion, "", clientOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to initialize terraform client: %w", err)
 	}

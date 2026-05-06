@@ -30,12 +30,38 @@ type WorkspaceEvent struct {
 	Object *apiv1alpha1.Workspace `json:"object"`
 }
 
+// WorkspacePatch holds the subset of Workspace fields that can be updated via the API.
+type WorkspacePatch struct {
+	Metadata *ObjectMetaPatch `json:"metadata,omitempty"`
+}
+
+// Validate checks that annotation values in the patch are acceptable.
+func (p WorkspacePatch) Validate() error {
+	if p.Metadata == nil {
+		return nil
+	}
+	validLogLevels := map[string]bool{"TRACE": true, "DEBUG": true, "INFO": true, "WARN": true, "ERROR": true}
+	if v, ok := p.Metadata.Annotations[apiv1alpha1.WorkspaceTFLogLevelAnnotation]; ok && v != nil && *v != "" {
+		if !validLogLevels[*v] {
+			return fmt.Errorf("invalid tf-log-level %q: must be one of TRACE, DEBUG, INFO, WARN, ERROR", *v)
+		}
+	}
+	return nil
+}
+
+// ObjectMetaPatch is the patchable portion of ObjectMeta.
+// Annotation values are pointers so that a JSON null removes the key via merge patch.
+type ObjectMetaPatch struct {
+	Annotations map[string]*string `json:"annotations,omitempty"`
+}
+
 // WorkspaceService defines operations for Workspace resources.
 type WorkspaceService interface {
 	HasSynced() bool
 	Watch(ctx context.Context) <-chan WorkspaceEvent
 	List(ctx context.Context) ([]*apiv1alpha1.Workspace, error)
 	Get(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
+	Patch(ctx context.Context, namespace, name string, patch WorkspacePatch) (*apiv1alpha1.Workspace, error)
 	RequestReconcile(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
 	ListRuns(ctx context.Context, namespace, name string, limit int, cursor string) (*RunListResponse, error)
 	GetRunPhaseLog(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase) (io.ReadCloser, error)
@@ -129,6 +155,27 @@ func (s *workspaceService) Get(_ context.Context, namespace, name string) (*apiv
 		s.logger.Error("failed to get Workspace", "error", err, "namespace", namespace, "name", name)
 		return nil, err
 	}
+	return workspace, nil
+}
+
+func (s *workspaceService) Patch(ctx context.Context, namespace, name string, patch WorkspacePatch) (*apiv1alpha1.Workspace, error) {
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return nil, err
+	}
+
+	workspace, err := s.client.MagosprojectV1alpha1().Workspaces(namespace).Patch(
+		ctx,
+		name,
+		types.MergePatchType,
+		patchBytes,
+		metav1.PatchOptions{},
+	)
+	if err != nil {
+		s.logger.Error("failed to patch Workspace", "error", err, "namespace", namespace, "name", name)
+		return nil, err
+	}
+
 	return workspace, nil
 }
 

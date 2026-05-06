@@ -1,0 +1,14 @@
+apiVersion: magosproject.io/v1alpha1
+kind: Project
+metadata:
+  name: networking-with-policies
+  namespace: default
+spec:
+  description: Cloud Networking Platform
+  validation:
+    policySelector:
+      matchExpressions:
+        - key: policy.magosproject.io/category
+          operator: In
+          values:
+            - network-security

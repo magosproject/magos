@@ -124,7 +124,7 @@ run: deps manifests generate fmt vet install-rustfs ## Run all components in par
 	export MAGOS_LOGS_S3_ENDPOINT="http://127.0.0.1:$(RUSTFS_S3_PORT)"; \
 	export MAGOS_LOGS_S3_ACCESS_KEY_ID="$$($(KUBECTL) get secret magos-rustfs -o jsonpath='{.data.accessKey}' | base64 -d)"; \
 	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$$($(KUBECTL) get secret magos-rustfs -o jsonpath='{.data.secretKey}' | base64 -d)"; \
-	$(KUBECTL) port-forward svc/magos-rustfs $(RUSTFS_S3_PORT):9000 & \
+	(while true; do $(KUBECTL) port-forward svc/magos-rustfs $(RUSTFS_S3_PORT):9000; sleep 2; done) & \
 	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
 	$(MAKE) -s run-api & \
 	$(MAKE) -s run-ui & \

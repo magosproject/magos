@@ -79,6 +79,17 @@
                     "ConditionUnknown"
                 ]
             },
+            "service.ObjectMetaPatch": {
+                "properties": {
+                    "annotations": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    }
+                },
+                "type": "object"
+            },
             "service.ProjectEvent": {
                 "properties": {
                     "object": {
@@ -157,6 +168,14 @@
                     },
                     "type": {
                         "$ref": "#/components/schemas/watch.EventType"
+                    }
+                },
+                "type": "object"
+            },
+            "service.WorkspacePatch": {
+                "properties": {
+                    "metadata": {
+                        "$ref": "#/components/schemas/service.ObjectMetaPatch"
                     }
                 },
                 "type": "object"
@@ -1343,8 +1362,24 @@
         },
         "/apis/magosproject.io/v1alpha1/workspaces/events": {
             "get": {
-                "description": "Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent. Use ?projectRef=name to filter by project.",
+                "description": "Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent. Use ?namespace=ns\u0026name=n to scope to a single workspace, or ?projectRef=name to filter by project.",
                 "parameters": [
+                    {
+                        "description": "Filter by namespace and name (both required)",
+                        "in": "query",
+                        "name": "namespace",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Filter by namespace and name (both required)",
+                        "in": "query",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
                     {
                         "description": "Filter by project name",
                         "in": "query",
@@ -1427,6 +1462,94 @@
                     }
                 },
                 "summary": "Get Workspace resource",
+                "tags": [
+                    "Workspace"
+                ]
+            },
+            "patch": {
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/service.WorkspacePatch",
+                                        "summary": "body",
+                                        "description": "Fields to patch"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Fields to patch",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.Workspace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Patch a Workspace resource",
                 "tags": [
                     "Workspace"
                 ]
