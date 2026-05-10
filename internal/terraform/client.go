@@ -22,6 +22,8 @@ type TerraformClient struct {
 	stderr            io.Writer
 	env               map[string]string
 	versionConstraint string
+	logLevel          string
+	logPath           string
 	// logger            view.Logger
 }
 
@@ -86,6 +88,16 @@ func (c *TerraformClient) Ensure(ctx context.Context) error {
 		if err := terraform.SetEnv(c.env); err != nil {
 			// c.logger.Error("Failed to set environment variables", "error", err)
 			return fmt.Errorf("failed to set environment variables: %w", err)
+		}
+	}
+	if c.logPath != "" {
+		if c.logLevel != "" {
+			if err := terraform.SetLog(c.logLevel); err != nil {
+				return fmt.Errorf("failed to set terraform log level: %w", err)
+			}
+		}
+		if err := terraform.SetLogPath(c.logPath); err != nil {
+			return fmt.Errorf("failed to set terraform log path: %w", err)
 		}
 	}
 

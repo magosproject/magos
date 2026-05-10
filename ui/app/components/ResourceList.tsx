@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
 import {
   ActionIcon,
+  Anchor,
   Chip,
   Group,
+  MultiSelect,
+  Pagination,
   SimpleGrid,
   Stack,
   Table,
@@ -31,13 +34,30 @@ export interface ColumnDef<T> {
   render: (item: T) => ReactNode;
 }
 
+export interface FilterOption {
+  value: string;
+  label?: string;
+  color?: string;
+  count?: number;
+}
+
+export interface FilterGroup<T> {
+  key: string;
+  label?: string;
+  options: FilterOption[];
+  match: (item: T, selected: string[]) => boolean;
+  // "chips"      – colored pill buttons, rendered below the search row
+  // "multiselect" – searchable dropdown, rendered inline with the search bar
+  variant?: "chips" | "multiselect";
+}
+
+type ViewMode = "card" | "row";
+
 interface ResourceListProps<T extends { id: string }> {
   items: T[];
   searchKey?: StringKeys<T>;
   getSearchText?: (item: T) => string;
-  filterKey?: StringKeys<T>;
-  filterColors?: Record<string, string>;
-  filterLabelMap?: Record<string, string>;
+  filterGroups?: FilterGroup<T>[];
   columns: ColumnDef<T>[];
   renderCard?: (item: T) => ReactNode;
   toHref: (item: T) => string;
@@ -45,17 +65,15 @@ interface ResourceListProps<T extends { id: string }> {
   hideViewToggle?: boolean;
   flashIds?: Set<string>;
   getFlashStyle?: (item: T) => CSSProperties | undefined;
+  pageSize?: number;
+  noun?: string;
 }
-
-type ViewMode = "card" | "row";
 
 export default function ResourceList<T extends { id: string }>({
   items,
   searchKey,
   getSearchText,
-  filterKey,
-  filterColors = {},
-  filterLabelMap = {},
+  filterGroups,
   columns,
   renderCard,
   toHref,
@@ -63,19 +81,18 @@ export default function ResourceList<T extends { id: string }>({
   hideViewToggle = false,
   flashIds,
   getFlashStyle,
+  pageSize,
+  noun = "item",
 }: ResourceListProps<T>) {
   const [view, setView] = useState<ViewMode>(defaultView);
   const [search, setSearch] = useState("");
-  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [page, setPage] = useState(1);
   const navigate = useNavigate();
 
   const sortColumn = sortKey ? columns.find((c) => c.key === sortKey) : null;
-
-  const filterValues = filterKey
-    ? [...new Set(items.map((item) => item[filterKey] as string))]
-    : [];
 
   const filtered = useMemo(() => {
     const query = search.toLowerCase();
@@ -89,12 +106,14 @@ export default function ResourceList<T extends { id: string }>({
             : "";
         return text.toLowerCase().includes(query);
       })
-      .filter(
-        (item) =>
-          !filterKey ||
-          activeFilters.length === 0 ||
-          activeFilters.includes(item[filterKey] as string)
-      )
+      .filter((item) => {
+        if (!filterGroups) return true;
+        return filterGroups.every((group) => {
+          const selected = activeFilters[group.key] ?? [];
+          if (selected.length === 0) return true;
+          return group.match(item, selected);
+        });
+      })
       .sort((a, b) => {
         if (!sortColumn) return 0;
         const aVal = sortColumn.sortValue
@@ -110,47 +129,131 @@ export default function ResourceList<T extends { id: string }>({
         const cmp = aVal.localeCompare(bVal);
         return sortDir === "asc" ? cmp : -cmp;
       });
-  }, [items, search, searchKey, getSearchText, filterKey, activeFilters, sortColumn, sortDir]);
+  }, [items, search, searchKey, getSearchText, filterGroups, activeFilters, sortColumn, sortDir]);
+
+  const totalPages = pageSize ? Math.max(1, Math.ceil(filtered.length / pageSize)) : 1;
+  const safePage = Math.min(page, totalPages);
+  const paged = pageSize ? filtered.slice((safePage - 1) * pageSize, safePage * pageSize) : filtered;
+
+  const hasActiveFilters = Object.values(activeFilters).some((v) => v.length > 0);
+
+  function handleSearch(val: string) {
+    setSearch(val);
+    setPage(1);
+  }
+
+  function handleFilterChange(groupKey: string, values: string[]) {
+    setActiveFilters((prev) => ({ ...prev, [groupKey]: values }));
+    setPage(1);
+  }
+
+  function clearFilters() {
+    setActiveFilters({});
+    setSearch("");
+    setPage(1);
+  }
 
   const isSortable = (col: ColumnDef<T>) => !!(col.sortField || col.sortValue);
 
-  const toggleSort = (key: string) => {
+  function toggleSort(key: string) {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
       setSortDir("asc");
     }
-  };
+  }
 
-  const SortIcon = ({ colKey }: { colKey: string }) => {
+  function SortIcon({ colKey }: { colKey: string }) {
     if (sortKey !== colKey) return <IconSelector size={14} />;
     return sortDir === "asc" ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />;
-  };
+  }
+
+  const visibleGroups = filterGroups?.filter((g) => g.options.length > 0) ?? [];
+  const multiselectGroups = visibleGroups.filter((g) => g.variant === "multiselect");
+  const chipGroups = visibleGroups.filter((g) => g.variant !== "multiselect");
+
+  const countLabel =
+    filtered.length === items.length
+      ? `${items.length} ${items.length === 1 ? noun : `${noun}s`}`
+      : `${filtered.length} of ${items.length} ${noun}s`;
 
   return (
     <Stack gap="md">
-      <TextInput
-        placeholder="Search..."
-        leftSection={<IconSearch size={16} />}
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
+      {/* Search bar + multiselect filters share one visual row */}
+      <Group gap="sm" align="flex-start" wrap="nowrap">
+        <TextInput
+          style={{ flex: 1 }}
+          placeholder="Search..."
+          leftSection={<IconSearch size={16} />}
+          value={search}
+          onChange={(e) => handleSearch(e.target.value)}
+        />
+        {multiselectGroups.map((group) => (
+          <MultiSelect
+            key={group.key}
+            placeholder={group.label ?? "Filter"}
+            data={group.options.map((opt) => ({
+              value: opt.value,
+              label: opt.label ?? opt.value,
+            }))}
+            value={activeFilters[group.key] ?? []}
+            onChange={(v) => handleFilterChange(group.key, v)}
+            searchable
+            clearable
+            style={{ width: 240, flexShrink: 0 }}
+            maxDropdownHeight={280}
+          />
+        ))}
+      </Group>
+
+      {/* Chip filters below the search row */}
+      {chipGroups.length > 0 && (
+        <Stack gap="xs">
+          {chipGroups.map((group) => (
+            <Group key={group.key} gap="xs" align="center" wrap="wrap">
+              {group.label && (
+                <Text size="xs" c="dimmed" fw={500} style={{ minWidth: 52 }}>
+                  {group.label}
+                </Text>
+              )}
+              <Chip.Group
+                multiple
+                value={activeFilters[group.key] ?? []}
+                onChange={(v) => handleFilterChange(group.key, v)}
+              >
+                <Group gap={6}>
+                  {group.options.map((opt) => (
+                    <Chip
+                      key={opt.value}
+                      value={opt.value}
+                      size="xs"
+                      color={opt.color ?? "gray"}
+                      variant="outline"
+                    >
+                      {opt.count !== undefined
+                        ? `${opt.label ?? opt.value} · ${opt.count}`
+                        : (opt.label ?? opt.value)}
+                    </Chip>
+                  ))}
+                </Group>
+              </Chip.Group>
+            </Group>
+          ))}
+        </Stack>
+      )}
 
       <Group justify="space-between" wrap="nowrap">
-        {filterKey && filterValues.length > 0 ? (
-          <Chip.Group multiple value={activeFilters} onChange={setActiveFilters}>
-            <Group gap="xs">
-              {filterValues.map((val) => (
-                <Chip key={val} value={val} size="sm" color={filterColors[val] ?? "gray"}>
-                  {filterLabelMap[val] ?? val}
-                </Chip>
-              ))}
-            </Group>
-          </Chip.Group>
-        ) : (
-          <span />
-        )}
+        <Group gap={4} align="center">
+          <Text size="sm" c="dimmed">
+            {countLabel}
+          </Text>
+          {(hasActiveFilters || search) && (
+            <Anchor size="sm" onClick={clearFilters} style={{ lineHeight: 1 }}>
+              · clear
+            </Anchor>
+          )}
+        </Group>
         {!hideViewToggle && (
           <Group gap="xs" wrap="nowrap">
             <Tooltip label="Card view">
@@ -176,13 +279,13 @@ export default function ResourceList<T extends { id: string }>({
       </Group>
 
       {view === "card" && renderCard ? (
-        filtered.length === 0 ? (
+        paged.length === 0 ? (
           <Text c="dimmed" ta="center" py="xl">
             {items.length === 0 ? "Nothing here yet." : "No results match your search."}
           </Text>
         ) : (
           <SimpleGrid cols={{ base: 1, sm: 2, md: 3, lg: 4 }} spacing="md">
-            {filtered.map((item) => (
+            {paged.map((item) => (
               <Fragment key={item.id}>{renderCard(item)}</Fragment>
             ))}
           </SimpleGrid>
@@ -214,7 +317,7 @@ export default function ResourceList<T extends { id: string }>({
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {filtered.length === 0 ? (
+            {paged.length === 0 ? (
               <Table.Tr>
                 <Table.Td colSpan={columns.length}>
                   <Text c="dimmed" ta="center" py="md">
@@ -223,7 +326,7 @@ export default function ResourceList<T extends { id: string }>({
                 </Table.Td>
               </Table.Tr>
             ) : (
-              filtered.map((item) => {
+              paged.map((item) => {
                 const isFlashing = flashIds?.has(item.id);
                 const flashStyle = isFlashing && getFlashStyle ? getFlashStyle(item) : undefined;
                 return (
@@ -242,6 +345,21 @@ export default function ResourceList<T extends { id: string }>({
             )}
           </Table.Tbody>
         </Table>
+      )}
+
+      {pageSize && filtered.length > pageSize && (
+        <Group justify="space-between" align="center">
+          <Text size="sm" c="dimmed">
+            {`${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, filtered.length)} of ${filtered.length}`}
+          </Text>
+          <Pagination
+            total={totalPages}
+            value={safePage}
+            onChange={setPage}
+            size="sm"
+            color="magos"
+          />
+        </Group>
       )}
     </Stack>
   );

@@ -51,6 +51,16 @@ func WithVersionConstraint(constraint string) Option {
 	}
 }
 
+// WithLog enables Terraform debug logging at the given level (TRACE, DEBUG, INFO, WARN, ERROR).
+// Output is written to logPath, which should be /dev/stderr to appear in pod logs.
+// SetLog must be called before SetLogPath in the tfexec API, which this option handles correctly.
+func WithLog(level, path string) Option {
+	return func(c *TerraformClient) {
+		c.logLevel = level
+		c.logPath = path
+	}
+}
+
 // // WithLogger sets a logger for the terraform client.
 // func WithLogger(logger view.Logger) Option {
 // 	return func(c *TerraformClient) {

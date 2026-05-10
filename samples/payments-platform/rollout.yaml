@@ -1,21 +1,21 @@
 apiVersion: magosproject.io/v1alpha1
 kind: Rollout
 metadata:
-  name: demo-project # Must match the projectRef exactly due to our CEL validation rule!
+  name: payments-platform # Must match the projectRef exactly due to our CEL validation rule!
   namespace: default
 spec:
-  projectRef: demo-project
+  projectRef: payments-platform
   strategy:
     steps:
-      - name: deploy-dev
+      - name: dev
         selector:
           matchLabels:
             env: dev
-      - name: deploy-staging
+      - name: staging
         selector:
           matchLabels:
-            env: dev
-      - name: deploy-prod
+            env: staging
+      - name: prod
         selector:
           matchLabels:
             env: prod

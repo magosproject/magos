@@ -1,26 +1,24 @@
 apiVersion: magosproject.io/v1alpha1
 kind: Workspace
 metadata:
-  name: demo-staging
+  name: api-gateway-dev
   namespace: default
   labels:
     env: dev
   annotations:
     magosproject.io/reconcile-interval: "120s"
 spec:
-  annotations:
-    iam.gke.io/gcp-service-account: "test@test.iam.gserviceaccount.com"
   projectRef:
-    name: demo-project
+    name: payments-platform
   serviceAccountName: magos-job
   validation:
     policySelector:
       matchLabels:
-        policy.magosproject.io/category: security-1
+        policy.magosproject.io/category: compliance
   source:
     repoURL: https://github.com/magosproject/demo.git
     targetRevision: main
     path: .
   terraform:
     version: "1.14.8"
-    tfvarsPath: env/staging/vars.tfvars
+    tfvarsPath: env/dev/vars.tfvars

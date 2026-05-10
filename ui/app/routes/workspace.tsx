@@ -1,5 +1,5 @@
 import { Button, Group, Stack, Tabs, Text, Title } from "@mantine/core";
-import { IconRefresh } from "@tabler/icons-react";
+import { IconBug, IconRefresh } from "@tabler/icons-react";
 import { useMemo, useState, type CSSProperties } from "react";
 import { useLoaderData, useParams } from "react-router";
 import { resourceId } from "../api/resource";
@@ -13,7 +13,8 @@ import WorkspaceLiveConsole from "../components/WorkspaceLiveConsole";
 import WorkspaceOverview from "../components/WorkspaceOverview";
 import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
-import type { Phase, Project, RunListResponse, Workspace as WorkspaceType } from "../api/types";
+import type { Phase, Workspace as WorkspaceType } from "../api/types";
+import { getWorkspaceCache } from "../api/workspaceCache";
 import { useSSEItem } from "../hooks/useSSEItem";
 import { useFlashOnChange } from "../hooks/useFlashOnChange";
 import { flashColorVar } from "../utils/colors";
@@ -24,42 +25,40 @@ export function meta({ params }: { params: { namespace: string; name: string } }
 }
 
 export async function clientLoader({ params }: { params: { namespace: string; name: string } }) {
-  const { data: ws } = await apiClient.GET(
-    "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}",
-    { params: { path: { namespace: params.namespace, name: params.name } } }
-  );
-  if (!ws) throw new Response("Not found", { status: 404 });
+  const { namespace, name } = params;
 
-  let project: Project | undefined;
-  const projectRef = ws.spec?.projectRef?.name;
-  if (projectRef) {
+  // Use workspace data already in memory from the list page. Falls back to a
+  // network fetch only when navigating directly to a URL with no warm cache.
+  const cached = getWorkspaceCache(namespace, name);
+  let ws: WorkspaceType | undefined = cached;
+  if (!ws) {
     const { data } = await apiClient.GET(
-      "/apis/magosproject.io/v1alpha1/projects/{namespace}/{name}",
-      { params: { path: { namespace: params.namespace, name: projectRef } } }
+      "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}",
+      { params: { path: { namespace, name } } }
     );
-    project = data;
+    if (!data) throw new Response("Not found", { status: 404 });
+    ws = data;
   }
 
-  const { data: runs } = await apiClient.GET(
-    "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs",
-    {
-      params: {
-        path: { namespace: params.namespace, name: params.name },
-        query: { limit: 20 },
-      },
-    }
-  );
-  const initialRuns: RunListResponse = runs ?? { items: [] };
+  const projectRef = ws.spec?.projectRef?.name;
+  const project = projectRef
+    ? await apiClient.GET("/apis/magosproject.io/v1alpha1/projects/{namespace}/{name}", {
+        params: { path: { namespace, name: projectRef } },
+      }).then((r) => r.data)
+    : undefined;
 
-  return { workspace: ws, project, initialRuns };
+  // Runs are fetched by WorkspaceRunHistory on mount — the S3 call must not
+  // block the route transition.
+  return { workspace: ws, project };
 }
 
 export default function Workspace() {
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const initial = useLoaderData<typeof clientLoader>();
   const [isSubmittingReconcile, setIsSubmittingReconcile] = useState(false);
+  const [isTogglingDebug, setIsTogglingDebug] = useState(false);
   const ws = useSSEItem<WorkspaceType>(
-    apiUrl("/apis/magosproject.io/v1alpha1/workspaces/events"),
+    `${apiUrl("/apis/magosproject.io/v1alpha1/workspaces/events")}?namespace=${namespace}&name=${name}`,
     initial.workspace,
     (obj) => obj.metadata?.namespace === namespace && obj.metadata?.name === name
   );
@@ -79,6 +78,31 @@ export default function Workspace() {
   );
   const canReconcile = phase ? RECONCILABLE_PHASES.has(phase) : false;
   const reconcileDisabled = isSubmittingReconcile || !canReconcile || !namespace || !name;
+
+  const debugLogsEnabled = ws.metadata?.annotations?.["magosproject.io/tf-log-level"] === "DEBUG";
+
+  async function handleToggleDebugLogs() {
+    if (!namespace || !name) return;
+
+    setIsTogglingDebug(true);
+    try {
+      await apiClient.PATCH(
+        "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}",
+        {
+          params: { path: { namespace, name } },
+          body: {
+            metadata: {
+              annotations: {
+                "magosproject.io/tf-log-level": debugLogsEnabled ? null : "DEBUG",
+              },
+            },
+          },
+        }
+      );
+    } finally {
+      setIsTogglingDebug(false);
+    }
+  }
 
   async function handleReconcile() {
     if (!namespace || !name || reconcileDisabled) return;
@@ -105,16 +129,28 @@ export default function Workspace() {
           <Title order={2}>{name}</Title>
           <KubeBadge label={namespace!} />
         </Group>
-        <Button
-          leftSection={<IconRefresh size={16} />}
-          variant="default"
-          size="sm"
-          disabled={reconcileDisabled}
-          loading={isSubmittingReconcile}
-          onClick={handleReconcile}
-        >
-          Reconcile
-        </Button>
+        <Group gap="xs">
+          <Button
+            leftSection={<IconBug size={16} />}
+            variant={debugLogsEnabled ? "light" : "default"}
+            color={debugLogsEnabled ? "yellow" : undefined}
+            size="sm"
+            loading={isTogglingDebug}
+            onClick={handleToggleDebugLogs}
+          >
+            {debugLogsEnabled ? "Disable Debug Logs" : "Enable Debug Logs"}
+          </Button>
+          <Button
+            leftSection={<IconRefresh size={16} />}
+            variant="default"
+            size="sm"
+            disabled={reconcileDisabled}
+            loading={isSubmittingReconcile}
+            onClick={handleReconcile}
+          >
+            Reconcile
+          </Button>
+        </Group>
       </Group>
 
       <Tabs defaultValue="overview">
@@ -182,7 +218,6 @@ export default function Workspace() {
               <WorkspaceRunHistory
                 namespace={namespace}
                 workspaceName={name}
-                initialRuns={initial.initialRuns}
                 phase={phase}
                 currentRunID={ws.status?.currentRunID}
               />

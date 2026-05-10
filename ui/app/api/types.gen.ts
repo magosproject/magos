@@ -487,11 +487,15 @@ export interface paths {
         };
         /**
          * Stream Workspace events
-         * @description Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent. Use ?projectRef=name to filter by project.
+         * @description Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent. Use ?namespace=ns&name=n to scope to a single workspace, or ?projectRef=name to filter by project.
          */
         get: {
             parameters: {
                 query?: {
+                    /** @description Filter by namespace and name (both required) */
+                    namespace?: string;
+                    /** @description Filter by namespace and name (both required) */
+                    name?: string;
                     /** @description Filter by project name */
                     projectRef?: string;
                 };
@@ -576,7 +580,64 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Patch a Workspace resource */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Namespace */
+                    namespace: string;
+                    /** @description Name */
+                    name: string;
+                };
+                cookie?: never;
+            };
+            /** @description Fields to patch */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["service.WorkspacePatch"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.Workspace"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile": {
@@ -948,6 +1009,11 @@ export interface components {
          * @enum {string}
          */
         "k8s_io_apimachinery_pkg_apis_meta_v1.ConditionStatus": "True" | "False" | "Unknown";
+        "service.ObjectMetaPatch": {
+            annotations?: {
+                [key: string]: string;
+            };
+        };
         "service.ProjectEvent": {
             object?: components["schemas"]["v1alpha1.Project"];
             type?: components["schemas"]["watch.EventType"];
@@ -975,6 +1041,9 @@ export interface components {
         "service.WorkspaceEvent": {
             object?: components["schemas"]["v1alpha1.Workspace"];
             type?: components["schemas"]["watch.EventType"];
+        };
+        "service.WorkspacePatch": {
+            metadata?: components["schemas"]["service.ObjectMetaPatch"];
         };
         "v1.Condition": {
             /**
