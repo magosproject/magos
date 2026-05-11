@@ -66,6 +66,12 @@ spec:
             secretKeyRef:
               name: magos-rustfs
               key: secretKey
+        livenessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          failureThreshold: 3
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

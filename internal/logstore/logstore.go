@@ -138,14 +138,30 @@ func (s *s3Store) ensureBucket(ctx context.Context) error {
 	return nil
 }
 
+// withBucketEnsure calls fn and, if it fails with NoSuchBucket, recreates the
+// bucket and retries once. This recovers from a storage backend restart that
+// drops bucket state without requiring a controller restart.
+func (s *s3Store) withBucketEnsure(ctx context.Context, fn func() error) error {
+	err := fn()
+	if err != nil && strings.Contains(err.Error(), "NoSuchBucket") {
+		if ensureErr := s.ensureBucket(ctx); ensureErr == nil {
+			err = fn()
+		}
+	}
+	return err
+}
+
 func (s *s3Store) PutRunPhaseLog(ctx context.Context, namespace, workspace, runID string, phase v1alpha1.RunPhase, body []byte) (string, error) {
 	key := RunLogKey(namespace, workspace, runID, phase)
-	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:          aws.String(s.bucket),
-		Key:             aws.String(key),
-		Body:            bytes.NewReader(body),
-		ContentType:     aws.String("text/plain"),
-		ContentEncoding: aws.String("gzip"),
+	err := s.withBucketEnsure(ctx, func() error {
+		_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+			Bucket:          aws.String(s.bucket),
+			Key:             aws.String(key),
+			Body:            bytes.NewReader(body),
+			ContentType:     aws.String("text/plain"),
+			ContentEncoding: aws.String("gzip"),
+		})
+		return err
 	})
 	if err != nil {
 		return "", fmt.Errorf("put log object %q: %w", key, err)

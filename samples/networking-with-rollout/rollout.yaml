@@ -1,0 +1,21 @@
+apiVersion: magosproject.io/v1alpha1
+kind: Rollout
+metadata:
+  name: networking-with-rollout # Must match the projectRef exactly due to our CEL validation rule!
+  namespace: default
+spec:
+  projectRef: networking-with-rollout
+  strategy:
+    steps:
+      - name: dev
+        selector:
+          matchLabels:
+            env: dev
+      - name: staging
+        selector:
+          matchLabels:
+            env: staging
+      - name: prod
+        selector:
+          matchLabels:
+            env: prod

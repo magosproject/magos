@@ -145,7 +145,7 @@ function LogPane({ namespace, workspaceName, runID, phase, summary }: LogPanePro
 interface Props {
   namespace: string;
   workspaceName: string;
-  initialRuns: RunListResponse;
+  initialRuns?: RunListResponse;
   phase?: Phase;
   currentRunID?: string;
 }
@@ -165,8 +165,8 @@ export default function WorkspaceRunHistory({
 }: Props) {
   const [pages, setPages] = useState<PageState[]>([
     {
-      items: initialRuns.items ?? [],
-      nextCursor: initialRuns.nextCursor ?? "",
+      items: initialRuns?.items ?? [],
+      nextCursor: initialRuns?.nextCursor ?? "",
       cursor: "",
     },
   ]);
@@ -259,6 +259,15 @@ export default function WorkspaceRunHistory({
       setRefreshing(false);
     }
   }, [namespace, pages, workspaceName]);
+
+  // When no initial data was provided (loader skipped the S3 fetch to keep
+  // navigation fast), fetch the first page on mount.
+  useEffect(() => {
+    if (!initialRuns) {
+      void refreshToLatest();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Refresh the list when a run cycle completes so new entries appear without
   // requiring a manual reload.

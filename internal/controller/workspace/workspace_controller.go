@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 	"time"
 
@@ -1102,8 +1103,7 @@ func (r *WorkspaceReconciler) readPolicyViolations(ctx context.Context, namespac
 	scanner := bufio.NewScanner(logStream)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "MAGOS_RESULT:") {
-			resultJSON := strings.TrimPrefix(line, "MAGOS_RESULT:")
+		if resultJSON, ok := strings.CutPrefix(line, "MAGOS_RESULT:"); ok {
 			var result policyResult
 			if err := json.Unmarshal([]byte(resultJSON), &result); err != nil {
 				return nil, fmt.Errorf("failed to parse MAGOS_RESULT: %w", err)
@@ -1293,6 +1293,9 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 	if ws.Spec.Terraform.TfvarsPath != "" {
 		envVars = append(envVars, corev1.EnvVar{Name: "TF_VAR_FILE", Value: ws.Spec.Terraform.TfvarsPath})
 	}
+	if logLevel := ws.Annotations[v1alpha1.WorkspaceTFLogLevelAnnotation]; logLevel != "" {
+		envVars = append(envVars, corev1.EnvVar{Name: "MAGOS_TF_LOG_LEVEL", Value: logLevel})
+	}
 
 	// For plan jobs, resolve and pass the policy selector so the job can list
 	// matching ValidatingPolicy resources and evaluate them against the plan.
@@ -1371,9 +1374,7 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 	var podAnnotations map[string]string
 	if len(ws.Spec.Annotations) > 0 {
 		podAnnotations = make(map[string]string, len(ws.Spec.Annotations))
-		for k, v := range ws.Spec.Annotations {
-			podAnnotations[k] = v
-		}
+		maps.Copy(podAnnotations, ws.Spec.Annotations)
 	}
 	var overrides map[string]string
 	switch jobType {
@@ -1390,9 +1391,7 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 		if podAnnotations == nil {
 			podAnnotations = make(map[string]string, len(overrides))
 		}
-		for k, v := range overrides {
-			podAnnotations[k] = v
-		}
+		maps.Copy(podAnnotations, overrides)
 	}
 
 	job := &batchv1.Job{

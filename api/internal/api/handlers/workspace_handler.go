@@ -76,6 +76,52 @@ func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, workspace)
 }
 
+// Patch godoc
+//
+//	@Summary	Patch a Workspace resource
+//	@Tags		Workspace
+//	@Accept		json
+//	@Produce	json
+//	@Param		namespace	path		string					true	"Namespace"
+//	@Param		name		path		string					true	"Name"
+//	@Param		body		body		service.WorkspacePatch	true	"Fields to patch"
+//	@Success	200			{object}	Workspace
+//	@Failure	400			{object}	ErrorResponse
+//	@Failure	404			{object}	ErrorResponse
+//	@Failure	500			{object}	ErrorResponse
+//	@Router		/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name} [patch]
+func (h *WorkspaceHandler) Patch(w http.ResponseWriter, r *http.Request) {
+	namespace := r.PathValue("namespace")
+	name := r.PathValue("name")
+	if namespace == "" || name == "" {
+		writeError(w, http.StatusBadRequest, "namespace and name are required")
+		return
+	}
+
+	var patch service.WorkspacePatch
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := patch.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	workspace, err := h.service.Patch(r.Context(), namespace, name, patch)
+	if err != nil {
+		h.logger.Error("failed to patch workspace", "error", err, "namespace", namespace, "name", name)
+		if apierrors.IsNotFound(err) {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to patch workspace")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, workspace)
+}
+
 // RequestReconcile godoc
 //
 //	@Summary	Request Workspace reconcile
@@ -334,20 +380,31 @@ func parseListLimit(raw string) (int, error) {
 // Events godoc
 //
 //	@Summary		Stream Workspace events
-//	@Description	Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent. Use ?projectRef=name to filter by project.
+//	@Description	Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent. Use ?namespace=ns&name=n to scope to a single workspace, or ?projectRef=name to filter by project.
 //	@Tags			Workspace
 //	@Produce		text/event-stream
+//	@Param			namespace	query		string	false	"Filter by namespace and name (both required)"
+//	@Param			name		query		string	false	"Filter by namespace and name (both required)"
 //	@Param			projectRef	query		string	false	"Filter by project name"
 //	@Success		200			{object}	service.WorkspaceEvent
 //	@Router			/apis/magosproject.io/v1alpha1/workspaces/events [get]
 func (h *WorkspaceHandler) Events(w http.ResponseWriter, r *http.Request) {
-	projectRef := r.URL.Query().Get("projectRef")
-	if projectRef == "" {
-		StreamSSE(w, r, h.service.Watch)
+	namespace := r.URL.Query().Get("namespace")
+	name := r.URL.Query().Get("name")
+	if namespace != "" && name != "" {
+		FilteredStreamSSE(w, r, h.service.Watch, func(e service.WorkspaceEvent) bool {
+			return e.Object != nil && e.Object.Namespace == namespace && e.Object.Name == name
+		})
 		return
 	}
 
-	FilteredStreamSSE(w, r, h.service.Watch, func(e service.WorkspaceEvent) bool {
-		return e.Object != nil && e.Object.Spec.ProjectRef.Name == projectRef
-	})
+	projectRef := r.URL.Query().Get("projectRef")
+	if projectRef != "" {
+		FilteredStreamSSE(w, r, h.service.Watch, func(e service.WorkspaceEvent) bool {
+			return e.Object != nil && e.Object.Spec.ProjectRef.Name == projectRef
+		})
+		return
+	}
+
+	StreamSSE(w, r, h.service.Watch)
 }

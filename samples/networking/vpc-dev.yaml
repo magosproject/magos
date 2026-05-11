@@ -1,7 +1,7 @@
 apiVersion: magosproject.io/v1alpha1
 kind: Workspace
 metadata:
-  name: demo-dev
+  name: vpc-dev
   namespace: default
   labels:
     env: dev
@@ -9,16 +9,12 @@ metadata:
     magosproject.io/reconcile-interval: "120s"
 spec:
   projectRef:
-    name: demo-project
+    name: networking
   serviceAccountName: magos-job
-  validation:
-    policySelector:
-      matchLabels:
-        policy.magosproject.io/category: security
   source:
     repoURL: https://github.com/magosproject/demo.git
     targetRevision: main
     path: .
   terraform:
     version: "1.14.8"
-    tfvarsPath: env/staging/vars.tfvars
+    tfvarsPath: env/dev/vars.tfvars
