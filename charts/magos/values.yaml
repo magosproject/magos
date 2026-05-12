@@ -209,7 +209,7 @@ postgres:
   sslMode: disable
   persistence:
     enabled: true
-    size: 1Gi
+    size: 10Gi
     # storageClass: "" # Leave empty to use the cluster default.
   podSecurityContext:
     runAsNonRoot: true

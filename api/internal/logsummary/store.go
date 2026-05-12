@@ -109,6 +109,20 @@ func (s *Store) init(ctx context.Context) error {
 		`ALTER TABLE runs ADD COLUMN IF NOT EXISTS apply JSONB`,
 		`ALTER TABLE runs ALTER COLUMN trigger SET DEFAULT 'unknown'`,
 		`UPDATE runs SET trigger = 'configuration' WHERE trigger = ''`,
+		`UPDATE runs
+			SET started_at = NULLIF(plan->>'startedAt', '')
+			WHERE NULLIF(plan->>'startedAt', '') IS NOT NULL
+				AND started_at IS DISTINCT FROM NULLIF(plan->>'startedAt', '')`,
+		`UPDATE runs
+			SET finished_at = COALESCE(
+				NULLIF(apply->>'finishedAt', ''),
+				CASE WHEN plan->>'result' = 'Failed' THEN NULLIF(plan->>'finishedAt', '') END
+			)
+			WHERE finished_at IS NULL
+				AND COALESCE(
+					NULLIF(apply->>'finishedAt', ''),
+					CASE WHEN plan->>'result' = 'Failed' THEN NULLIF(plan->>'finishedAt', '') END
+				) IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_runs_workspace_sort
 			ON runs (namespace, workspace, sort_time DESC, run_id DESC)`,
 	}
@@ -127,8 +141,8 @@ func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run 
 	}
 
 	now := formatTime(time.Now().UTC())
-	startedAt := formatMetaTime(run.StartedAt)
-	finishedAt := formatMetaTime(run.FinishedAt)
+	startedAt := runStartedAt(run)
+	finishedAt := runFinishedAt(run)
 	sortTime := firstNonEmpty(startedAt, phaseStartedAt(run), phaseFinishedAt(run), runIDSortTime(run.ID), now)
 
 	plan, err := phaseJSON(run.Plan)
@@ -153,12 +167,12 @@ func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run 
 			END,
 			target_revision = CASE WHEN excluded.target_revision <> '' THEN excluded.target_revision ELSE runs.target_revision END,
 			observed_revision = CASE WHEN excluded.observed_revision <> '' THEN excluded.observed_revision ELSE runs.observed_revision END,
-			started_at = COALESCE(runs.started_at, excluded.started_at),
+			started_at = COALESCE(excluded.started_at, runs.started_at),
 			finished_at = COALESCE(excluded.finished_at, runs.finished_at),
 			plan = COALESCE(excluded.plan, runs.plan),
 			apply = COALESCE(excluded.apply, runs.apply),
 			sort_time = CASE
-				WHEN runs.started_at IS NULL AND excluded.started_at IS NOT NULL THEN excluded.started_at
+				WHEN excluded.started_at IS NOT NULL THEN excluded.started_at
 				ELSE runs.sort_time
 			END,
 			updated_at = excluded.updated_at`,
@@ -338,6 +352,29 @@ func decodeCursor(raw string) (*listCursor, error) {
 		return nil, ErrInvalidCursor
 	}
 	return &cursor, nil
+}
+
+func runStartedAt(run v1alpha1.Run) string {
+	if value := formatMetaTime(run.StartedAt); value != "" {
+		return value
+	}
+	if run.Plan != nil {
+		return formatMetaTime(run.Plan.StartedAt)
+	}
+	return ""
+}
+
+func runFinishedAt(run v1alpha1.Run) string {
+	if value := formatMetaTime(run.FinishedAt); value != "" {
+		return value
+	}
+	if run.Apply != nil {
+		return formatMetaTime(run.Apply.FinishedAt)
+	}
+	if run.Plan != nil && run.Plan.Result == v1alpha1.RunLogResultFailed {
+		return formatMetaTime(run.Plan.FinishedAt)
+	}
+	return ""
 }
 
 func phaseStartedAt(run v1alpha1.Run) string {

@@ -26,16 +26,11 @@ function formatDuration(startedAt?: string, finishedAt?: string) {
   if (!startedAt || !finishedAt) return "—";
   const ms = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
   if (!Number.isFinite(ms) || ms < 0) return "—";
-  const seconds = Math.round(ms / 1000);
-  return `${seconds}s`;
+  return `${Math.round(ms / 1000)}s`;
 }
 
 function displayRevision(run: Run) {
   return run.targetRevision?.trim() || run.observedRevision?.trim() || "—";
-}
-
-function runFinishedAt(run: Run) {
-  return run.finishedAt ?? run.apply?.finishedAt ?? run.plan?.finishedAt ?? run.startedAt;
 }
 
 function PhaseBadge({ summary }: { summary?: RunPhaseSummary }) {
@@ -296,16 +291,16 @@ export default function WorkspaceRunHistory({
       <SectionTable
         title="Run History"
         columns={[
-          { key: "time", label: "Time" },
+          { key: "startedAt", label: "Start time" },
+          { key: "finishedAt", label: "End time" },
+          { key: "duration", label: "Duration" },
           { key: "trigger", label: "Trigger" },
           { key: "revision", label: "Revision" },
           { key: "plan", label: "Plan" },
           { key: "apply", label: "Apply" },
-          { key: "duration", label: "Duration" },
         ]}
         rows={currentPage.items.map((run) => {
           const isFlashing = flashingIDs.has(run.runID ?? "");
-          const finishedAt = runFinishedAt(run);
           return {
             id: run.runID ?? "",
             onClick: () => setSelected(run),
@@ -314,8 +309,14 @@ export default function WorkspaceRunHistory({
               ? ({ "--flash-color": flashColorVar("Applied") } as CSSProperties)
               : undefined,
             cells: [
-              <Text size="sm" key="time">
-                {formatDateTime(finishedAt ?? run.startedAt)}
+              <Text size="sm" key="startedAt">
+                {formatDateTime(run.startedAt)}
+              </Text>,
+              <Text size="sm" key="finishedAt" c={run.finishedAt ? undefined : "dimmed"}>
+                {formatDateTime(run.finishedAt)}
+              </Text>,
+              <Text size="sm" key="duration">
+                {formatDuration(run.startedAt, run.finishedAt)}
               </Text>,
               <TriggerBadge key="trigger" trigger={run.trigger} />,
               <Code key="revision" fz="xs">
@@ -323,9 +324,6 @@ export default function WorkspaceRunHistory({
               </Code>,
               <PhaseBadge key="plan" summary={run.plan} />,
               <PhaseBadge key="apply" summary={run.apply} />,
-              <Text size="sm" key="duration">
-                {formatDuration(run.startedAt, finishedAt)}
-              </Text>,
             ],
           };
         })}

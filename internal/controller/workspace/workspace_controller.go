@@ -220,6 +220,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
+	wasTerminalRun := terminalWorkspaceRunRecorded(workspace.Status.Phase)
 	res, err := r.reconcileWorkspace(ctx, workspace)
 	if err != nil {
 		reconcileTotal.WithLabelValues(req.Namespace, req.Name, "error").Inc()
@@ -232,12 +233,19 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Always requeue on the periodic schedule so we periodically re-plan even
 	// when nothing in the cluster changes. This is how we detect
 	// infrastructure drift that happened outside of Magos.
-	nextReconcileTime, reconcileInterval, _ := computeNextReconcileTime(workspace, workspace.Status.NextReconcileTime)
-	if res.RequeueAfter == 0 {
-		res.RequeueAfter = time.Until(nextReconcileTime.Time)
+	nextReconcileBase := workspace.Status.NextReconcileTime
+	completedRun := !wasTerminalRun && terminalWorkspaceRunRecorded(workspace.Status.Phase)
+	if completedRun && workspace.Status.CurrentRunTrigger == v1alpha1.RunTriggerConfig {
+		// Start drift detection after the initial config run finishes, not
+		// after the earlier bookkeeping reconcile that created its first Job.
+		nextReconcileBase = nil
 	}
-
-	r.updateNextReconcileTime(ctx, workspace, res.RequeueAfter, reconcileInterval)
+	nextReconcileTime, reconcileInterval, _ := computeNextReconcileTime(workspace, nextReconcileBase)
+	r.updateNextReconcileTime(ctx, workspace, nextReconcileTime, reconcileInterval)
+	// Calculate RequeueAfter after status writes. controller-runtime starts the
+	// timer only after Reconcile returns, so doing this earlier would add status
+	// update latency to every scheduled cycle.
+	res = withScheduledRequeue(res, nextReconcileTime.Time)
 
 	return res, nil
 }
@@ -290,7 +298,7 @@ func computeNextReconcileTime(ws *v1alpha1.Workspace, existing *metav1.Time) (me
 	interval := DefaultReconciliationInterval
 	if ws.Annotations != nil {
 		if val, ok := ws.Annotations[v1alpha1.WorkspaceReconcileIntervalAnnotation]; ok {
-			if d, err := time.ParseDuration(val); err == nil {
+			if d, err := time.ParseDuration(val); err == nil && d > 0 {
 				interval = d
 			}
 		}
@@ -308,7 +316,7 @@ func computeNextReconcileTime(ws *v1alpha1.Workspace, existing *metav1.Time) (me
 	// this condition triggers when the reconcileInterval annotation on
 	// the workspace was updated between reconciles for example when a user
 	// changes the annotation to lower the reconcile interval. this check
-	// ensures	the updated interval takes effect immediately instead of waiting
+	// ensures the updated interval takes effect immediately instead of waiting
 	// for the previously scheduled time to elapse
 	if ws.Status.ObservedReconcileInterval != "" && ws.Status.ObservedReconcileInterval != interval.String() {
 		previousInterval, err := time.ParseDuration(ws.Status.ObservedReconcileInterval)
@@ -331,6 +339,19 @@ func computeNextReconcileTime(ws *v1alpha1.Workspace, existing *metav1.Time) (me
 	}
 
 	return metav1.NewTime(next), interval, due
+}
+
+// withScheduledRequeue keeps any deliberately shorter requeue while preventing
+// stale schedule durations from drifting after status update latency.
+func withScheduledRequeue(res ctrl.Result, next time.Time) ctrl.Result {
+	scheduled := time.Until(next)
+	if scheduled <= 0 {
+		scheduled = time.Nanosecond
+	}
+	if res.RequeueAfter == 0 || res.RequeueAfter > scheduled {
+		res.RequeueAfter = scheduled
+	}
+	return res
 }
 
 func newRunID() string {
@@ -1036,6 +1057,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 // Workspace is removed.
 //
 // TODO: Have @fayusohenson verify the security model here.
+// TODO: Look into having shared PVC for provider caching
 func (r *WorkspaceReconciler) ensurePVC(ctx context.Context, ws *v1alpha1.Workspace, pvcName string) error {
 	pvc := &corev1.PersistentVolumeClaim{}
 	err := r.Get(ctx, types.NamespacedName{Name: pvcName, Namespace: ws.Namespace}, pvc)
@@ -1279,11 +1301,14 @@ func (r *WorkspaceReconciler) archiveRunLogs(
 		Trigger:          trigger,
 		TargetRevision:   workspace.Spec.Source.TargetRevision,
 		ObservedRevision: currentRunObservedRevision(workspace),
-		StartedAt:        phaseSummary.StartedAt,
 	}
 	switch phase {
 	case v1alpha1.RunPhasePlan:
 		run.Plan = phaseSummary
+		run.StartedAt = phaseSummary.StartedAt
+		if result == v1alpha1.RunLogResultFailed {
+			run.FinishedAt = phaseSummary.FinishedAt
+		}
 	case v1alpha1.RunPhaseApply:
 		run.Apply = phaseSummary
 		run.FinishedAt = phaseSummary.FinishedAt
@@ -1598,9 +1623,7 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 
 // updateNextReconcileTime writes the expected next reconciliation time into the
 // Workspace status so that the UI can display when the next sync will happen.
-func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, workspace *v1alpha1.Workspace, requeueAfter time.Duration, interval time.Duration) {
-	next := metav1.NewTime(time.Now().Add(requeueAfter))
-
+func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, workspace *v1alpha1.Workspace, next metav1.Time, interval time.Duration) {
 	// Use a fresh context so this best-effort update isn't constrained by the
 	// reconcile context's deadline.
 	updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
