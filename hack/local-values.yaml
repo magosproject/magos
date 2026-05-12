@@ -1,3 +1,9 @@
+# Local development chart overlay.
+#
+# The component enabled flags below are intentionally disabled only because
+# `make run` starts the API, UI, and controllers from the host. Chart installs
+# should keep those components enabled and should use this file only for the
+# local developer setup.
 api:
   enabled: false
 

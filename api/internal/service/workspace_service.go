@@ -275,11 +275,7 @@ func (s *workspaceService) RecordRunPhase(ctx context.Context, namespace, name, 
 		return fmt.Errorf("phase must be plan or apply")
 	}
 
-	if err := s.runStore.UpsertRun(ctx, namespace, name, run); err != nil {
-		return err
-	}
-
-	return nil
+	return s.runStore.UpsertRun(ctx, namespace, name, run)
 }
 
 func (s *workspaceService) StreamCurrentRunLogs(ctx context.Context, namespace, name string, phase apiv1alpha1.RunPhase) <-chan RunLogStreamEvent {

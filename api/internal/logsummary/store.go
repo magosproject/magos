@@ -53,11 +53,6 @@ type listCursor struct {
 	RunID    string `json:"runID"`
 }
 
-type listedRun struct {
-	run      v1alpha1.Run
-	sortTime string
-}
-
 func LoadConfigFromEnv() Config {
 	databaseURL := os.Getenv(envDatabaseURL)
 	if databaseURL == "" {
@@ -106,28 +101,14 @@ func (s *Store) init(ctx context.Context) error {
 			sort_time TEXT NOT NULL,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
+			plan JSONB,
+			apply JSONB,
 			PRIMARY KEY (namespace, workspace, run_id)
 		)`,
+		`ALTER TABLE runs ADD COLUMN IF NOT EXISTS plan JSONB`,
+		`ALTER TABLE runs ADD COLUMN IF NOT EXISTS apply JSONB`,
 		`CREATE INDEX IF NOT EXISTS idx_runs_workspace_sort
 			ON runs (namespace, workspace, sort_time DESC, run_id DESC)`,
-		`CREATE TABLE IF NOT EXISTS run_phases (
-			namespace TEXT NOT NULL,
-			workspace TEXT NOT NULL,
-			run_id TEXT NOT NULL,
-			phase TEXT NOT NULL,
-			job_name TEXT NOT NULL DEFAULT '',
-			pod_name TEXT NOT NULL DEFAULT '',
-			started_at TEXT,
-			finished_at TEXT,
-			result TEXT NOT NULL DEFAULT '',
-			log_key TEXT NOT NULL DEFAULT '',
-			log_size_bytes INTEGER NOT NULL DEFAULT 0,
-			PRIMARY KEY (namespace, workspace, run_id, phase),
-			FOREIGN KEY (namespace, workspace, run_id)
-				REFERENCES runs(namespace, workspace, run_id)
-				ON DELETE CASCADE
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_run_phases_log_key ON run_phases (log_key)`,
 	}
 
 	for _, stmt := range statements {
@@ -148,28 +129,28 @@ func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run 
 	finishedAt := formatMetaTime(run.FinishedAt)
 	sortTime := firstNonEmpty(startedAt, phaseStartedAt(run), phaseFinishedAt(run), runIDSortTime(run.ID), now)
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	plan, err := phaseJSON(run.Plan)
 	if err != nil {
-		return fmt.Errorf("begin run summary transaction: %w", err)
+		return err
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
+	apply, err := phaseJSON(run.Apply)
+	if err != nil {
+		return err
+	}
 
-	_, err = tx.ExecContext(ctx, `
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO runs (
 			namespace, workspace, run_id, trigger, target_revision, observed_revision,
-			started_at, finished_at, sort_time, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			started_at, finished_at, sort_time, created_at, updated_at, plan, apply
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb)
 		ON CONFLICT(namespace, workspace, run_id) DO UPDATE SET
 			trigger = CASE WHEN excluded.trigger <> '' THEN excluded.trigger ELSE runs.trigger END,
 			target_revision = CASE WHEN excluded.target_revision <> '' THEN excluded.target_revision ELSE runs.target_revision END,
 			observed_revision = CASE WHEN excluded.observed_revision <> '' THEN excluded.observed_revision ELSE runs.observed_revision END,
 			started_at = COALESCE(runs.started_at, excluded.started_at),
 			finished_at = COALESCE(excluded.finished_at, runs.finished_at),
+			plan = COALESCE(excluded.plan, runs.plan),
+			apply = COALESCE(excluded.apply, runs.apply),
 			sort_time = CASE
 				WHEN runs.started_at IS NULL AND excluded.started_at IS NOT NULL THEN excluded.started_at
 				ELSE runs.sort_time
@@ -186,28 +167,12 @@ func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run 
 		sortTime,
 		now,
 		now,
+		plan,
+		apply,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert run summary %q: %w", run.ID, err)
 	}
-
-	if run.Plan != nil {
-		err = upsertPhase(ctx, tx, namespace, workspace, run.ID, v1alpha1.RunPhasePlan, run.Plan)
-		if err != nil {
-			return err
-		}
-	}
-	if run.Apply != nil {
-		err = upsertPhase(ctx, tx, namespace, workspace, run.ID, v1alpha1.RunPhaseApply, run.Apply)
-		if err != nil {
-			return err
-		}
-	}
-
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("commit run summary transaction: %w", err)
-	}
-	committed = true
 	return nil
 }
 
@@ -226,7 +191,7 @@ func (s *Store) ListRuns(ctx context.Context, namespace, workspace string, limit
 	}
 
 	query := `
-		SELECT run_id, trigger, target_revision, observed_revision, started_at, finished_at, sort_time
+		SELECT run_id, trigger, target_revision, observed_revision, started_at, finished_at, sort_time, plan, apply
 		FROM runs
 		WHERE namespace = $1 AND workspace = $2`
 	args := []any{namespace, workspace}
@@ -243,43 +208,30 @@ func (s *Store) ListRuns(ctx context.Context, namespace, workspace string, limit
 	}
 	defer func() { _ = rows.Close() }()
 
-	listed := make([]listedRun, 0, limit+1)
+	runs := make([]v1alpha1.Run, 0, limit)
+	lastSortTime := ""
+	lastRunID := ""
+	hasMore := false
 	for rows.Next() {
 		run, sortTime, err := scanRun(rows)
 		if err != nil {
 			return nil, "", err
 		}
-		listed = append(listed, listedRun{run: run, sortTime: sortTime})
+		if len(runs) == limit {
+			hasMore = true
+			continue
+		}
+		runs = append(runs, run)
+		lastSortTime = sortTime
+		lastRunID = run.ID
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", fmt.Errorf("iterate run summaries: %w", err)
 	}
 
-	hasMore := len(listed) > limit
-	if hasMore {
-		listed = listed[:limit]
-	}
-
-	runs := make([]v1alpha1.Run, 0, len(listed))
-	for _, item := range listed {
-		run := item.run
-		plan, err := s.getRunPhase(ctx, namespace, workspace, run.ID, v1alpha1.RunPhasePlan)
-		if err != nil && !errors.Is(err, ErrNotFound) {
-			return nil, "", err
-		}
-		apply, err := s.getRunPhase(ctx, namespace, workspace, run.ID, v1alpha1.RunPhaseApply)
-		if err != nil && !errors.Is(err, ErrNotFound) {
-			return nil, "", err
-		}
-		run.Plan = plan
-		run.Apply = apply
-		runs = append(runs, run)
-	}
-
 	nextCursor := ""
-	if hasMore && len(listed) > 0 {
-		last := listed[len(listed)-1]
-		nextCursor, err = encodeCursor(listCursor{SortTime: last.sortTime, RunID: last.run.ID})
+	if hasMore && lastSortTime != "" && lastRunID != "" {
+		nextCursor, err = encodeCursor(listCursor{SortTime: lastSortTime, RunID: lastRunID})
 		if err != nil {
 			return nil, "", err
 		}
@@ -288,82 +240,31 @@ func (s *Store) ListRuns(ctx context.Context, namespace, workspace string, limit
 }
 
 func (s *Store) GetRunPhase(ctx context.Context, namespace, workspace, runID string, phase v1alpha1.RunPhase) (*v1alpha1.RunPhaseSummary, error) {
-	return s.getRunPhase(ctx, namespace, workspace, runID, phase)
-}
-
-func upsertPhase(ctx context.Context, tx *sql.Tx, namespace, workspace, runID string, phase v1alpha1.RunPhase, summary *v1alpha1.RunPhaseSummary) error {
-	_, err := tx.ExecContext(ctx, `
-		INSERT INTO run_phases (
-			namespace, workspace, run_id, phase, job_name, pod_name,
-			started_at, finished_at, result, log_key, log_size_bytes
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		ON CONFLICT(namespace, workspace, run_id, phase) DO UPDATE SET
-			job_name = excluded.job_name,
-			pod_name = excluded.pod_name,
-			started_at = excluded.started_at,
-			finished_at = excluded.finished_at,
-			result = excluded.result,
-			log_key = excluded.log_key,
-			log_size_bytes = excluded.log_size_bytes`,
-		namespace,
-		workspace,
-		runID,
-		string(phase),
-		summary.JobName,
-		summary.PodName,
-		nullEmpty(formatMetaTime(summary.StartedAt)),
-		nullEmpty(formatMetaTime(summary.FinishedAt)),
-		string(summary.Result),
-		summary.LogKey,
-		summary.LogSizeBytes,
-	)
-	if err != nil {
-		return fmt.Errorf("upsert %s phase summary for run %q: %w", phase, runID, err)
-	}
-	return nil
-}
-
-func (s *Store) getRunPhase(ctx context.Context, namespace, workspace, runID string, phase v1alpha1.RunPhase) (*v1alpha1.RunPhaseSummary, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT job_name, pod_name, started_at, finished_at, result, log_key, log_size_bytes
-		FROM run_phases
-		WHERE namespace = $1 AND workspace = $2 AND run_id = $3 AND phase = $4`,
+		SELECT plan, apply
+		FROM runs
+		WHERE namespace = $1 AND workspace = $2 AND run_id = $3`,
 		namespace,
 		workspace,
 		runID,
-		string(phase),
 	)
 
-	var summary v1alpha1.RunPhaseSummary
-	var startedAt, finishedAt sql.NullString
-	var result string
-	if err := row.Scan(
-		&summary.JobName,
-		&summary.PodName,
-		&startedAt,
-		&finishedAt,
-		&result,
-		&summary.LogKey,
-		&summary.LogSizeBytes,
-	); err != nil {
+	var plan, apply sql.NullString
+	if err := row.Scan(&plan, &apply); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("get %s phase summary for run %q: %w", phase, runID, err)
 	}
 
-	parsedStartedAt, err := parseMetaTime(startedAt)
-	if err != nil {
-		return nil, err
+	switch phase {
+	case v1alpha1.RunPhasePlan:
+		return requiredPhaseFromJSON(plan)
+	case v1alpha1.RunPhaseApply:
+		return requiredPhaseFromJSON(apply)
+	default:
+		return nil, fmt.Errorf("phase must be plan or apply")
 	}
-	parsedFinishedAt, err := parseMetaTime(finishedAt)
-	if err != nil {
-		return nil, err
-	}
-	summary.StartedAt = parsedStartedAt
-	summary.FinishedAt = parsedFinishedAt
-	summary.Result = v1alpha1.RunLogResult(result)
-	return &summary, nil
 }
 
 func scanRun(scanner interface {
@@ -372,6 +273,7 @@ func scanRun(scanner interface {
 	var run v1alpha1.Run
 	var trigger string
 	var startedAt, finishedAt sql.NullString
+	var plan, apply sql.NullString
 	var sortTime string
 	if err := scanner.Scan(
 		&run.ID,
@@ -381,6 +283,8 @@ func scanRun(scanner interface {
 		&startedAt,
 		&finishedAt,
 		&sortTime,
+		&plan,
+		&apply,
 	); err != nil {
 		return run, "", fmt.Errorf("scan run summary: %w", err)
 	}
@@ -396,6 +300,14 @@ func scanRun(scanner interface {
 	run.Trigger = v1alpha1.RunTrigger(trigger)
 	run.StartedAt = parsedStartedAt
 	run.FinishedAt = parsedFinishedAt
+	run.Plan, err = phaseFromJSON(plan)
+	if err != nil {
+		return run, "", err
+	}
+	run.Apply, err = phaseFromJSON(apply)
+	if err != nil {
+		return run, "", err
+	}
 	return run, sortTime, nil
 }
 
@@ -491,6 +403,39 @@ func nullEmpty(value string) any {
 		return nil
 	}
 	return value
+}
+
+func phaseJSON(summary *v1alpha1.RunPhaseSummary) (any, error) {
+	if summary == nil {
+		return nil, nil
+	}
+	body, err := json.Marshal(summary)
+	if err != nil {
+		return nil, fmt.Errorf("marshal phase summary: %w", err)
+	}
+	return string(body), nil
+}
+
+func phaseFromJSON(raw sql.NullString) (*v1alpha1.RunPhaseSummary, error) {
+	if !raw.Valid || raw.String == "" {
+		return nil, nil
+	}
+	var summary v1alpha1.RunPhaseSummary
+	if err := json.Unmarshal([]byte(raw.String), &summary); err != nil {
+		return nil, fmt.Errorf("unmarshal phase summary: %w", err)
+	}
+	return &summary, nil
+}
+
+func requiredPhaseFromJSON(raw sql.NullString) (*v1alpha1.RunPhaseSummary, error) {
+	summary, err := phaseFromJSON(raw)
+	if err != nil {
+		return nil, err
+	}
+	if summary == nil {
+		return nil, ErrNotFound
+	}
+	return summary, nil
 }
 
 func postgresURLFromEnv() string {
