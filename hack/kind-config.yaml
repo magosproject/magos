@@ -6,4 +6,6 @@ nodes:
   - containerPort: 31900
     hostPort: 9000
     protocol: TCP
-
+  - containerPort: 31432
+    hostPort: 15432
+    protocol: TCP

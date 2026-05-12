@@ -1,7 +1,4 @@
 {{- if .Values.api.enabled }}
-{{- if gt (int .Values.api.replicaCount) 1 }}
-{{- fail "api.replicaCount must be 1 because the API owns a SQLite database on a persistent volume" }}
-{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -11,8 +8,6 @@ metadata:
     app.kubernetes.io/component: api
 spec:
   replicas: {{ .Values.api.replicaCount }}
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       {{- include "magos.selectorLabels" . | nindent 6 }}
@@ -49,8 +44,9 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         {{- include "magos.logstoreEnv" . | nindent 8 }}
-        - name: MAGOS_SQLITE_PATH
-          value: {{ printf "%s/magos.db" .Values.sqlite.mountPath | quote }}
+        {{- if .Values.postgres.enabled }}
+        {{- include "magos.postgresEnv" . | nindent 8 }}
+        {{- end }}
         {{- with .Values.api.env }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -70,16 +66,5 @@ spec:
           periodSeconds: 10
         resources:
           {{- toYaml .Values.api.resources | nindent 10 }}
-        volumeMounts:
-        - name: sqlite-data
-          mountPath: {{ .Values.sqlite.mountPath | quote }}
-      volumes:
-      - name: sqlite-data
-        {{- if .Values.sqlite.persistence.enabled }}
-        persistentVolumeClaim:
-          claimName: {{ printf "%s-api-sqlite" (include "magos.fullname" .) }}
-        {{- else }}
-        emptyDir: {}
-        {{- end }}
       terminationGracePeriodSeconds: 30
 {{- end }}

@@ -170,21 +170,62 @@ logs:
       repository: rustfs/rustfs
       tag: latest
       pullPolicy: IfNotPresent
+    auth:
+      accessKey: "" # Leave empty to generate and preserve a release-scoped key.
+      secretKey: "" # Leave empty to generate and preserve a release-scoped key.
     service:
+      type: ClusterIP
       port: 9000
       consolePort: 9001
+      # nodePort: "" # Only used when type is NodePort.
+      # consoleNodePort: "" # Only used when type is NodePort.
     persistence:
       size: 10Gi
       # storageClass: "" # Leave empty to use the cluster default.
 
-sqlite:
-  # SQLite database owned by the API pod. Used for run summaries and future
+postgres:
+  # First-party PostgreSQL instance used for run summaries and future
   # operational metadata. RustFS remains the storage backend for log blobs.
-  mountPath: /var/lib/magos/sqlite
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    database: magos
+    username: magos
+    # password: "" # Leave empty to generate and preserve a release-scoped password.
+    existingSecret: ""
+    passwordKey: password
+  service:
+    type: ClusterIP
+    port: 5432
+    # nodePort: "" # Only used when type is NodePort.
+  sslMode: disable
   persistence:
     enabled: true
     size: 1Gi
     # storageClass: "" # Leave empty to use the cluster default.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 70
+    runAsGroup: 70
+    fsGroup: 70
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+      - ALL
+  resources:
+    limits:
+      cpu: "1"
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
 
 policy:
   kyverno:

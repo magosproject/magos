@@ -25,10 +25,10 @@ The Magos operator manages the lifecycle of your infrastructure directly from Ku
 
 ### Local Development
 
-Create a local Kind cluster:
+Create a local Kind cluster with the ports Magos uses for local development:
 
 ```bash
-make kind-cluster
+make dev-cluster
 ```
 
 Install the CRDs into the cluster:
@@ -36,6 +36,10 @@ Install the CRDs into the cluster:
 ```bash
 make install
 ```
+
+Local dependencies such as RustFS, PostgreSQL, and the job ServiceAccount are
+rendered from the Helm chart with `hack/local-values.yaml`, so the development
+setup follows the same manifests as chart installs.
 
 Build the Magos job image and load it into the cluster:
 
