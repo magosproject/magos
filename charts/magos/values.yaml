@@ -189,7 +189,7 @@ logs:
       # storageClass: "" # Leave empty to use the cluster default.
 
 postgres:
-  # First-party PostgreSQL instance used for run summaries and future
+  # First-party PostgreSQL instance used for run metadata and future
   # operational metadata. RustFS remains the storage backend for log blobs.
   enabled: true
   image:

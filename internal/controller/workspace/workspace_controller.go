@@ -220,7 +220,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
-	wasTerminalRun := terminalWorkspaceRunRecorded(workspace.Status.Phase)
+	previousPhase := workspace.Status.Phase
 	res, err := r.reconcileWorkspace(ctx, workspace)
 	if err != nil {
 		reconcileTotal.WithLabelValues(req.Namespace, req.Name, "error").Inc()
@@ -234,8 +234,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// when nothing in the cluster changes. This is how we detect
 	// infrastructure drift that happened outside of Magos.
 	nextReconcileBase := workspace.Status.NextReconcileTime
-	completedRun := !wasTerminalRun && terminalWorkspaceRunRecorded(workspace.Status.Phase)
-	if completedRun && workspace.Status.CurrentRunTrigger == v1alpha1.RunTriggerConfig {
+	if completedConfigurationRun(previousPhase, workspace) {
 		// Start drift detection after the initial config run finishes, not
 		// after the earlier bookkeeping reconcile that created its first Job.
 		nextReconcileBase = nil
@@ -358,8 +357,8 @@ func newRunID() string {
 	now := time.Now().UTC()
 	var suffix [4]byte
 	if _, err := crand.Read(suffix[:]); err != nil {
-		// Fall back to a timestamp-derived suffix so the ID keeps the stable
-		// "20060102T150405-{hex}" shape used by API validation and sorting.
+		// Fall back to a timestamp-derived suffix so the ID is always in the
+		// form "20060102T150405-{hex}" that parseRunIDTime expects.
 		return fmt.Sprintf("%s-%08x", now.Format("20060102T150405"), now.UnixNano()&0xffffffff)
 	}
 	return fmt.Sprintf("%s-%s", now.Format("20060102T150405"), hex.EncodeToString(suffix[:]))
@@ -429,6 +428,12 @@ func terminalWorkspaceRunRecorded(phase v1alpha1.Phase) bool {
 	default:
 		return false
 	}
+}
+
+func completedConfigurationRun(previousPhase v1alpha1.Phase, workspace *v1alpha1.Workspace) bool {
+	return workspace.Status.CurrentRunTrigger == v1alpha1.RunTriggerConfig &&
+		!terminalWorkspaceRunRecorded(previousPhase) &&
+		terminalWorkspaceRunRecorded(workspace.Status.Phase)
 }
 
 func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace *v1alpha1.Workspace) (ctrl.Result, error) {
@@ -1242,8 +1247,8 @@ func terminalJobFinishedAt(job *batchv1.Job) *metav1.Time {
 }
 
 // archiveRunLogs reads the pod logs for the given job, compresses them, writes
-// the blob to RustFS, and records summary metadata through the API. The API owns
-// Postgres-backed run summaries, so the controller never writes the database directly.
+// the blob to RustFS, and records run metadata through the API. The API owns
+// Postgres-backed run metadata, so the controller never writes the database directly.
 func (r *WorkspaceReconciler) archiveRunLogs(
 	ctx context.Context,
 	workspace *v1alpha1.Workspace,

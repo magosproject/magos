@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/magosproject/magos/api/internal/logsummary"
+	"github.com/magosproject/magos/api/internal/runs"
 	"github.com/magosproject/magos/api/internal/service"
 	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -185,7 +185,7 @@ func (h *WorkspaceHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
 	items, err := h.service.ListRuns(r.Context(), namespace, name, limit, r.URL.Query().Get("cursor"))
 	if err != nil {
 		h.logger.Error("failed to list workspace reconcile runs", "error", err, "namespace", namespace, "name", name)
-		if errors.Is(err, logsummary.ErrInvalidCursor) {
+		if errors.Is(err, runs.ErrInvalidCursor) {
 			writeError(w, http.StatusBadRequest, "invalid cursor")
 			return
 		}
@@ -252,7 +252,6 @@ type recordRunPhaseRequest struct {
 }
 
 func (h *WorkspaceHandler) RecordRunPhase(w http.ResponseWriter, r *http.Request) {
-
 	namespace := r.PathValue("namespace")
 	name := r.PathValue("name")
 	runID := r.PathValue("runID")
@@ -298,7 +297,6 @@ func (h *WorkspaceHandler) RecordRunPhase(w http.ResponseWriter, r *http.Request
 
 	w.WriteHeader(http.StatusNoContent)
 }
-
 
 // StreamCurrentRunLog godoc
 //

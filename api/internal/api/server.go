@@ -14,7 +14,7 @@ import (
 	"github.com/magosproject/magos/api/internal/api/handlers"
 	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
-	"github.com/magosproject/magos/api/internal/logsummary"
+	"github.com/magosproject/magos/api/internal/runs"
 	"github.com/magosproject/magos/api/internal/service"
 	"github.com/magosproject/magos/internal/logstore"
 
@@ -39,11 +39,11 @@ type Server struct {
 }
 
 // NewServer creates a new API server with the given Kubernetes client.
-func NewServer(logger *slog.Logger, vc versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runSummaries service.RunSummaryStore) *Server {
+func NewServer(logger *slog.Logger, vc versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runs service.RunStore) *Server {
 	factory := externalversions.NewSharedInformerFactory(vc, 5*time.Minute)
 
 	projectSvc := service.NewProjectService(logger, factory)
-	workspaceSvc := service.NewWorkspaceService(logger, factory, vc, kube, logs, runSummaries)
+	workspaceSvc := service.NewWorkspaceService(logger, factory, vc, kube, logs, runs)
 	rolloutSvc := service.NewRolloutService(logger, factory)
 	variableSetSvc := service.NewVariableSetService(logger, factory)
 
@@ -90,13 +90,13 @@ func NewServerWithDefaults(logger *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("failed to create log store: %w", err)
 	}
 
-	logSummaryConfig := logsummary.LoadConfigFromEnv()
-	runSummaries, err := logsummary.NewStore(context.Background(), logSummaryConfig)
+	runStoreConfig := runs.LoadConfigFromEnv()
+	runs, err := runs.NewStore(context.Background(), runStoreConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create run summary store: %w", err)
+		return nil, fmt.Errorf("failed to create run store: %w", err)
 	}
 
-	return NewServer(logger, vc, kube, logs, runSummaries), nil
+	return NewServer(logger, vc, kube, logs, runs), nil
 }
 
 // Router returns the HTTP handler with all routes configured.

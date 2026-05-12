@@ -22,7 +22,7 @@ const (
 	envLogsS3AccessKeyID     = "MAGOS_LOGS_S3_ACCESS_KEY_ID"
 	envLogsS3SecretAccessKey = "MAGOS_LOGS_S3_SECRET_ACCESS_KEY"
 
-	defaultBucket = "magos-run-logs"
+	defaultRunLogBucket = "magos-run-logs"
 )
 
 type Config struct {
@@ -40,21 +40,18 @@ func (c Config) Enabled() bool {
 type Store interface {
 	// PutRunPhaseLog stores the compressed log body for a single phase
 	// (plan or apply) of a run and returns its object key.
-	// The returned key must be deterministic and re-derivable via RunLogKey.
+	// The returned key must be deterministic and re-derivable via RunPhaseLogKey.
 	PutRunPhaseLog(ctx context.Context, namespace, workspace, runID string, phase v1alpha1.RunPhase, body []byte) (string, error)
 
 	// GetRunPhaseLog returns a reader for the compressed log identified by key.
 	// The caller must close the returned reader.
 	GetRunPhaseLog(ctx context.Context, key string) (io.ReadCloser, error)
-
-	// DeleteRunPhaseLog deletes the compressed log identified by key.
-	DeleteRunPhaseLog(ctx context.Context, key string) error
 }
 
-// RunLogKey returns the deterministic object-store key for a phase log. The key
-// is derived entirely from the run identity so it can be reconstructed without
-// a summary lookup.
-func RunLogKey(namespace, workspace, runID string, phase v1alpha1.RunPhase) string {
+// RunPhaseLogKey returns the deterministic object-store key for a phase log.
+// The key is derived entirely from the run identity so it can be reconstructed
+// without a database lookup.
+func RunPhaseLogKey(namespace, workspace, runID string, phase v1alpha1.RunPhase) string {
 	return path.Join("run-logs", namespace, workspace, runID, string(phase)+".log.gz")
 }
 
@@ -117,7 +114,7 @@ func newS3Store(ctx context.Context, cfg Config) (Store, error) {
 		o.UsePathStyle = true
 	})
 
-	store := &s3Store{client: client, bucket: defaultBucket}
+	store := &s3Store{client: client, bucket: defaultRunLogBucket}
 	if err := store.ensureBucket(ctx); err != nil {
 		return nil, err
 	}
@@ -152,7 +149,7 @@ func (s *s3Store) withBucketEnsure(ctx context.Context, fn func() error) error {
 }
 
 func (s *s3Store) PutRunPhaseLog(ctx context.Context, namespace, workspace, runID string, phase v1alpha1.RunPhase, body []byte) (string, error) {
-	key := RunLogKey(namespace, workspace, runID, phase)
+	key := RunPhaseLogKey(namespace, workspace, runID, phase)
 	err := s.withBucketEnsure(ctx, func() error {
 		_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 			Bucket:          aws.String(s.bucket),
@@ -178,15 +175,4 @@ func (s *s3Store) GetRunPhaseLog(ctx context.Context, key string) (io.ReadCloser
 		return nil, fmt.Errorf("get log object %q: %w", key, err)
 	}
 	return out.Body, nil
-}
-
-func (s *s3Store) DeleteRunPhaseLog(ctx context.Context, key string) error {
-	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(key),
-	})
-	if err != nil {
-		return fmt.Errorf("delete object %q: %w", key, err)
-	}
-	return nil
 }

@@ -1,4 +1,4 @@
-package logsummary
+package runs
 
 import (
 	"context"
@@ -37,7 +37,7 @@ const (
 
 var (
 	ErrInvalidCursor = errors.New("invalid run list cursor")
-	ErrNotFound      = errors.New("run summary not found")
+	ErrNotFound      = errors.New("run not found")
 )
 
 type Config struct {
@@ -64,7 +64,7 @@ func LoadConfigFromEnv() Config {
 func NewStore(ctx context.Context, cfg Config) (*Store, error) {
 	db, err := sql.Open("pgx", cfg.DatabaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("open postgres run summary store: %w", err)
+		return nil, fmt.Errorf("open postgres run store: %w", err)
 	}
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(5)
@@ -72,7 +72,7 @@ func NewStore(ctx context.Context, cfg Config) (*Store, error) {
 
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("connect postgres run summary store: %w", err)
+		return nil, fmt.Errorf("connect postgres run store: %w", err)
 	}
 
 	store := &Store{db: db}
@@ -129,7 +129,7 @@ func (s *Store) init(ctx context.Context) error {
 
 	for _, stmt := range statements {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("initialize postgres run summary store: %w", err)
+			return fmt.Errorf("initialize postgres run store: %w", err)
 		}
 	}
 	return nil
@@ -145,11 +145,11 @@ func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run 
 	finishedAt := runFinishedAt(run)
 	sortTime := firstNonEmpty(startedAt, phaseStartedAt(run), phaseFinishedAt(run), runIDSortTime(run.ID), now)
 
-	plan, err := phaseJSON(run.Plan)
+	plan, err := marshalPhaseSummary(run.Plan)
 	if err != nil {
 		return err
 	}
-	apply, err := phaseJSON(run.Apply)
+	apply, err := marshalPhaseSummary(run.Apply)
 	if err != nil {
 		return err
 	}
@@ -191,7 +191,7 @@ func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run 
 		apply,
 	)
 	if err != nil {
-		return fmt.Errorf("upsert run summary %q: %w", run.ID, err)
+		return fmt.Errorf("upsert run %q: %w", run.ID, err)
 	}
 	return nil
 }
@@ -224,7 +224,7 @@ func (s *Store) ListRuns(ctx context.Context, namespace, workspace string, limit
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, "", fmt.Errorf("list run summaries: %w", err)
+		return nil, "", fmt.Errorf("list runs: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -246,7 +246,7 @@ func (s *Store) ListRuns(ctx context.Context, namespace, workspace string, limit
 		lastRunID = run.ID
 	}
 	if err := rows.Err(); err != nil {
-		return nil, "", fmt.Errorf("iterate run summaries: %w", err)
+		return nil, "", fmt.Errorf("iterate runs: %w", err)
 	}
 
 	nextCursor := ""
@@ -279,9 +279,9 @@ func (s *Store) GetRunPhase(ctx context.Context, namespace, workspace, runID str
 
 	switch phase {
 	case v1alpha1.RunPhasePlan:
-		return requiredPhaseFromJSON(plan)
+		return requiredPhaseSummary(plan)
 	case v1alpha1.RunPhaseApply:
-		return requiredPhaseFromJSON(apply)
+		return requiredPhaseSummary(apply)
 	default:
 		return nil, fmt.Errorf("phase must be plan or apply")
 	}
@@ -306,7 +306,7 @@ func scanRun(scanner interface {
 		&plan,
 		&apply,
 	); err != nil {
-		return run, "", fmt.Errorf("scan run summary: %w", err)
+		return run, "", fmt.Errorf("scan run: %w", err)
 	}
 
 	parsedStartedAt, err := parseMetaTime(startedAt)
@@ -320,11 +320,11 @@ func scanRun(scanner interface {
 	run.Trigger = v1alpha1.RunTrigger(trigger)
 	run.StartedAt = parsedStartedAt
 	run.FinishedAt = parsedFinishedAt
-	run.Plan, err = phaseFromJSON(plan)
+	run.Plan, err = unmarshalPhaseSummary(plan)
 	if err != nil {
 		return run, "", err
 	}
-	run.Apply, err = phaseFromJSON(apply)
+	run.Apply, err = unmarshalPhaseSummary(apply)
 	if err != nil {
 		return run, "", err
 	}
@@ -448,7 +448,7 @@ func nullEmpty(value string) any {
 	return value
 }
 
-func phaseJSON(summary *v1alpha1.RunPhaseSummary) (any, error) {
+func marshalPhaseSummary(summary *v1alpha1.RunPhaseSummary) (any, error) {
 	if summary == nil {
 		return nil, nil
 	}
@@ -459,7 +459,7 @@ func phaseJSON(summary *v1alpha1.RunPhaseSummary) (any, error) {
 	return string(body), nil
 }
 
-func phaseFromJSON(raw sql.NullString) (*v1alpha1.RunPhaseSummary, error) {
+func unmarshalPhaseSummary(raw sql.NullString) (*v1alpha1.RunPhaseSummary, error) {
 	if !raw.Valid || raw.String == "" {
 		return nil, nil
 	}
@@ -470,8 +470,8 @@ func phaseFromJSON(raw sql.NullString) (*v1alpha1.RunPhaseSummary, error) {
 	return &summary, nil
 }
 
-func requiredPhaseFromJSON(raw sql.NullString) (*v1alpha1.RunPhaseSummary, error) {
-	summary, err := phaseFromJSON(raw)
+func requiredPhaseSummary(raw sql.NullString) (*v1alpha1.RunPhaseSummary, error) {
+	summary, err := unmarshalPhaseSummary(raw)
 	if err != nil {
 		return nil, err
 	}

@@ -69,7 +69,8 @@ type WorkspaceService interface {
 	StreamCurrentRunLogs(ctx context.Context, namespace, name string, phase apiv1alpha1.RunPhase) <-chan RunLogStreamEvent
 }
 
-type RunSummaryStore interface {
+// RunStore stores searchable run metadata.
+type RunStore interface {
 	UpsertRun(ctx context.Context, namespace, workspace string, run apiv1alpha1.Run) error
 	ListRuns(ctx context.Context, namespace, workspace string, limit int, cursor string) ([]apiv1alpha1.Run, string, error)
 	GetRunPhase(ctx context.Context, namespace, workspace, runID string, phase apiv1alpha1.RunPhase) (*apiv1alpha1.RunPhaseSummary, error)
@@ -97,10 +98,10 @@ type workspaceService struct {
 	lister   listerv1alpha1.WorkspaceLister
 	events   *Broadcaster[WorkspaceEvent]
 	logStore logstore.Store
-	runStore RunSummaryStore
+	runStore RunStore
 }
 
-func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory, client versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runs RunSummaryStore) WorkspaceService {
+func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory, client versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runs RunStore) WorkspaceService {
 	workspaceInformer := factory.Magosproject().V1alpha1().Workspaces()
 
 	svc := &workspaceService{
@@ -242,13 +243,13 @@ func (s *workspaceService) GetRunPhaseLog(ctx context.Context, namespace, name, 
 		return nil, err
 	}
 
-	key := logstore.RunLogKey(workspace.Namespace, workspace.Name, runID, phase)
-	summary, err := s.runStore.GetRunPhase(ctx, workspace.Namespace, workspace.Name, runID, phase)
+	key := logstore.RunPhaseLogKey(workspace.Namespace, workspace.Name, runID, phase)
+	runPhase, err := s.runStore.GetRunPhase(ctx, workspace.Namespace, workspace.Name, runID, phase)
 	if err != nil {
 		return nil, err
 	}
-	if summary.LogKey != "" {
-		key = summary.LogKey
+	if runPhase.LogKey != "" {
+		key = runPhase.LogKey
 	}
 
 	body, err := s.logStore.GetRunPhaseLog(ctx, key)

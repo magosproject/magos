@@ -1,4 +1,4 @@
-import { Anchor, Group, SimpleGrid, Stack, Text } from "@mantine/core";
+import { Anchor, SimpleGrid, Stack, Text } from "@mantine/core";
 import type { CSSProperties } from "react";
 import { Link } from "react-router";
 import type { Rollout } from "../api/types";

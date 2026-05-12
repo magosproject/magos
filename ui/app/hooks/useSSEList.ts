@@ -12,7 +12,7 @@ export function useSSEList<TApi, TRow extends { id: string }>(
   toRow: (item: TApi) => TRow,
   fetchItems?: () => Promise<TRow[]>
 ): [TRow[], Set<string>] {
-  const [items, setItems] = useState<TRow[]>(initial);
+  const [state, setState] = useState({ initial, items: initial });
   const [changedIds, markChanged] = useTransientIds();
   const toRowRef = useRef(toRow);
   const fetchItemsRef = useRef(fetchItems);
@@ -22,10 +22,15 @@ export function useSSEList<TApi, TRow extends { id: string }>(
   // a functional setItems updater (which would run side effects twice in strict mode).
   const itemsRef = useRef<TRow[]>(initial);
 
+  let items = state.items;
+  if (state.initial !== initial) {
+    items = initial;
+    setState({ initial, items: initial });
+  }
+
   useEffect(() => {
-    itemsRef.current = initial;
-    setItems(initial);
-  }, [initial]);
+    itemsRef.current = items;
+  }, [items]);
 
   useEffect(() => {
     toRowRef.current = toRow;
@@ -39,7 +44,7 @@ export function useSSEList<TApi, TRow extends { id: string }>(
         fetchItemsRef.current()
           .then((newItems) => {
             itemsRef.current = newItems;
-            setItems(newItems);
+            setState((current) => ({ initial: current.initial, items: newItems }));
           })
           .catch(() => {});
       }
@@ -85,7 +90,7 @@ export function useSSEList<TApi, TRow extends { id: string }>(
       // interactions (navigation clicks) are not blocked waiting for renders
       // triggered by SSE events to complete.
       startTransition(() => {
-        setItems(next);
+        setState((current) => ({ initial: current.initial, items: next }));
         changedRowIds.forEach((id) => markChangedRef.current(id));
       });
     };

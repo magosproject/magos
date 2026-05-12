@@ -8,13 +8,19 @@ export function useSSEItem<T>(
   match: (obj: T) => boolean,
   fetchItem?: () => Promise<T>
 ): T {
-  const [item, setItem] = useState<T>(initial);
+  const [state, setState] = useState({ initial, item: initial });
   const matchRef = useRef(match);
   const fetchItemRef = useRef(fetchItem);
 
-  useEffect(() => {
-    setItem(initial);
-  }, [initial]);
+  let item = state.item;
+  if (state.initial !== initial) {
+    item = initial;
+    setState({ initial, item: initial });
+  }
+
+  const setItem = (next: T) => {
+    setState((current) => ({ initial: current.initial, item: next }));
+  };
 
   useEffect(() => {
     matchRef.current = match;
