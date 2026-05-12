@@ -93,7 +93,7 @@ func (s *Store) init(ctx context.Context) error {
 			namespace TEXT NOT NULL,
 			workspace TEXT NOT NULL,
 			run_id TEXT NOT NULL,
-			trigger TEXT NOT NULL DEFAULT '',
+			trigger TEXT NOT NULL DEFAULT 'unknown',
 			target_revision TEXT NOT NULL DEFAULT '',
 			observed_revision TEXT NOT NULL DEFAULT '',
 			started_at TEXT,
@@ -107,6 +107,8 @@ func (s *Store) init(ctx context.Context) error {
 		)`,
 		`ALTER TABLE runs ADD COLUMN IF NOT EXISTS plan JSONB`,
 		`ALTER TABLE runs ADD COLUMN IF NOT EXISTS apply JSONB`,
+		`ALTER TABLE runs ALTER COLUMN trigger SET DEFAULT 'unknown'`,
+		`UPDATE runs SET trigger = 'configuration' WHERE trigger = ''`,
 		`CREATE INDEX IF NOT EXISTS idx_runs_workspace_sort
 			ON runs (namespace, workspace, sort_time DESC, run_id DESC)`,
 	}
@@ -142,9 +144,13 @@ func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run 
 		INSERT INTO runs (
 			namespace, workspace, run_id, trigger, target_revision, observed_revision,
 			started_at, finished_at, sort_time, created_at, updated_at, plan, apply
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb)
+		) VALUES ($1, $2, $3, COALESCE(NULLIF($4, ''), 'unknown'), $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb)
 		ON CONFLICT(namespace, workspace, run_id) DO UPDATE SET
-			trigger = CASE WHEN excluded.trigger <> '' THEN excluded.trigger ELSE runs.trigger END,
+			trigger = CASE
+				WHEN $4 <> '' THEN excluded.trigger
+				WHEN runs.trigger = '' THEN 'unknown'
+				ELSE runs.trigger
+			END,
 			target_revision = CASE WHEN excluded.target_revision <> '' THEN excluded.target_revision ELSE runs.target_revision END,
 			observed_revision = CASE WHEN excluded.observed_revision <> '' THEN excluded.observed_revision ELSE runs.observed_revision END,
 			started_at = COALESCE(runs.started_at, excluded.started_at),
