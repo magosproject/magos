@@ -5,6 +5,9 @@ JOB_IMG ?= magos-job:$(TAG)
 UI_IMG ?= ui:$(TAG)
 API_IMG ?= magos-api:$(TAG)
 RUSTFS_S3_PORT ?= 9000
+POSTGRES_PORT ?= 15432
+DEV_CLUSTER ?= kind
+LOCAL_VALUES ?= hack/local-values.yaml
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -18,7 +21,6 @@ endif
 # scaffolded by default. However, you might want to replace it to use other
 # tools. (i.e. podman)
 CONTAINER_TOOL ?= docker
-MAGOS_LOGS_RETENTION ?= 10
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -108,6 +110,16 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
+.PHONY: dev-cluster
+dev-cluster: kind ## Create a Kind cluster for local development with port mappings for RustFS and PostgreSQL.
+	@case "$$($(KIND) get clusters)" in \
+		*"$(DEV_CLUSTER)"*) \
+			echo "Kind cluster '$(DEV_CLUSTER)' already exists. Skipping creation." ;; \
+		*) \
+			echo "Creating Kind cluster '$(DEV_CLUSTER)'..."; \
+			$(KIND) create cluster --name $(DEV_CLUSTER) --config hack/kind-config.yaml ;; \
+	esac
+
 .PHONY: deps
 deps:
 	go mod tidy
@@ -116,15 +128,20 @@ deps:
 
 # TODO: currently all logs go to 1 stdout stream, consider using a tmux set-up or other solution?
 .PHONY: run
-run: deps manifests generate fmt vet install-rustfs ## Run all components in parallel.
+run: deps manifests generate fmt vet install-local-chart ## Run all components in parallel.
 	@$(KUBECTL) wait deployment/magos-rustfs --for=condition=available --timeout=60s
+	@$(KUBECTL) rollout status statefulset/magos-postgres --timeout=90s
 	@trap 'kill 0' EXIT; \
-	export MAGOS_LOGS_ENABLED=true; \
-	export MAGOS_LOGS_RETENTION=$(MAGOS_LOGS_RETENTION); \
 	export MAGOS_LOGS_S3_ENDPOINT="http://127.0.0.1:$(RUSTFS_S3_PORT)"; \
 	export MAGOS_LOGS_S3_ACCESS_KEY_ID="$$($(KUBECTL) get secret magos-rustfs -o jsonpath='{.data.accessKey}' | base64 -d)"; \
 	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$$($(KUBECTL) get secret magos-rustfs -o jsonpath='{.data.secretKey}' | base64 -d)"; \
-	(while true; do $(KUBECTL) port-forward svc/magos-rustfs $(RUSTFS_S3_PORT):9000; sleep 2; done) & \
+	export MAGOS_LOGS_API_URL="http://127.0.0.1:8080"; \
+	export MAGOS_POSTGRES_HOST="127.0.0.1"; \
+	export MAGOS_POSTGRES_PORT="$(POSTGRES_PORT)"; \
+	export MAGOS_POSTGRES_DATABASE="magos"; \
+	export MAGOS_POSTGRES_USER="magos"; \
+	export MAGOS_POSTGRES_PASSWORD="$$($(KUBECTL) get secret magos-postgres -o jsonpath='{.data.password}' | base64 -d)"; \
+	export MAGOS_POSTGRES_SSLMODE="disable"; \
 	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
 	$(MAKE) -s run-api & \
 	$(MAKE) -s run-ui & \
@@ -231,29 +248,18 @@ ifndef ignore-not-found
 endif
 
 .PHONY: install
-install: manifests install-validatingpolicy-crd install-job-rbac install-rustfs ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+install: manifests install-local-chart ## Install local development dependencies and CRDs into the K8s cluster specified in ~/.kube/config.
 	$(KUBECTL) apply -f charts/magos/crds/
 
-.PHONY: install-rustfs
-install-rustfs: ## Install RustFS into the cluster for local development (default namespace).
-	$(KUBECTL) apply -f hack/local-rustfs.yaml
-
-.PHONY: install-job-rbac
-install-job-rbac: ## Install the magos-job ServiceAccount and RBAC for local development (default namespace).
-	$(KUBECTL) apply -f hack/local-job-rbac.yaml
-
-.PHONY: install-validatingpolicy-crd
-install-validatingpolicy-crd: ## Install the Kyverno ValidatingPolicy CRD if not already present (skips when Kyverno is already installed).
-	@$(KUBECTL) get crd validatingpolicies.policies.kyverno.io >/dev/null 2>&1 && \
-		echo "ValidatingPolicy CRD already installed, skipping" || \
-		helm template magos charts/magos/ --set policy.kyverno.installCRD=true \
-		  --show-only templates/kyverno-validatingpolicy-crd.yaml | $(KUBECTL) apply -f -
+.PHONY: install-local-chart
+install-local-chart: ## Install the local development chart render.
+	$(HELM) template magos charts/magos/ --namespace default --values $(LOCAL_VALUES) | $(KUBECTL) apply -f -
 
 .PHONY: uninstall-validatingpolicy-crd
 uninstall-validatingpolicy-crd: ## Remove the Kyverno ValidatingPolicy CRD (skips when Kyverno is installed, as it owns the CRD).
 	@$(KUBECTL) get pods --all-namespaces -l app.kubernetes.io/part-of=kyverno --no-headers 2>/dev/null | grep -q . && \
 		echo "Kyverno is running, skipping CRD removal to avoid breaking it" || \
-		helm template magos charts/magos/ --set policy.kyverno.installCRD=true \
+		$(HELM) template magos charts/magos/ --set policy.kyverno.installCRD=true \
 		  --show-only templates/kyverno-validatingpolicy-crd.yaml | $(KUBECTL) delete --ignore-not-found -f -
 
 .PHONY: uninstall
@@ -269,6 +275,7 @@ $(LOCALBIN):
 
 ## Tool Binaries
 KUBECTL ?= kubectl
+HELM ?= helm
 KIND ?= $(LOCALBIN)/kind
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen

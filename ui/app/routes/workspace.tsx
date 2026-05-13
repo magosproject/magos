@@ -47,8 +47,6 @@ export async function clientLoader({ params }: { params: { namespace: string; na
       }).then((r) => r.data)
     : undefined;
 
-  // Runs are fetched by WorkspaceRunHistory on mount — the S3 call must not
-  // block the route transition.
   return { workspace: ws, project };
 }
 
@@ -84,6 +82,10 @@ export default function Workspace() {
   async function handleToggleDebugLogs() {
     if (!namespace || !name) return;
 
+    const annotationsPatch = {
+      "magosproject.io/tf-log-level": debugLogsEnabled ? null : "DEBUG",
+    } as unknown as Record<string, string>;
+
     setIsTogglingDebug(true);
     try {
       await apiClient.PATCH(
@@ -92,9 +94,7 @@ export default function Workspace() {
           params: { path: { namespace, name } },
           body: {
             metadata: {
-              annotations: {
-                "magosproject.io/tf-log-level": debugLogsEnabled ? null : "DEBUG",
-              },
+              annotations: annotationsPatch,
             },
           },
         }

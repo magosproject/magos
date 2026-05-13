@@ -25,10 +25,10 @@ The Magos operator manages the lifecycle of your infrastructure directly from Ku
 
 ### Local Development
 
-Create a local Kind cluster:
+Create a local Kind cluster with the ports mapped Magos uses for local development via [`hack/kind-config.yaml`](https://github.com/magosproject/magos/blob/main/hack/kind-config.yaml):
 
 ```bash
-make kind-cluster
+make dev-cluster
 ```
 
 Install the CRDs into the cluster:

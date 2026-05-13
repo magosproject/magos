@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/magosproject/magos/api/internal/runs"
 	"github.com/magosproject/magos/api/internal/service"
 	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -183,6 +185,10 @@ func (h *WorkspaceHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
 	items, err := h.service.ListRuns(r.Context(), namespace, name, limit, r.URL.Query().Get("cursor"))
 	if err != nil {
 		h.logger.Error("failed to list workspace reconcile runs", "error", err, "namespace", namespace, "name", name)
+		if errors.Is(err, runs.ErrInvalidCursor) {
+			writeError(w, http.StatusBadRequest, "invalid cursor")
+			return
+		}
 		if apierrors.IsNotFound(err) {
 			writeError(w, http.StatusNotFound, "workspace not found")
 			return
@@ -241,6 +247,91 @@ func (h *WorkspaceHandler) GetRunPhaseLog(w http.ResponseWriter, r *http.Request
 	}
 }
 
+type recordRunPhaseRequest struct {
+	Run apiv1alpha1.Run `json:"run"`
+}
+
+func (h *WorkspaceHandler) RecordRun(w http.ResponseWriter, r *http.Request) {
+	namespace := r.PathValue("namespace")
+	name := r.PathValue("name")
+	runID := r.PathValue("runID")
+	if namespace == "" || name == "" || runID == "" {
+		writeError(w, http.StatusBadRequest, "namespace, name, and runID are required")
+		return
+	}
+	if !isValidRunID(runID) {
+		writeError(w, http.StatusBadRequest, "invalid runID")
+		return
+	}
+
+	var payload recordRunPhaseRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if payload.Run.ID != runID {
+		writeError(w, http.StatusBadRequest, "runID in path and payload do not match")
+		return
+	}
+
+	if err := h.service.RecordRun(r.Context(), namespace, name, payload.Run); err != nil {
+		h.logger.Error("failed to record workspace run", "error", err, "namespace", namespace, "name", name, "runID", runID)
+		writeError(w, http.StatusInternalServerError, "failed to record workspace run")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *WorkspaceHandler) RecordRunPhase(w http.ResponseWriter, r *http.Request) {
+	namespace := r.PathValue("namespace")
+	name := r.PathValue("name")
+	runID := r.PathValue("runID")
+	phase, ok := parseRequiredRunPhase(r.PathValue("phase"))
+	if namespace == "" || name == "" || runID == "" {
+		writeError(w, http.StatusBadRequest, "namespace, name, and runID are required")
+		return
+	}
+	if !isValidRunID(runID) {
+		writeError(w, http.StatusBadRequest, "invalid runID")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusBadRequest, "phase must be plan or apply")
+		return
+	}
+
+	var payload recordRunPhaseRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if payload.Run.ID != runID {
+		writeError(w, http.StatusBadRequest, "runID in path and payload do not match")
+		return
+	}
+	if phase == apiv1alpha1.RunPhasePlan && payload.Run.Plan == nil {
+		writeError(w, http.StatusBadRequest, "plan phase summary is required")
+		return
+	}
+	if phase == apiv1alpha1.RunPhaseApply && payload.Run.Apply == nil {
+		writeError(w, http.StatusBadRequest, "apply phase summary is required")
+		return
+	}
+
+	if err := h.service.RecordRunPhase(r.Context(), namespace, name, runID, phase, payload.Run); err != nil {
+		h.logger.Error("failed to record workspace run phase", "error", err, "namespace", namespace, "name", name, "runID", runID, "phase", phase)
+		writeError(w, http.StatusInternalServerError, "failed to record workspace run phase")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // StreamCurrentRunLog godoc
 //
 //	@Summary	Stream live logs from the active phase of the in-progress plan and apply run
@@ -281,6 +372,17 @@ func parseRunPhase(raw string) apiv1alpha1.RunPhase {
 		return apiv1alpha1.RunPhaseApply
 	default:
 		return apiv1alpha1.RunPhaseApply
+	}
+}
+
+func parseRequiredRunPhase(raw string) (apiv1alpha1.RunPhase, bool) {
+	switch raw {
+	case string(apiv1alpha1.RunPhasePlan):
+		return apiv1alpha1.RunPhasePlan, true
+	case string(apiv1alpha1.RunPhaseApply):
+		return apiv1alpha1.RunPhaseApply, true
+	default:
+		return "", false
 	}
 }
 

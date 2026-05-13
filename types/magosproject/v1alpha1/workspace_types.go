@@ -221,6 +221,13 @@ type WorkspaceStatus struct {
 	// +optional
 	CurrentRunTrigger RunTrigger `json:"currentRunTrigger,omitempty"`
 
+	// LastRunStartedAt is the time when the most recent plan and apply run
+	// began. It is set when the run ID is first stamped and is not cleared
+	// when the run finishes, so the UI always has access to the last run start
+	// time without querying the log store.
+	// +optional
+	LastRunStartedAt *metav1.Time `json:"lastRunStartedAt,omitempty"`
+
 	// conditions represent the current state of the Workspace resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
 	//
@@ -330,6 +337,11 @@ type Run struct {
 	// FinishedAt is when the last completed phase of this run finished.
 	// +optional
 	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
+	// ScheduledAt is the NextReconcileTime that triggered this run. Only set
+	// for runs with trigger=scheduled. It lets the UI show when the run was
+	// supposed to start, separately from when the plan job actually started.
+	// +optional
+	ScheduledAt *metav1.Time `json:"scheduledAt,omitempty"`
 }
 
 // +genclient

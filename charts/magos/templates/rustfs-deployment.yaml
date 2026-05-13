@@ -1,4 +1,3 @@
-{{- if .Values.logs.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -77,4 +76,3 @@ spec:
           claimName: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
       - name: logs
         emptyDir: {}
-{{- end }}

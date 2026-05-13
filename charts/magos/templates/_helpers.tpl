@@ -51,6 +51,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Returns a non-empty value when at least one controller is enabled.
+*/}}
+{{- define "magos.controllersEnabled" -}}
+{{- range $controller := .Values.controllers -}}
+{{- if $controller.enabled -}}true{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Create the name of the service account to use for a controller
 */}}
 {{- define "magos.controllerServiceAccountName" -}}
@@ -73,15 +82,52 @@ Create the name of the service account to use for the API
 {{- end }}
 
 {{/*
+Create the bundled PostgreSQL resource names
+*/}}
+{{- define "magos.postgresName" -}}
+{{- printf "%s-postgres" (include "magos.fullname" .) -}}
+{{- end }}
+
+{{- define "magos.postgresHeadlessName" -}}
+{{- printf "%s-headless" (include "magos.postgresName" .) -}}
+{{- end }}
+
+{{- define "magos.postgresSecretName" -}}
+{{- default (include "magos.postgresName" .) .Values.postgres.auth.existingSecret -}}
+{{- end }}
+
+{{- define "magos.postgresPasswordKey" -}}
+{{- default "password" .Values.postgres.auth.passwordKey -}}
+{{- end }}
+
+{{/*
+Environment variables for the run-summary database. The API can also be
+pointed at an external database by disabling postgres.enabled and providing
+MAGOS_DATABASE_URL or the MAGOS_POSTGRES_* variables via api.env.
+*/}}
+{{- define "magos.postgresEnv" -}}
+- name: MAGOS_POSTGRES_HOST
+  value: {{ include "magos.postgresName" . | quote }}
+- name: MAGOS_POSTGRES_PORT
+  value: {{ .Values.postgres.service.port | quote }}
+- name: MAGOS_POSTGRES_DATABASE
+  value: {{ .Values.postgres.auth.database | quote }}
+- name: MAGOS_POSTGRES_USER
+  value: {{ .Values.postgres.auth.username | quote }}
+- name: MAGOS_POSTGRES_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "magos.postgresSecretName" . }}
+      key: {{ include "magos.postgresPasswordKey" . }}
+- name: MAGOS_POSTGRES_SSLMODE
+  value: {{ .Values.postgres.sslMode | quote }}
+{{- end }}
+
+{{/*
 Environment variables for the log store. Credentials and endpoint are wired
 automatically from the bundled RustFS deployment and are not user-configurable.
 */}}
 {{- define "magos.logstoreEnv" -}}
-- name: MAGOS_LOGS_ENABLED
-  value: {{ .Values.logs.enabled | quote }}
-- name: MAGOS_LOGS_RETENTION
-  value: {{ .Values.logs.retention | quote }}
-{{- if .Values.logs.enabled }}
 - name: MAGOS_LOGS_S3_ENDPOINT
   value: {{ printf "http://%s-rustfs:%v" (include "magos.fullname" .) .Values.logs.storage.service.port | quote }}
 - name: MAGOS_LOGS_S3_ACCESS_KEY_ID
@@ -94,5 +140,4 @@ automatically from the bundled RustFS deployment and are not user-configurable.
     secretKeyRef:
       name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
       key: secretKey
-{{- end }}
 {{- end }}

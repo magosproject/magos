@@ -1,5 +1,5 @@
 import { Anchor, Badge, Group, SimpleGrid, Text } from "@mantine/core";
-import { IconFolder, IconGitBranch } from "@tabler/icons-react";
+import { IconClock, IconFolder, IconGitBranch } from "@tabler/icons-react";
 import type { CSSProperties } from "react";
 import { Link } from "react-router";
 import type { Workspace } from "../api/types";
@@ -8,10 +8,6 @@ import InfoCard from "./InfoCard";
 import StatusBadge from "./StatusBadge";
 import { repoIcon } from "../utils/repoIcon";
 import { commitUrl, revisionUrl, terraformReleaseUrl } from "../utils/repoUrls";
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
-}
 
 function AppliedRevisionValue({
   repoURL,
@@ -93,6 +89,10 @@ export default function WorkspaceOverview({
   const repoURL = workspace.spec?.source?.repoURL ?? "";
   const observedRevision = workspace.status?.observedRevision ?? "";
   const tfVersion = workspace.spec?.terraform?.version ?? "";
+  const reconcileInterval =
+    workspace.metadata?.annotations?.["magosproject.io/reconcile-interval"] ??
+    workspace.status?.observedReconcileInterval ??
+    "3m";
 
   return (
     <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
@@ -147,9 +147,9 @@ export default function WorkspaceOverview({
         </Badge>
       </InfoCard>
 
-      {workspace.status?.lastReconcileTime && (
+      {workspace.status?.lastRunStartedAt && (
         <InfoCard label="Last reconcile">
-          <Text size="sm">{formatDateTime(workspace.status.lastReconcileTime)}</Text>
+          <Text size="sm">{formatDateTime(workspace.status.lastRunStartedAt)}</Text>
         </InfoCard>
       )}
 
@@ -158,6 +158,13 @@ export default function WorkspaceOverview({
           <Text size="sm">{formatDateTime(workspace.status.nextReconcileTime)}</Text>
         </InfoCard>
       )}
+
+      <InfoCard label="Reconcile Interval">
+        <Group gap={6} wrap="nowrap">
+          <IconClock size={14} />
+          <Text size="sm">{reconcileInterval}</Text>
+        </Group>
+      </InfoCard>
     </SimpleGrid>
   );
 }

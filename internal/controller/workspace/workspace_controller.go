@@ -86,11 +86,11 @@ const (
 // WorkspaceReconciler reconciles a Workspace object
 type WorkspaceReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	JobImage     string
-	Clientset    kubernetes.Interface // for reading pod logs
-	LogStore     logstore.Store
-	LogRetention int // number of reconcile runs to retain per workspace; 0 uses the logstore default
+	Scheme      *runtime.Scheme
+	JobImage    string
+	Clientset   kubernetes.Interface // for reading pod logs
+	LogStore    logstore.Store
+	RunRecorder RunRecorder
 }
 
 // getRepoCredentials finds the Git credential Secret for a given repository
@@ -233,11 +233,11 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// when nothing in the cluster changes. This is how we detect
 	// infrastructure drift that happened outside of Magos.
 	nextReconcileTime, reconcileInterval, _ := computeNextReconcileTime(workspace, workspace.Status.NextReconcileTime)
-	if res.RequeueAfter == 0 {
-		res.RequeueAfter = time.Until(nextReconcileTime.Time)
-	}
-
-	r.updateNextReconcileTime(ctx, workspace, res.RequeueAfter, reconcileInterval)
+	r.updateNextReconcileTime(ctx, workspace, nextReconcileTime, reconcileInterval)
+	// Calculate RequeueAfter after status writes. controller-runtime starts the
+	// timer only after Reconcile returns, so doing this earlier would add status
+	// update latency to every scheduled cycle.
+	res = withScheduledRequeue(res, nextReconcileTime.Time)
 
 	return res, nil
 }
@@ -290,7 +290,7 @@ func computeNextReconcileTime(ws *v1alpha1.Workspace, existing *metav1.Time) (me
 	interval := DefaultReconciliationInterval
 	if ws.Annotations != nil {
 		if val, ok := ws.Annotations[v1alpha1.WorkspaceReconcileIntervalAnnotation]; ok {
-			if d, err := time.ParseDuration(val); err == nil {
+			if d, err := time.ParseDuration(val); err == nil && d > 0 {
 				interval = d
 			}
 		}
@@ -308,7 +308,7 @@ func computeNextReconcileTime(ws *v1alpha1.Workspace, existing *metav1.Time) (me
 	// this condition triggers when the reconcileInterval annotation on
 	// the workspace was updated between reconciles for example when a user
 	// changes the annotation to lower the reconcile interval. this check
-	// ensures	the updated interval takes effect immediately instead of waiting
+	// ensures the updated interval takes effect immediately instead of waiting
 	// for the previously scheduled time to elapse
 	if ws.Status.ObservedReconcileInterval != "" && ws.Status.ObservedReconcileInterval != interval.String() {
 		previousInterval, err := time.ParseDuration(ws.Status.ObservedReconcileInterval)
@@ -333,6 +333,19 @@ func computeNextReconcileTime(ws *v1alpha1.Workspace, existing *metav1.Time) (me
 	return metav1.NewTime(next), interval, due
 }
 
+// withScheduledRequeue keeps any deliberately shorter requeue while preventing
+// stale schedule durations from drifting after status update latency.
+func withScheduledRequeue(res ctrl.Result, next time.Time) ctrl.Result {
+	scheduled := time.Until(next)
+	if scheduled <= 0 {
+		scheduled = time.Nanosecond
+	}
+	if res.RequeueAfter == 0 || res.RequeueAfter > scheduled {
+		res.RequeueAfter = scheduled
+	}
+	return res
+}
+
 func newRunID() string {
 	now := time.Now().UTC()
 	var suffix [4]byte
@@ -344,15 +357,37 @@ func newRunID() string {
 	return fmt.Sprintf("%s-%s", now.Format("20060102T150405"), hex.EncodeToString(suffix[:]))
 }
 
-// ensureRunID returns the workspace's current run ID, minting a new one if the
-// field is empty. This is called at job-creation time rather than at reset time
-// so the ID is stable across the multiple reconcile invocations that make up a
-// single plan and apply run.
-func ensureRunID(workspace *v1alpha1.Workspace) string {
+// ensureRunMetadata returns the workspace's current run ID, minting one when a
+// run starts. It also stamps the run trigger. Initial runs do not pass through
+// the reset path, so job creation is the first point where both values must be
+// made durable for log archival.
+func ensureRunMetadata(workspace *v1alpha1.Workspace) string {
 	if workspace.Status.CurrentRunID == "" {
 		workspace.Status.CurrentRunID = newRunID()
+		now := metav1.Now()
+		workspace.Status.LastRunStartedAt = &now
 	}
+	ensureCurrentRunTrigger(workspace)
 	return workspace.Status.CurrentRunID
+}
+
+func ensureCurrentRunTrigger(workspace *v1alpha1.Workspace) v1alpha1.RunTrigger {
+	if workspace.Status.CurrentRunTrigger == "" {
+		workspace.Status.CurrentRunTrigger = inferMissingRunTrigger(workspace)
+	}
+	return workspace.Status.CurrentRunTrigger
+}
+
+func inferMissingRunTrigger(workspace *v1alpha1.Workspace) v1alpha1.RunTrigger {
+	if workspace.Annotations != nil {
+		if detected := workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation]; detected != "" && detected != workspace.Status.ObservedRevision {
+			return v1alpha1.RunTriggerRevision
+		}
+		if workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
+			return v1alpha1.RunTriggerManual
+		}
+	}
+	return v1alpha1.RunTriggerConfig
 }
 
 func currentRunObservedRevision(workspace *v1alpha1.Workspace) string {
@@ -378,6 +413,15 @@ func runTriggerFromResetReason(reason string) v1alpha1.RunTrigger {
 		return v1alpha1.RunTriggerRetry
 	default:
 		return v1alpha1.RunTriggerUnknown
+	}
+}
+
+func terminalWorkspaceRunRecorded(phase v1alpha1.Phase) bool {
+	switch phase {
+	case v1alpha1.PhaseApplied, v1alpha1.PhaseFailed, v1alpha1.PhaseValidationFailed:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -522,13 +566,13 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		}
 	}
 
-	// If the Apply Job already finished we don't want to act on it again right
-	// away. We wait for the sync interval to elapse first. On success that
-	// gives us periodic drift detection, on failure it acts as a backoff before
-	// retrying. When the interval hasn't fully elapsed yet we requeue for
-	// exactly the remaining duration to avoid waking up on every reconcile loop
-	// in the meantime.
-	if !applyFinishedTime.IsZero() {
+	// If the Apply Job already finished and the Workspace has already recorded
+	// that terminal result, we wait for the sync interval to elapse before
+	// starting the next run. A just-finished Job can be observed before the
+	// Workspace status has moved from Applying to Applied/Failed; in that case
+	// we deliberately skip reset here so Step 8 below can archive logs and
+	// record the terminal status first.
+	if !applyFinishedTime.IsZero() && terminalWorkspaceRunRecorded(workspace.Status.Phase) {
 		if scheduledReconcileDue {
 			needsReset = true
 			if applySucceeded {
@@ -541,10 +585,13 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		} else {
 			exactRequeue = time.Until(nextScheduledReconcile.Time)
 		}
-	} else if planJobGetErr == nil && planJob.Status.Failed > 0 {
+	} else if planJobGetErr == nil && planJob.Status.Failed > 0 && terminalWorkspaceRunRecorded(workspace.Status.Phase) {
 		// We never got to Apply because the Plan itself failed. We use the same
 		// sync-interval cooldown here to avoid hammering a plan that keeps
 		// failing (e.g. bad credentials, broken HCL) on every reconcile loop.
+		// As with finished Apply Jobs above, reset is only allowed after the
+		// Workspace has already recorded the failed terminal status, because the
+		// first reconcile that observes the failed Job still needs to archive logs.
 		var failedTime time.Time
 		for _, cond := range planJob.Status.Conditions {
 			if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
@@ -577,12 +624,12 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// we allowed the check to fire from in-progress phases (Pending, Planning,
 	// Planned, Applying) the annotation would trigger a reset on every
 	// reconcile, creating an infinite loop because it is never cleared until
-	// Step 8. By restricting to terminal phases (Applied, Failed) and the
-	// initial empty phase, we guarantee the reset fires exactly once per new
-	// commit: the Workspace resets, progresses through its plan and apply run,
-	// and only then is the annotation consumed.
+	// Step 8. By restricting to recorded terminal phases and the initial empty
+	// phase, we guarantee the reset fires exactly once per new commit: the
+	// Workspace resets, progresses through its plan and apply run, and only then
+	// is the annotation consumed.
 	if !needsReset && workspace.Annotations != nil &&
-		(workspace.Status.Phase == "" || workspace.Status.Phase == v1alpha1.PhaseApplied || workspace.Status.Phase == v1alpha1.PhaseFailed) {
+		(workspace.Status.Phase == "" || terminalWorkspaceRunRecorded(workspace.Status.Phase)) {
 		if detected, ok := workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation]; ok && detected != workspace.Status.ObservedRevision {
 			needsReset = true
 			resetReason = "NewRevisionDetected"
@@ -595,7 +642,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// The same phase guard ensures the request triggers exactly one fresh
 	// plan and apply run and does not keep resetting an in-progress run.
 	if !needsReset && workspace.Annotations != nil &&
-		(workspace.Status.Phase == "" || workspace.Status.Phase == v1alpha1.PhaseApplied || workspace.Status.Phase == v1alpha1.PhaseFailed) {
+		(workspace.Status.Phase == "" || terminalWorkspaceRunRecorded(workspace.Status.Phase)) {
 		if req := workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation]; req != "" {
 			needsReset = true
 			resetReason = "ManualReconcileRequested"
@@ -629,7 +676,20 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		// and report what originally caused this plan and apply run to start.
 		workspace.Status.CurrentRunID = newRunID()
 		workspace.Status.CurrentRunTrigger = runTriggerFromResetReason(resetReason)
+		now := metav1.Now()
+		workspace.Status.LastRunStartedAt = &now
 		r.updateStatus(ctx, workspace, v1alpha1.PhasePending, resetReason, resetMessage, metav1.ConditionUnknown)
+
+		if resetReason == "ScheduledReconcile" && r.RunRecorder != nil {
+			run := v1alpha1.Run{
+				ID:          workspace.Status.CurrentRunID,
+				Trigger:     workspace.Status.CurrentRunTrigger,
+				ScheduledAt: workspace.Status.NextReconcileTime,
+			}
+			if err := r.RunRecorder.RecordRun(ctx, workspace.Namespace, workspace.Name, run); err != nil {
+				logger.Error(err, "failed to record scheduled run")
+			}
+		}
 
 		// Clear execution-allowed so the Rollout controller must re-grant
 		// permission before this Workspace can proceed. The Rollout decides
@@ -711,7 +771,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	if planJobGetErr != nil {
 		if errors.IsNotFound(planJobGetErr) {
 			logger.Info("Creating a new Plan Job", "job", planJobName)
-			runID := ensureRunID(workspace)
+			runID := ensureRunMetadata(workspace)
 			newJob, err := r.constructJobForWorkspace(ctx, workspace, planJobName, jobTypePlan, planFile, pvcName, runID)
 			if err != nil {
 				return ctrl.Result{}, err
@@ -823,6 +883,11 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 
 			if !isApproved {
 				logger.Info("Workspace has planned successfully, but is pending approval to apply", "workspace", workspace.Name)
+				if workspace.Status.Phase != v1alpha1.PhasePlanned {
+					if err := r.archiveRunLogs(ctx, workspace, &planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultSucceeded); err != nil {
+						logger.Error(err, "Failed to archive plan logs", "job", planJobName)
+					}
+				}
 				r.updateStatus(ctx, workspace, v1alpha1.PhasePlanned, "PlanSucceeded", "Terraform Plan succeeded. Waiting for manual approval to Apply.", metav1.ConditionTrue)
 				return ctrl.Result{}, nil
 			}
@@ -845,7 +910,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			}
 
 			logger.Info("Creating a new Apply Job", "job", applyJobName)
-			runID := ensureRunID(workspace)
+			runID := ensureRunMetadata(workspace)
 			newJob, err := r.constructJobForWorkspace(ctx, workspace, applyJobName, jobTypeApply, planFile, pvcName, runID)
 			if err != nil {
 				return ctrl.Result{}, err
@@ -999,6 +1064,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 // Workspace is removed.
 //
 // TODO: Have @fayusohenson verify the security model here.
+// TODO: Look into having shared PVC for provider caching
 func (r *WorkspaceReconciler) ensurePVC(ctx context.Context, ws *v1alpha1.Workspace, pvcName string) error {
 	pvc := &corev1.PersistentVolumeClaim{}
 	err := r.Get(ctx, types.NamespacedName{Name: pvcName, Namespace: ws.Namespace}, pvc)
@@ -1182,10 +1248,9 @@ func terminalJobFinishedAt(job *batchv1.Job) *metav1.Time {
 	return nil
 }
 
-// archiveRunLogs reads the pod logs for the given job, compresses them, and
-// writes them to the log store. It then upserts the reconcile run summary so
-// that the plan and apply phases of the same plan and apply run accumulate into a single
-// record. Old runs beyond the retention limit are pruned after each write.
+// archiveRunLogs reads the pod logs for the given job, compresses them, writes
+// the blob to RustFS, and records run metadata through the API. The API owns
+// Postgres-backed run metadata, so the controller never writes the database directly.
 func (r *WorkspaceReconciler) archiveRunLogs(
 	ctx context.Context,
 	workspace *v1alpha1.Workspace,
@@ -1193,7 +1258,7 @@ func (r *WorkspaceReconciler) archiveRunLogs(
 	phase v1alpha1.RunPhase,
 	result v1alpha1.RunLogResult,
 ) error {
-	if r.LogStore == nil || r.Clientset == nil {
+	if r.LogStore == nil || r.Clientset == nil || r.RunRecorder == nil {
 		return nil
 	}
 
@@ -1201,9 +1266,14 @@ func (r *WorkspaceReconciler) archiveRunLogs(
 	// plan and apply jobs. If it is absent the workspace has not started a run
 	// yet and there is nothing to archive.
 	runID := workspace.Status.CurrentRunID
+	if runID == "" && job.Labels != nil {
+		runID = job.Labels[runIDLabelKey]
+		workspace.Status.CurrentRunID = runID
+	}
 	if runID == "" {
 		return nil
 	}
+	trigger := ensureCurrentRunTrigger(workspace)
 
 	pod, err := r.getJobPod(ctx, workspace.Namespace, job.Name)
 	if err != nil {
@@ -1235,28 +1305,23 @@ func (r *WorkspaceReconciler) archiveRunLogs(
 
 	run := v1alpha1.Run{
 		ID:               runID,
-		Trigger:          workspace.Status.CurrentRunTrigger,
+		Trigger:          trigger,
 		TargetRevision:   workspace.Spec.Source.TargetRevision,
 		ObservedRevision: currentRunObservedRevision(workspace),
-		StartedAt:        phaseSummary.StartedAt,
 	}
 	switch phase {
 	case v1alpha1.RunPhasePlan:
 		run.Plan = phaseSummary
+		run.StartedAt = phaseSummary.StartedAt
+		if result == v1alpha1.RunLogResultFailed {
+			run.FinishedAt = phaseSummary.FinishedAt
+		}
 	case v1alpha1.RunPhaseApply:
 		run.Apply = phaseSummary
 		run.FinishedAt = phaseSummary.FinishedAt
 	}
 
-	if err := r.LogStore.UpsertRun(ctx, workspace.Namespace, workspace.Name, run); err != nil {
-		return err
-	}
-
-	retention := r.LogRetention
-	if retention <= 0 {
-		retention = logstore.DefaultRetention
-	}
-	return r.LogStore.PruneOldRuns(ctx, workspace.Namespace, workspace.Name, retention)
+	return r.RunRecorder.RecordRunPhase(ctx, workspace.Namespace, workspace.Name, runID, phase, run)
 }
 
 // constructJobForWorkspace builds a Kubernetes Job spec for either a "plan" or
@@ -1512,6 +1577,11 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 			needsUpdate = true
 		}
 
+		if workspace.Status.LastRunStartedAt != nil && !workspace.Status.LastRunStartedAt.Equal(latest.Status.LastRunStartedAt) {
+			latest.Status.LastRunStartedAt = workspace.Status.LastRunStartedAt
+			needsUpdate = true
+		}
+
 		// Policy violations belong to the plan run that produced them. On
 		// Pending or Planning a new job is starting, so we clear latest to
 		// avoid showing stale failures next to a running job. Otherwise,
@@ -1565,9 +1635,7 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 
 // updateNextReconcileTime writes the expected next reconciliation time into the
 // Workspace status so that the UI can display when the next sync will happen.
-func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, workspace *v1alpha1.Workspace, requeueAfter time.Duration, interval time.Duration) {
-	next := metav1.NewTime(time.Now().Add(requeueAfter))
-
+func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, workspace *v1alpha1.Workspace, next metav1.Time, interval time.Duration) {
 	// Use a fresh context so this best-effort update isn't constrained by the
 	// reconcile context's deadline.
 	updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

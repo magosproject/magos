@@ -10,13 +10,22 @@ export function useSSEFiltered<T extends ResourceObject>(
   initial: T[],
   fetchItems?: () => Promise<T[]>
 ): [T[], Set<string>] {
-  const [items, setItems] = useState<T[]>(initial);
+  const [state, setState] = useState({ initial, items: initial });
   const [changedIds, markChanged] = useTransientIds();
   const fetchItemsRef = useRef(fetchItems);
 
-  useEffect(() => {
-    setItems(initial);
-  }, [initial]);
+  let items = state.items;
+  if (state.initial !== initial) {
+    items = initial;
+    setState({ initial, items: initial });
+  }
+
+  const setItems = (next: T[] | ((current: T[]) => T[])) => {
+    setState((current) => ({
+      initial: current.initial,
+      items: typeof next === "function" ? next(current.items) : next,
+    }));
+  };
 
   useEffect(() => {
     fetchItemsRef.current = fetchItems;

@@ -26,16 +26,11 @@ function formatDuration(startedAt?: string, finishedAt?: string) {
   if (!startedAt || !finishedAt) return "—";
   const ms = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
   if (!Number.isFinite(ms) || ms < 0) return "—";
-  const seconds = Math.round(ms / 1000);
-  return `${seconds}s`;
+  return `${Math.round(ms / 1000)}s`;
 }
 
 function displayRevision(run: Run) {
   return run.targetRevision?.trim() || run.observedRevision?.trim() || "—";
-}
-
-function runFinishedAt(run: Run) {
-  return run.finishedAt ?? run.apply?.finishedAt ?? run.plan?.finishedAt ?? run.startedAt;
 }
 
 function PhaseBadge({ summary }: { summary?: RunPhaseSummary }) {
@@ -48,11 +43,16 @@ function PhaseBadge({ summary }: { summary?: RunPhaseSummary }) {
   );
 }
 
+const triggerLabels: Record<string, string> = {
+  configuration: "config change",
+};
+
 function TriggerBadge({ trigger }: { trigger?: string }) {
   if (!trigger || trigger === "unknown") return <Text size="sm" c="dimmed">—</Text>;
+  const label = triggerLabels[trigger] ?? trigger;
   return (
     <Badge size="sm" variant="outline" tt="none" color="gray">
-      {trigger}
+      {label}
     </Badge>
   );
 }
@@ -66,16 +66,16 @@ interface LogPaneProps {
 }
 
 // LogPane fetches and renders the archived log for one phase. It is always
-// rendered with a key derived from the log key so React remounts it when the
-// selection changes, which avoids the need to reset state inside an effect.
+// rendered with a key derived from the run and phase so React remounts it when
+// the selection changes, which avoids the need to reset state inside an effect.
 function LogPane({ namespace, workspaceName, runID, phase, summary }: LogPaneProps) {
-  const hasLog = Boolean(summary?.logKey);
+  const hasLog = Boolean(summary);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(hasLog);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!summary?.logKey) return;
+    if (!hasLog) return;
 
     const controller = new AbortController();
 
@@ -100,7 +100,7 @@ function LogPane({ namespace, workspaceName, runID, phase, summary }: LogPanePro
       });
 
     return () => controller.abort();
-  }, [namespace, workspaceName, runID, phase, summary?.logKey]);
+  }, [namespace, workspaceName, runID, phase, hasLog]);
 
   if (!summary) {
     return (
@@ -221,50 +221,44 @@ export default function WorkspaceRunHistory({
     setActivePage((p) => p - 1);
   }
 
-  async function loadLatestPage() {
-    const res = await fetch(
-      apiUrl(
-        `/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs?limit=${pageSize}`
-      ),
-      { cache: "no-store" }
-    );
-    if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
-    return (await res.json()) as RunListResponse;
-  }
-
-  function applyLatestPage(runs: RunListResponse) {
-    const previousIDs = new Set(pages[0]?.items.map((r) => r.runID ?? "").filter(Boolean));
-    const newIDs = (runs.items ?? [])
-      .map((r) => r.runID ?? "")
-      .filter((id) => id && !previousIDs.has(id));
-
-    if (flashTimeoutRef.current != null) {
-      window.clearTimeout(flashTimeoutRef.current);
-      flashTimeoutRef.current = null;
-    }
-
-    setPages([{ items: runs.items ?? [], nextCursor: runs.nextCursor ?? "", cursor: "" }]);
-    setActivePage(1);
-
-    if (newIDs.length > 0) {
-      setFlashingIDs(new Set(newIDs));
-      flashTimeoutRef.current = window.setTimeout(() => {
-        setFlashingIDs(new Set());
-        flashTimeoutRef.current = null;
-      }, 1400);
-    }
-  }
-
   const refreshToLatest = useCallback(async () => {
     setRefreshing(true);
     try {
-      applyLatestPage(await loadLatestPage());
+      const res = await fetch(
+        apiUrl(
+          `/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs?limit=${pageSize}`
+        ),
+        { cache: "no-store" }
+      );
+      if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
+
+      const runs = (await res.json()) as RunListResponse;
+      const previousIDs = new Set(pages[0]?.items.map((r) => r.runID ?? "").filter(Boolean));
+      const newIDs = (runs.items ?? [])
+        .map((r) => r.runID ?? "")
+        .filter((id) => id && !previousIDs.has(id));
+
+      if (flashTimeoutRef.current != null) {
+        window.clearTimeout(flashTimeoutRef.current);
+        flashTimeoutRef.current = null;
+      }
+
+      setPages([{ items: runs.items ?? [], nextCursor: runs.nextCursor ?? "", cursor: "" }]);
+      setActivePage(1);
+
+      if (newIDs.length > 0) {
+        setFlashingIDs(new Set(newIDs));
+        flashTimeoutRef.current = window.setTimeout(() => {
+          setFlashingIDs(new Set());
+          flashTimeoutRef.current = null;
+        }, 1400);
+      }
     } catch (err) {
       console.error(err);
     } finally {
       setRefreshing(false);
     }
-  }, [namespace, workspaceName]);
+  }, [namespace, pages, workspaceName]);
 
   // When no initial data was provided (loader skipped the S3 fetch to keep
   // navigation fast), fetch the first page on mount.
@@ -302,16 +296,22 @@ export default function WorkspaceRunHistory({
       <SectionTable
         title="Run History"
         columns={[
-          { key: "time", label: "Time" },
+          {
+            key: "scheduledAt",
+            label: "Scheduled",
+            tooltip:
+              "The time this run was originally due according to its schedule. \n\n Runs triggered by a configuration change or manually don't have a scheduled time. \n \n For scheduled runs, the actual start time may be later - this happens when an earlier rollout level (e.g. dev or staging) was still in progress when this workspace's turn came.",
+          },
+          { key: "startedAt", label: "Start time" },
+          { key: "finishedAt", label: "End time" },
+          { key: "duration", label: "Duration" },
           { key: "trigger", label: "Trigger" },
           { key: "revision", label: "Revision" },
           { key: "plan", label: "Plan" },
           { key: "apply", label: "Apply" },
-          { key: "duration", label: "Duration" },
         ]}
         rows={currentPage.items.map((run) => {
           const isFlashing = flashingIDs.has(run.runID ?? "");
-          const finishedAt = runFinishedAt(run);
           return {
             id: run.runID ?? "",
             onClick: () => setSelected(run),
@@ -320,8 +320,17 @@ export default function WorkspaceRunHistory({
               ? ({ "--flash-color": flashColorVar("Applied") } as CSSProperties)
               : undefined,
             cells: [
-              <Text size="sm" key="time">
-                {formatDateTime(finishedAt ?? run.startedAt)}
+              <Text size="sm" key="scheduledAt" c={run.scheduledAt ? undefined : "dimmed"}>
+                {run.scheduledAt ? formatDateTime(run.scheduledAt) : "—"}
+              </Text>,
+              <Text size="sm" key="startedAt">
+                {formatDateTime(run.startedAt)}
+              </Text>,
+              <Text size="sm" key="finishedAt" c={run.finishedAt ? undefined : "dimmed"}>
+                {formatDateTime(run.finishedAt)}
+              </Text>,
+              <Text size="sm" key="duration">
+                {formatDuration(run.startedAt, run.finishedAt)}
               </Text>,
               <TriggerBadge key="trigger" trigger={run.trigger} />,
               <Code key="revision" fz="xs">
@@ -329,9 +338,6 @@ export default function WorkspaceRunHistory({
               </Code>,
               <PhaseBadge key="plan" summary={run.plan} />,
               <PhaseBadge key="apply" summary={run.apply} />,
-              <Text size="sm" key="duration">
-                {formatDuration(run.startedAt, finishedAt)}
-              </Text>,
             ],
           };
         })}
@@ -398,7 +404,7 @@ export default function WorkspaceRunHistory({
 
             <Tabs.Panel value="plan" pt="md">
               <LogPane
-                key={`${selected.runID}:plan:${selected.plan?.logKey ?? ""}`}
+                key={`${selected.runID}:plan`}
                 namespace={namespace}
                 workspaceName={workspaceName}
                 runID={selected.runID ?? ""}
@@ -409,7 +415,7 @@ export default function WorkspaceRunHistory({
 
             <Tabs.Panel value="apply" pt="md">
               <LogPane
-                key={`${selected.runID}:apply:${selected.apply?.logKey ?? ""}`}
+                key={`${selected.runID}:apply`}
                 namespace={namespace}
                 workspaceName={workspaceName}
                 runID={selected.runID ?? ""}

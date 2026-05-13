@@ -665,6 +665,10 @@
                         "description": "ID uniquely identifies this plan and apply run. The same ID is used for\nboth the plan and apply jobs so their logs can be grouped together.",
                         "type": "string"
                     },
+                    "scheduledAt": {
+                        "description": "ScheduledAt is the NextReconcileTime that triggered this run. Only set\nfor runs with trigger=scheduled. It lets the UI show when the run was\nsupposed to start, separately from when the plan job actually started.\n+optional",
+                        "type": "string"
+                    },
                     "startedAt": {
                         "description": "StartedAt is when the plan phase of this run began.\n+optional",
                         "type": "string"
@@ -916,6 +920,10 @@
                     },
                     "lastReconcileTime": {
                         "description": "LastReconcileTime is the timestamp of the last reconciliation\n+optional",
+                        "type": "string"
+                    },
+                    "lastRunStartedAt": {
+                        "description": "LastRunStartedAt is the time when the most recent plan and apply run\nbegan. It is set when the run ID is first stamped and is not cleared\nwhen the run finishes, so the UI always has access to the last run start\ntime without querying the log store.\n+optional",
                         "type": "string"
                     },
                     "message": {

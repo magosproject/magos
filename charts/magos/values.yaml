@@ -54,6 +54,9 @@ metricsService:
 leaderElection:
   enabled: true
 
+# Controller enabled flags are only intended for the host-run local development
+# setup in hack/local-values.yaml. Normal chart installs should leave all
+# controllers enabled.
 controllers:
   workspace:
     enabled: true
@@ -134,6 +137,8 @@ controllers:
         cpu: 100m
         memory: 128Mi
 
+# This enabled flag is only intended for the host-run local development setup in
+# hack/local-values.yaml. Normal chart installs should leave the UI enabled.
 ui:
   enabled: true
   replicaCount: 1
@@ -165,23 +170,67 @@ jobServiceAccount:
   automount: true
 
 logs:
-  enabled: true
-  # retention is the number of reconcile runs to keep per workspace.
-  # Older runs are pruned automatically after each archive operation.
-  retention: 30
-  # Storage backend configuration. RustFS (S3-compatible) is deployed
-  # automatically when logs are enabled. Credentials are auto-generated.
   storage:
     image:
       repository: rustfs/rustfs
       tag: latest
       pullPolicy: IfNotPresent
+    auth:
+      accessKey: "" # Leave empty to generate and preserve a release-scoped key.
+      secretKey: "" # Leave empty to generate and preserve a release-scoped key.
     service:
+      type: ClusterIP
       port: 9000
       consolePort: 9001
+      # nodePort: "" # Only used when type is NodePort.
+      # consoleNodePort: "" # Only used when type is NodePort.
     persistence:
       size: 10Gi
       # storageClass: "" # Leave empty to use the cluster default.
+
+postgres:
+  # First-party PostgreSQL instance used for run metadata and future
+  # operational metadata. RustFS remains the storage backend for log blobs.
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    database: magos
+    username: magos
+    # password: "" # Leave empty to generate and preserve a release-scoped password.
+    existingSecret: ""
+    passwordKey: password
+  service:
+    type: ClusterIP
+    port: 5432
+    # nodePort: "" # Only used when type is NodePort.
+  sslMode: disable
+  persistence:
+    enabled: true
+    size: 10Gi
+    # storageClass: "" # Leave empty to use the cluster default.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 70
+    runAsGroup: 70
+    fsGroup: 70
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+      - ALL
+  resources:
+    limits:
+      cpu: "1"
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
 
 policy:
   kyverno:
@@ -191,6 +240,8 @@ policy:
     # (for example through the upstream chart) so the CRD has a single owner.
     installCRD: true
 
+# This enabled flag is only intended for the host-run local development setup in
+# hack/local-values.yaml. Normal chart installs should leave the API enabled.
 api:
   enabled: true
   replicaCount: 1

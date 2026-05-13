@@ -1604,6 +1604,13 @@ export interface components {
              */
             runID?: string;
             /**
+             * @description ScheduledAt is the NextReconcileTime that triggered this run. Only set
+             *     for runs with trigger=scheduled. It lets the UI show when the run was
+             *     supposed to start, separately from when the plan job actually started.
+             *     +optional
+             */
+            scheduledAt?: string;
+            /**
              * @description StartedAt is when the plan phase of this run began.
              *     +optional
              */
@@ -1840,6 +1847,14 @@ export interface components {
              *     +optional
              */
             lastReconcileTime?: string;
+            /**
+             * @description LastRunStartedAt is the time when the most recent plan and apply run
+             *     began. It is set when the run ID is first stamped and is not cleared
+             *     when the run finishes, so the UI always has access to the last run start
+             *     time without querying the log store.
+             *     +optional
+             */
+            lastRunStartedAt?: string;
             /**
              * @description Message is a human-readable explanation of the current phase
              *     +optional
