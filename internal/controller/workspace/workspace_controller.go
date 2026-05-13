@@ -371,6 +371,8 @@ func newRunID() string {
 func ensureRunMetadata(workspace *v1alpha1.Workspace) string {
 	if workspace.Status.CurrentRunID == "" {
 		workspace.Status.CurrentRunID = newRunID()
+		now := metav1.Now()
+		workspace.Status.LastRunStartedAt = &now
 	}
 	ensureCurrentRunTrigger(workspace)
 	return workspace.Status.CurrentRunID
@@ -687,6 +689,8 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		// and report what originally caused this plan and apply run to start.
 		workspace.Status.CurrentRunID = newRunID()
 		workspace.Status.CurrentRunTrigger = runTriggerFromResetReason(resetReason)
+		now := metav1.Now()
+		workspace.Status.LastRunStartedAt = &now
 		r.updateStatus(ctx, workspace, v1alpha1.PhasePending, resetReason, resetMessage, metav1.ConditionUnknown)
 
 		// Clear execution-allowed so the Rollout controller must re-grant
@@ -1572,6 +1576,11 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 
 		if workspace.Status.CurrentRunTrigger != "" && latest.Status.CurrentRunTrigger != workspace.Status.CurrentRunTrigger {
 			latest.Status.CurrentRunTrigger = workspace.Status.CurrentRunTrigger
+			needsUpdate = true
+		}
+
+		if workspace.Status.LastRunStartedAt != nil && !workspace.Status.LastRunStartedAt.Equal(latest.Status.LastRunStartedAt) {
+			latest.Status.LastRunStartedAt = workspace.Status.LastRunStartedAt
 			needsUpdate = true
 		}
 

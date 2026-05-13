@@ -1,6 +1,6 @@
 import { Button, Group, Stack, Tabs, Text, Title } from "@mantine/core";
 import { IconBug, IconRefresh } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { useLoaderData, useParams } from "react-router";
 import { resourceId } from "../api/resource";
 import Breadcrumbs from "../components/Breadcrumbs";
@@ -13,7 +13,7 @@ import WorkspaceLiveConsole from "../components/WorkspaceLiveConsole";
 import WorkspaceOverview from "../components/WorkspaceOverview";
 import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
-import type { Phase, RunListResponse, Workspace as WorkspaceType } from "../api/types";
+import type { Phase, Workspace as WorkspaceType } from "../api/types";
 import { getWorkspaceCache } from "../api/workspaceCache";
 import { useSSEItem } from "../hooks/useSSEItem";
 import { useFlashOnChange } from "../hooks/useFlashOnChange";
@@ -53,7 +53,6 @@ export async function clientLoader({ params }: { params: { namespace: string; na
 export default function Workspace() {
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const initial = useLoaderData<typeof clientLoader>();
-  const [lastReconcileStartedAt, setLastReconcileStartedAt] = useState<string | undefined>();
   const [isSubmittingReconcile, setIsSubmittingReconcile] = useState(false);
   const [isTogglingDebug, setIsTogglingDebug] = useState(false);
   const ws = useSSEItem<WorkspaceType>(
@@ -79,31 +78,6 @@ export default function Workspace() {
   const reconcileDisabled = isSubmittingReconcile || !canReconcile || !namespace || !name;
 
   const debugLogsEnabled = ws.metadata?.annotations?.["magosproject.io/tf-log-level"] === "DEBUG";
-
-  useEffect(() => {
-    if (!namespace || !name) return;
-
-    const controller = new AbortController();
-
-    fetch(apiUrl(`/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${name}/runs?limit=1`), {
-      signal: controller.signal,
-      cache: "no-store",
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
-        return (await res.json()) as RunListResponse;
-      })
-      .then((runs) => {
-        setLastReconcileStartedAt(runs.items?.[0]?.startedAt);
-      })
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) return;
-        console.error(err);
-        setLastReconcileStartedAt(undefined);
-      });
-
-    return () => controller.abort();
-  }, [namespace, name, phase, ws.status?.currentRunID]);
 
   async function handleToggleDebugLogs() {
     if (!namespace || !name) return;
@@ -191,7 +165,6 @@ export default function Workspace() {
               <WorkspaceOverview
                 namespace={namespace}
                 workspace={ws}
-                lastReconcileStartedAt={lastReconcileStartedAt}
                 phaseLabel={phaseLabel}
                 projectName={projectName}
                 flash={flash}

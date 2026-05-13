@@ -1841,6 +1841,14 @@ export interface components {
              */
             lastReconcileTime?: string;
             /**
+             * @description LastRunStartedAt is the time when the most recent plan and apply run
+             *     began. It is set when the run ID is first stamped and is not cleared
+             *     when the run finishes, so the UI always has access to the last run start
+             *     time without querying the log store.
+             *     +optional
+             */
+            lastRunStartedAt?: string;
+            /**
              * @description Message is a human-readable explanation of the current phase
              *     +optional
              */

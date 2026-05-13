@@ -668,6 +668,10 @@ func (in *WorkspaceStatus) DeepCopyInto(out *WorkspaceStatus) {
 		*out = make([]PolicyViolation, len(*in))
 		copy(*out, *in)
 	}
+	if in.LastRunStartedAt != nil {
+		in, out := &in.LastRunStartedAt, &out.LastRunStartedAt
+		*out = (*in).DeepCopy()
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]v1.Condition, len(*in))

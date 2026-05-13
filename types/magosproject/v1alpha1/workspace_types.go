@@ -221,6 +221,13 @@ type WorkspaceStatus struct {
 	// +optional
 	CurrentRunTrigger RunTrigger `json:"currentRunTrigger,omitempty"`
 
+	// LastRunStartedAt is the time when the most recent plan and apply run
+	// began. It is set when the run ID is first stamped and is not cleared
+	// when the run finishes, so the UI always has access to the last run start
+	// time without querying the log store.
+	// +optional
+	LastRunStartedAt *metav1.Time `json:"lastRunStartedAt,omitempty"`
+
 	// conditions represent the current state of the Workspace resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
 	//

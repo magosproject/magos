@@ -918,6 +918,10 @@
                         "description": "LastReconcileTime is the timestamp of the last reconciliation\n+optional",
                         "type": "string"
                     },
+                    "lastRunStartedAt": {
+                        "description": "LastRunStartedAt is the time when the most recent plan and apply run\nbegan. It is set when the run ID is first stamped and is not cleared\nwhen the run finishes, so the UI always has access to the last run start\ntime without querying the log store.\n+optional",
+                        "type": "string"
+                    },
                     "message": {
                         "description": "Message is a human-readable explanation of the current phase\n+optional",
                         "type": "string"

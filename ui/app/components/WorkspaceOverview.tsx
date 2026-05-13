@@ -72,7 +72,6 @@ function TerraformVersionValue({ version }: { version: string }) {
 interface WorkspaceOverviewProps {
   namespace: string;
   workspace: Workspace;
-  lastReconcileStartedAt?: string;
   phaseLabel: string;
   projectName: string;
   flash?: boolean;
@@ -82,7 +81,6 @@ interface WorkspaceOverviewProps {
 export default function WorkspaceOverview({
   namespace,
   workspace,
-  lastReconcileStartedAt,
   phaseLabel,
   projectName,
   flash,
@@ -149,9 +147,9 @@ export default function WorkspaceOverview({
         </Badge>
       </InfoCard>
 
-      {lastReconcileStartedAt && (
+      {workspace.status?.lastRunStartedAt && (
         <InfoCard label="Last reconcile">
-          <Text size="sm">{formatDateTime(lastReconcileStartedAt)}</Text>
+          <Text size="sm">{formatDateTime(workspace.status.lastRunStartedAt)}</Text>
         </InfoCard>
       )}
 
