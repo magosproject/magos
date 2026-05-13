@@ -1604,6 +1604,13 @@ export interface components {
              */
             runID?: string;
             /**
+             * @description ScheduledAt is the NextReconcileTime that triggered this run. Only set
+             *     for runs with trigger=scheduled. It lets the UI show when the run was
+             *     supposed to start, separately from when the plan job actually started.
+             *     +optional
+             */
+            scheduledAt?: string;
+            /**
              * @description StartedAt is when the plan phase of this run began.
              *     +optional
              */

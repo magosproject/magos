@@ -22,6 +22,7 @@ const (
 
 type RunRecorder interface {
 	RecordRunPhase(ctx context.Context, namespace, workspace, runID string, phase v1alpha1.RunPhase, run v1alpha1.Run) error
+	RecordRun(ctx context.Context, namespace, workspace string, run v1alpha1.Run) error
 }
 
 type HTTPRunRecorder struct {
@@ -93,4 +94,46 @@ func (r *HTTPRunRecorder) RecordRunPhase(ctx context.Context, namespace, workspa
 
 	responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
 	return fmt.Errorf("record run phase summary: status %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
+}
+
+func (r *HTTPRunRecorder) RecordRun(ctx context.Context, namespace, workspace string, run v1alpha1.Run) error {
+	endpoint, err := url.JoinPath(
+		r.baseURL,
+		"internal",
+		"apis",
+		"magosproject.io",
+		"v1alpha1",
+		"workspaces",
+		namespace,
+		workspace,
+		"runs",
+		run.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("build run record endpoint: %w", err)
+	}
+
+	body, err := json.Marshal(recordRunPhaseRequest{Run: run})
+	if err != nil {
+		return fmt.Errorf("marshal run record request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create run record request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("record run: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+
+	responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
+	return fmt.Errorf("record run: status %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
 }

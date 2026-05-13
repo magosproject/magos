@@ -337,6 +337,11 @@ type Run struct {
 	// FinishedAt is when the last completed phase of this run finished.
 	// +optional
 	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
+	// ScheduledAt is the NextReconcileTime that triggered this run. Only set
+	// for runs with trigger=scheduled. It lets the UI show when the run was
+	// supposed to start, separately from when the plan job actually started.
+	// +optional
+	ScheduledAt *metav1.Time `json:"scheduledAt,omitempty"`
 }
 
 // +genclient

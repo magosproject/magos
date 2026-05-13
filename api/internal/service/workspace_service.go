@@ -65,6 +65,7 @@ type WorkspaceService interface {
 	RequestReconcile(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
 	ListRuns(ctx context.Context, namespace, name string, limit int, cursor string) (*RunListResponse, error)
 	GetRunPhaseLog(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase) (io.ReadCloser, error)
+	RecordRun(ctx context.Context, namespace, name string, run apiv1alpha1.Run) error
 	RecordRunPhase(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase, run apiv1alpha1.Run) error
 	StreamCurrentRunLogs(ctx context.Context, namespace, name string, phase apiv1alpha1.RunPhase) <-chan RunLogStreamEvent
 }
@@ -257,6 +258,13 @@ func (s *workspaceService) GetRunPhaseLog(ctx context.Context, namespace, name, 
 		return nil, err
 	}
 	return decodeRunPhaseLog(body)
+}
+
+func (s *workspaceService) RecordRun(ctx context.Context, namespace, name string, run apiv1alpha1.Run) error {
+	if run.ID == "" {
+		return fmt.Errorf("runID is required")
+	}
+	return s.runStore.UpsertRun(ctx, namespace, name, run)
 }
 
 func (s *workspaceService) RecordRunPhase(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase, run apiv1alpha1.Run) error {

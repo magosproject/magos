@@ -43,11 +43,16 @@ function PhaseBadge({ summary }: { summary?: RunPhaseSummary }) {
   );
 }
 
+const triggerLabels: Record<string, string> = {
+  configuration: "config change",
+};
+
 function TriggerBadge({ trigger }: { trigger?: string }) {
   if (!trigger || trigger === "unknown") return <Text size="sm" c="dimmed">—</Text>;
+  const label = triggerLabels[trigger] ?? trigger;
   return (
     <Badge size="sm" variant="outline" tt="none" color="gray">
-      {trigger}
+      {label}
     </Badge>
   );
 }
@@ -291,6 +296,12 @@ export default function WorkspaceRunHistory({
       <SectionTable
         title="Run History"
         columns={[
+          {
+            key: "scheduledAt",
+            label: "Scheduled",
+            tooltip:
+              "The time this run was originally due according to its schedule. \n\n Runs triggered by a configuration change or manually don't have a scheduled time. \n \n For scheduled runs, the actual start time may be later - this happens when an earlier rollout level (e.g. dev or staging) was still in progress when this workspace's turn came.",
+          },
           { key: "startedAt", label: "Start time" },
           { key: "finishedAt", label: "End time" },
           { key: "duration", label: "Duration" },
@@ -309,6 +320,9 @@ export default function WorkspaceRunHistory({
               ? ({ "--flash-color": flashColorVar("Applied") } as CSSProperties)
               : undefined,
             cells: [
+              <Text size="sm" key="scheduledAt" c={run.scheduledAt ? undefined : "dimmed"}>
+                {run.scheduledAt ? formatDateTime(run.scheduledAt) : "—"}
+              </Text>,
               <Text size="sm" key="startedAt">
                 {formatDateTime(run.startedAt)}
               </Text>,

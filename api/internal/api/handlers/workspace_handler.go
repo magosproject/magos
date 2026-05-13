@@ -251,6 +251,40 @@ type recordRunPhaseRequest struct {
 	Run apiv1alpha1.Run `json:"run"`
 }
 
+func (h *WorkspaceHandler) RecordRun(w http.ResponseWriter, r *http.Request) {
+	namespace := r.PathValue("namespace")
+	name := r.PathValue("name")
+	runID := r.PathValue("runID")
+	if namespace == "" || name == "" || runID == "" {
+		writeError(w, http.StatusBadRequest, "namespace, name, and runID are required")
+		return
+	}
+	if !isValidRunID(runID) {
+		writeError(w, http.StatusBadRequest, "invalid runID")
+		return
+	}
+
+	var payload recordRunPhaseRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if payload.Run.ID != runID {
+		writeError(w, http.StatusBadRequest, "runID in path and payload do not match")
+		return
+	}
+
+	if err := h.service.RecordRun(r.Context(), namespace, name, payload.Run); err != nil {
+		h.logger.Error("failed to record workspace run", "error", err, "namespace", namespace, "name", name, "runID", runID)
+		writeError(w, http.StatusInternalServerError, "failed to record workspace run")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *WorkspaceHandler) RecordRunPhase(w http.ResponseWriter, r *http.Request) {
 	namespace := r.PathValue("namespace")
 	name := r.PathValue("name")

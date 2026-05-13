@@ -1,10 +1,11 @@
 import { ActionIcon, Button, Group, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
-import { IconX } from "@tabler/icons-react";
+import { IconInfoCircle, IconX } from "@tabler/icons-react";
 import { type CSSProperties, type ReactNode } from "react";
 
 interface Column {
   key: string;
   label: string;
+  tooltip?: string;
 }
 
 interface Row {
@@ -53,9 +54,16 @@ export default function SectionTable({
             <Table.Tr>
               {columns.map((col) => (
                 <Table.Th key={col.key}>
-                  <Text size="sm" fw={600}>
-                    {col.label}
-                  </Text>
+                  {col.tooltip ? (
+                    <Group gap={4} align="center" wrap="nowrap">
+                      <Text size="sm" fw={600}>{col.label}</Text>
+                      <Tooltip label={col.tooltip} multiline maw={280}>
+                        <IconInfoCircle size={13} style={{ opacity: 0.4, cursor: "help", flexShrink: 0, marginTop: 1 }} />
+                      </Tooltip>
+                    </Group>
+                  ) : (
+                    <Text size="sm" fw={600}>{col.label}</Text>
+                  )}
                 </Table.Th>
               ))}
               {hasRemove && <Table.Th style={{ width: 36 }} />}

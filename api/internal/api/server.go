@@ -136,6 +136,7 @@ func (s *Server) Router() http.Handler {
 
 	// Internal log ingestion endpoint used by the workspace controller after
 	// archiving a completed phase log to RustFS.
+	mux.HandleFunc("PUT /internal/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}", s.workspaceHandler.RecordRun)
 	mux.HandleFunc("PUT /internal/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/phases/{phase}", s.workspaceHandler.RecordRunPhase)
 
 	// Rollouts

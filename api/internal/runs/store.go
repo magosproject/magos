@@ -125,6 +125,7 @@ func (s *Store) init(ctx context.Context) error {
 				) IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_runs_workspace_sort
 			ON runs (namespace, workspace, sort_time DESC, run_id DESC)`,
+		`ALTER TABLE runs ADD COLUMN IF NOT EXISTS scheduled_at TEXT`,
 	}
 
 	for _, stmt := range statements {
@@ -140,10 +141,11 @@ func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run 
 		return fmt.Errorf("namespace, workspace, and runID are required")
 	}
 
-	now := formatTime(time.Now().UTC())
+	now := time.Now().UTC()
 	startedAt := runStartedAt(run)
 	finishedAt := runFinishedAt(run)
-	sortTime := firstNonEmpty(startedAt, phaseStartedAt(run), phaseFinishedAt(run), runIDSortTime(run.ID), now)
+	scheduledAt := formatMetaTime(run.ScheduledAt)
+	sortTime := firstNonEmpty(startedAt, phaseStartedAt(run), phaseFinishedAt(run), runIDSortTime(run.ID), formatTime(now))
 
 	plan, err := marshalPhaseSummary(run.Plan)
 	if err != nil {
@@ -157,8 +159,8 @@ func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run 
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO runs (
 			namespace, workspace, run_id, trigger, target_revision, observed_revision,
-			started_at, finished_at, sort_time, created_at, updated_at, plan, apply
-		) VALUES ($1, $2, $3, COALESCE(NULLIF($4, ''), 'unknown'), $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb)
+			started_at, finished_at, scheduled_at, sort_time, created_at, updated_at, plan, apply
+		) VALUES ($1, $2, $3, COALESCE(NULLIF($4, ''), 'unknown'), $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb)
 		ON CONFLICT(namespace, workspace, run_id) DO UPDATE SET
 			trigger = CASE
 				WHEN $4 <> '' THEN excluded.trigger
@@ -169,6 +171,7 @@ func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run 
 			observed_revision = CASE WHEN excluded.observed_revision <> '' THEN excluded.observed_revision ELSE runs.observed_revision END,
 			started_at = COALESCE(excluded.started_at, runs.started_at),
 			finished_at = COALESCE(excluded.finished_at, runs.finished_at),
+			scheduled_at = COALESCE(runs.scheduled_at, excluded.scheduled_at),
 			plan = COALESCE(excluded.plan, runs.plan),
 			apply = COALESCE(excluded.apply, runs.apply),
 			sort_time = CASE
@@ -184,9 +187,10 @@ func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run 
 		run.ObservedRevision,
 		nullEmpty(startedAt),
 		nullEmpty(finishedAt),
+		nullEmpty(scheduledAt),
 		sortTime,
-		now,
-		now,
+		formatTime(now),
+		formatTime(now),
 		plan,
 		apply,
 	)
@@ -211,7 +215,7 @@ func (s *Store) ListRuns(ctx context.Context, namespace, workspace string, limit
 	}
 
 	query := `
-		SELECT run_id, trigger, target_revision, observed_revision, started_at, finished_at, sort_time, plan, apply
+		SELECT run_id, trigger, target_revision, observed_revision, started_at, finished_at, scheduled_at, sort_time, plan, apply
 		FROM runs
 		WHERE namespace = $1 AND workspace = $2`
 	args := []any{namespace, workspace}
@@ -292,7 +296,7 @@ func scanRun(scanner interface {
 }) (v1alpha1.Run, string, error) {
 	var run v1alpha1.Run
 	var trigger string
-	var startedAt, finishedAt sql.NullString
+	var startedAt, finishedAt, scheduledAt sql.NullString
 	var plan, apply sql.NullString
 	var sortTime string
 	if err := scanner.Scan(
@@ -302,6 +306,7 @@ func scanRun(scanner interface {
 		&run.ObservedRevision,
 		&startedAt,
 		&finishedAt,
+		&scheduledAt,
 		&sortTime,
 		&plan,
 		&apply,
@@ -317,9 +322,14 @@ func scanRun(scanner interface {
 	if err != nil {
 		return run, "", err
 	}
+	parsedScheduledAt, err := parseMetaTime(scheduledAt)
+	if err != nil {
+		return run, "", err
+	}
 	run.Trigger = v1alpha1.RunTrigger(trigger)
 	run.StartedAt = parsedStartedAt
 	run.FinishedAt = parsedFinishedAt
+	run.ScheduledAt = parsedScheduledAt
 	run.Plan, err = unmarshalPhaseSummary(plan)
 	if err != nil {
 		return run, "", err

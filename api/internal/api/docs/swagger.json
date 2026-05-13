@@ -665,6 +665,10 @@
                         "description": "ID uniquely identifies this plan and apply run. The same ID is used for\nboth the plan and apply jobs so their logs can be grouped together.",
                         "type": "string"
                     },
+                    "scheduledAt": {
+                        "description": "ScheduledAt is the NextReconcileTime that triggered this run. Only set\nfor runs with trigger=scheduled. It lets the UI show when the run was\nsupposed to start, separately from when the plan job actually started.\n+optional",
+                        "type": "string"
+                    },
                     "startedAt": {
                         "description": "StartedAt is when the plan phase of this run began.\n+optional",
                         "type": "string"

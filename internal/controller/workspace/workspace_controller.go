@@ -220,7 +220,6 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
-	previousPhase := workspace.Status.Phase
 	res, err := r.reconcileWorkspace(ctx, workspace)
 	if err != nil {
 		reconcileTotal.WithLabelValues(req.Namespace, req.Name, "error").Inc()
@@ -233,13 +232,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Always requeue on the periodic schedule so we periodically re-plan even
 	// when nothing in the cluster changes. This is how we detect
 	// infrastructure drift that happened outside of Magos.
-	nextReconcileBase := workspace.Status.NextReconcileTime
-	if completedConfigurationRun(previousPhase, workspace) {
-		// Start drift detection after the initial config run finishes, not
-		// after the earlier bookkeeping reconcile that created its first Job.
-		nextReconcileBase = nil
-	}
-	nextReconcileTime, reconcileInterval, _ := computeNextReconcileTime(workspace, nextReconcileBase)
+	nextReconcileTime, reconcileInterval, _ := computeNextReconcileTime(workspace, workspace.Status.NextReconcileTime)
 	r.updateNextReconcileTime(ctx, workspace, nextReconcileTime, reconcileInterval)
 	// Calculate RequeueAfter after status writes. controller-runtime starts the
 	// timer only after Reconcile returns, so doing this earlier would add status
@@ -430,12 +423,6 @@ func terminalWorkspaceRunRecorded(phase v1alpha1.Phase) bool {
 	default:
 		return false
 	}
-}
-
-func completedConfigurationRun(previousPhase v1alpha1.Phase, workspace *v1alpha1.Workspace) bool {
-	return workspace.Status.CurrentRunTrigger == v1alpha1.RunTriggerConfig &&
-		!terminalWorkspaceRunRecorded(previousPhase) &&
-		terminalWorkspaceRunRecorded(workspace.Status.Phase)
 }
 
 func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace *v1alpha1.Workspace) (ctrl.Result, error) {
@@ -692,6 +679,17 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		now := metav1.Now()
 		workspace.Status.LastRunStartedAt = &now
 		r.updateStatus(ctx, workspace, v1alpha1.PhasePending, resetReason, resetMessage, metav1.ConditionUnknown)
+
+		if resetReason == "ScheduledReconcile" && r.RunRecorder != nil {
+			run := v1alpha1.Run{
+				ID:          workspace.Status.CurrentRunID,
+				Trigger:     workspace.Status.CurrentRunTrigger,
+				ScheduledAt: workspace.Status.NextReconcileTime,
+			}
+			if err := r.RunRecorder.RecordRun(ctx, workspace.Namespace, workspace.Name, run); err != nil {
+				logger.Error(err, "failed to record scheduled run")
+			}
+		}
 
 		// Clear execution-allowed so the Rollout controller must re-grant
 		// permission before this Workspace can proceed. The Rollout decides
