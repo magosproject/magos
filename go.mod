@@ -9,8 +9,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.101.0
 	github.com/go-git/go-git/v5 v5.19.0
 	github.com/magosproject/go-version v1.9.0
-	github.com/magosproject/hc-install v0.10.0
-	github.com/magosproject/terraform-exec v0.26.0
+	github.com/magosproject/hc-install v0.9.4
+	github.com/magosproject/terraform-exec v0.25.2-0.20260427002320-19c93ed9b500
 	github.com/onsi/ginkgo/v2 v2.28.3
 	github.com/onsi/gomega v1.40.0
 	github.com/prometheus/client_golang v1.23.2
