@@ -61,6 +61,14 @@ func WithLog(level, path string) Option {
 	}
 }
 
+// WithColor enables ANSI colour sequences in Terraform output. By default
+// the client runs Terraform with -no-color to ensure plain-text output.
+func WithColor() Option {
+	return func(c *TerraformClient) {
+		c.color = true
+	}
+}
+
 // // WithLogger sets a logger for the terraform client.
 // func WithLogger(logger view.Logger) Option {
 // 	return func(c *TerraformClient) {
