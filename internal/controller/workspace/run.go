@@ -156,7 +156,7 @@ func currentRunObservedRevision(workspace *v1alpha1.Workspace) string {
 	return workspace.Spec.Source.TargetRevision
 }
 
-func runTriggerFromResetReason(reason string) v1alpha1.RunTrigger {
+func runTriggerFromReason(reason string) v1alpha1.RunTrigger {
 	switch reason {
 	case "ConfigurationChanged":
 		return v1alpha1.RunTriggerConfig

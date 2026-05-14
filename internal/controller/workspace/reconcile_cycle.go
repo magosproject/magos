@@ -25,11 +25,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
-
 // cycleDecision communicates the outcome of checkCycleNeeded.
 // When start is true the caller must invoke startFreshCycle.
 // When start is false and requeue > 0 the caller should requeue
@@ -48,7 +46,7 @@ type cycleDecision struct {
 // clean up any leftover Jobs from the previous spec.
 //
 // See Step 2 in reconcileWorkspace for the full rationale.
-func (r *WorkspaceReconciler) cleanupOrphanedJobs(ctx context.Context, workspace *v1alpha1.Workspace, planJobName, applyJobName string) {
+func (r *WorkspaceReconciler) cleanupOrphanedJobs(ctx context.Context, workspace *v1alpha1.Workspace, rc runContext) {
 	if workspace.Status.Phase == v1alpha1.PhasePlanning || workspace.Status.Phase == v1alpha1.PhaseApplying {
 		return
 	}
@@ -68,7 +66,7 @@ func (r *WorkspaceReconciler) cleanupOrphanedJobs(ctx context.Context, workspace
 		}
 		// Delete Jobs that belong to this Workspace but were created
 		// for an older specHash.
-		if isOwned && j.Name != planJobName && j.Name != applyJobName {
+		if isOwned && j.Name != rc.planJobName && j.Name != rc.applyJobName {
 			logger.Info("Cleaning up orphaned job from previous run", "job", j.Name)
 			_ = r.Delete(ctx, &j, client.PropagationPolicy(metav1.DeletePropagationBackground))
 		}
@@ -109,27 +107,18 @@ func jobFinishedState(job *batchv1.Job, getErr error) (time.Time, bool) {
 // reconcile, exactRequeue is set to the remaining duration.
 func (r *WorkspaceReconciler) checkCycleNeeded(
 	workspace *v1alpha1.Workspace,
-	planJob, applyJob *batchv1.Job,
-	planJobGetErr, applyJobGetErr error,
+	rc runContext,
 ) cycleDecision {
 	nextScheduled, _, scheduledDue := computeNextReconcileTime(workspace, workspace.Status.NextReconcileTime)
 
-	// When the Workspace spec changes the specHash changes too, so the Plan and
-	// Apply Job names change. The GETs above will return NotFound because no
-	// Jobs with the new names exist yet. Similarly, if someone manually deletes
-	// the Jobs, both GETs return NotFound.
-	//
-	// In either case, if the phase is already past Pending (e.g. Planned,
-	// Applied, Failed) we reset back to Pending to kick off a fresh cycle.
-	//
-	// Exception: we do NOT reset when the phase is Planning or Applying. At
-	// that point a Job from the *previous* specHash may still be running. Its
-	// name no longer matches the current hash (hence the NotFound), but it is
-	// actively mutating Terraform state. Deleting it mid-run could leave state
-	// locks or partial applies (corruption). We let it finish naturally; once
-	// it completes the phase moves to a terminal state, and the next reconcile
-	// will handle the reset.
-	if errors.IsNotFound(planJobGetErr) && errors.IsNotFound(applyJobGetErr) {
+	// Both Job names are derived from the current specHash. A NotFound on both
+	// means either the spec changed (new hash → new names → old Jobs no longer
+	// exist) or Jobs were manually deleted. In either case we reset, with one
+	// exception: if the phase is Planning or Applying a Job from the previous
+	// specHash may still be running. Deleting it mid-flight could corrupt
+	// Terraform state, so we leave it and let the next reconcile handle cleanup
+	// once it finishes.
+	if errors.IsNotFound(rc.planJobErr) && errors.IsNotFound(rc.applyJobErr) {
 		if workspace.Status.Phase != "" && workspace.Status.Phase != v1alpha1.PhasePending &&
 			workspace.Status.Phase != v1alpha1.PhasePlanning && workspace.Status.Phase != v1alpha1.PhaseApplying {
 			return cycleDecision{
@@ -148,7 +137,7 @@ func (r *WorkspaceReconciler) checkCycleNeeded(
 	// Workspace status has moved from Applying to Applied/Failed; in that case
 	// we deliberately skip reset here so the handler can archive logs and
 	// record the terminal status first.
-	applyFinished, applySucceeded := jobFinishedState(applyJob, applyJobGetErr)
+	applyFinished, applySucceeded := jobFinishedState(&rc.applyJob, rc.applyJobErr)
 	if !applyFinished.IsZero() && terminalWorkspaceRunRecorded(workspace.Status.Phase) {
 		if scheduledDue {
 			if applySucceeded {
@@ -157,7 +146,7 @@ func (r *WorkspaceReconciler) checkCycleNeeded(
 			return cycleDecision{start: true, reason: "RetryApply", message: "Retrying failed apply starting from new plan"}
 		}
 		requeue = time.Until(nextScheduled.Time)
-	} else if planJobGetErr == nil && planJob.Status.Failed > 0 && terminalWorkspaceRunRecorded(workspace.Status.Phase) {
+	} else if rc.planJobErr == nil && rc.planJob.Status.Failed > 0 && terminalWorkspaceRunRecorded(workspace.Status.Phase) {
 		// We never got to Apply because the Plan itself failed. We use the same
 		// sync-interval cooldown here to avoid hammering a plan that keeps
 		// failing (e.g. bad credentials, broken HCL) on every reconcile loop.
@@ -165,7 +154,7 @@ func (r *WorkspaceReconciler) checkCycleNeeded(
 		// Workspace has already recorded the failed terminal status, because the
 		// first reconcile that observes the failed Job still needs to archive logs.
 		var failedTime time.Time
-		for _, cond := range planJob.Status.Conditions {
+		for _, cond := range rc.planJob.Status.Conditions {
 			if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
 				failedTime = cond.LastTransitionTime.Time
 				break
@@ -233,18 +222,17 @@ func (r *WorkspaceReconciler) checkCycleNeeded(
 func (r *WorkspaceReconciler) startFreshCycle(
 	ctx context.Context,
 	workspace *v1alpha1.Workspace,
-	planJob, applyJob *batchv1.Job,
-	planJobGetErr, applyJobGetErr error,
+	rc runContext,
 	reason, message string,
-) (ctrl.Result, error) {
+) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Cleaning up jobs to trigger a fresh run.", "reason", reason)
 
-	if planJobGetErr == nil {
-		_ = r.Delete(ctx, planJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if rc.planJobErr == nil {
+		_ = r.Delete(ctx, &rc.planJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
 	}
-	if applyJobGetErr == nil {
-		_ = r.Delete(ctx, applyJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if rc.applyJobErr == nil {
+		_ = r.Delete(ctx, &rc.applyJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
 	}
 
 	// The status update to Pending must happen before we clear any
@@ -264,7 +252,7 @@ func (r *WorkspaceReconciler) startFreshCycle(
 	// follows it so the log store can group both into a single run record
 	// and report what originally caused this plan and apply run to start.
 	workspace.Status.CurrentRunID = newRunID()
-	workspace.Status.CurrentRunTrigger = runTriggerFromResetReason(reason)
+	workspace.Status.CurrentRunTrigger = runTriggerFromReason(reason)
 	now := metav1.Now()
 	workspace.Status.LastRunStartedAt = &now
 	r.updateStatus(ctx, workspace, v1alpha1.PhasePending, reason, message, metav1.ConditionUnknown)
@@ -296,9 +284,9 @@ func (r *WorkspaceReconciler) startFreshCycle(
 	// re-triggering a reset while the Workspace progresses through Pending,
 	// Planning, and Applying.
 	if err := r.deleteAnnotations(ctx, workspace, v1alpha1.WorkspaceExecutionAllowedAnnotation); err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // isExecutionAllowedByRolloutController returns true when the Rollout controller has granted

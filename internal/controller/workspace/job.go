@@ -162,17 +162,22 @@ func (r *WorkspaceReconciler) resolveEffectivePolicySelector(ctx context.Context
 //
 // The Job is owned by the Workspace via SetControllerReference, so Kubernetes
 // garbage collection will delete it when the Workspace is removed.
-func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *v1alpha1.Workspace, jobName, jobType, planFile, pvcName, runID string) (*batchv1.Job, error) {
-	// The below map holds configuration that every Job needs: where to clone
-	// from, which revision to check out, which Terraform version to use, and
-	// whether this is a "plan" or "apply" run.
+func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *v1alpha1.Workspace, rc runContext, jobType, runID string) (*batchv1.Job, error) {
+	jobName := rc.planJobName
+	if jobType == jobTypeApply {
+		jobName = rc.applyJobName
+	}
+
 	envVars := []corev1.EnvVar{
+		// Core configuration every Job needs: where to clone from, which
+		// revision to check out, which Terraform version to use, and whether
+		// this is a plan or apply run.
 		{Name: "REPO_URL", Value: ws.Spec.Source.RepoURL},
 		{Name: "TARGET_REVISION", Value: ws.Spec.Source.TargetRevision},
 		{Name: "TF_VERSION", Value: ws.Spec.Terraform.Version},
 		{Name: "PROJECT_REF", Value: ws.Spec.ProjectRef.Name},
 		{Name: "MAGOS_JOB_TYPE", Value: jobType},
-		{Name: "MAGOS_PLAN_FILE", Value: planFile},
+		{Name: "MAGOS_PLAN_FILE", Value: rc.planFile},
 	}
 
 	// Optional paths that narrow which Terraform directory to run in and which
@@ -314,7 +319,7 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 							Name: "workspace-data",
 							VolumeSource: corev1.VolumeSource{
 								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-									ClaimName: pvcName,
+									ClaimName: rc.pvcName,
 								},
 							},
 						},

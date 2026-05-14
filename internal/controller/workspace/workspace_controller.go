@@ -234,6 +234,36 @@ func (r *WorkspaceReconciler) handleDeletion(ctx context.Context, workspace *v1a
 	return true, nil
 }
 
+// runContext holds the derived names and current job state for a single
+// reconcile iteration. It is built once in reconcileWorkspace and passed to
+// all step functions so nothing is re-derived or re-fetched independently.
+type runContext struct {
+	planJobName  string
+	applyJobName string
+	planFile     string
+	pvcName      string
+	planJob      batchv1.Job
+	planJobErr   error
+	applyJob     batchv1.Job
+	applyJobErr  error
+}
+
+// newRunContext derives all stable names from the Workspace spec and fetches
+// the current Plan and Apply Jobs. A NotFound error on either Job is normal
+// and simply means the Job does not exist yet for this spec version.
+func (r *WorkspaceReconciler) newRunContext(ctx context.Context, workspace *v1alpha1.Workspace) runContext {
+	specHash := r.getSpecHash(workspace)
+	rc := runContext{
+		planJobName:  fmt.Sprintf("%s-plan-%s", workspace.Name, specHash),
+		applyJobName: fmt.Sprintf("%s-apply-%s", workspace.Name, specHash),
+		planFile:     fmt.Sprintf("/workspace-data/run-%s.tfplan", specHash),
+		pvcName:      fmt.Sprintf("%s-data", workspace.Name),
+	}
+	rc.planJobErr = r.Get(ctx, types.NamespacedName{Name: rc.planJobName, Namespace: workspace.Namespace}, &rc.planJob)
+	rc.applyJobErr = r.Get(ctx, types.NamespacedName{Name: rc.applyJobName, Namespace: workspace.Namespace}, &rc.applyJob)
+	return rc
+}
+
 // reconcileWorkspace is the main reconciliation loop for a single Workspace. It
 // is called by Reconcile after the object is fetched and finalizer is ensured.
 //
@@ -254,30 +284,11 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 
 	defer r.trackActiveWorkspaces(ctx)
 
-	// Step 1: Build Job names from a hash of the Workspace spec.
-	//
-	// Each Workspace reconciliation produces a Plan Job and an Apply Job. The
-	// Kubernetes jobs are suffixed with a short hash (specHash) so that a
-	// given Apply always runs against the exact plan file that was generated
-	// for the same spec. When someone changes the spec, the hash changes and we
-	// get a new pair of Jobs. Importantly, approving a plan does not change the
-	// hash (the approval annotation is not part of the spec) so the Apply Job
-	// is guaranteed to execute the plan that was reviewed and approved.
-	specHash := r.getSpecHash(workspace)
-	planJobName := fmt.Sprintf("%s-plan-%s", workspace.Name, specHash)
-	applyJobName := fmt.Sprintf("%s-apply-%s", workspace.Name, specHash)
-	planFile := fmt.Sprintf("/workspace-data/run-%s.tfplan", specHash)
-
-	// Step 2: Clean up Jobs left over from a previous spec version.
-	r.cleanupOrphanedJobs(ctx, workspace, planJobName, applyJobName)
-
-	// Look up the current Plan and Apply Jobs. A NotFound error is normal and
-	// just means the Job hasn't been created yet for this specHash.
-	var planJob batchv1.Job
-	planJobGetErr := r.Get(ctx, types.NamespacedName{Name: planJobName, Namespace: workspace.Namespace}, &planJob)
-
-	var applyJob batchv1.Job
-	applyJobGetErr := r.Get(ctx, types.NamespacedName{Name: applyJobName, Namespace: workspace.Namespace}, &applyJob)
+	// Steps 1+2: build stable Job names from a hash of the Workspace spec and
+	// clean up any Jobs left over from a previous spec version. See getSpecHash
+	// and cleanupOrphanedJobs for the full reasoning behind each.
+	rc := r.newRunContext(ctx, workspace)
+	r.cleanupOrphanedJobs(ctx, workspace, rc)
 
 	// Step 3: Decide whether we need to start a fresh Plan/Apply cycle.
 	//
@@ -290,9 +301,9 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// appear "not allowed" and we would never reach this reset path. That would
 	// leave the Workspace stuck in a terminal(?) phase with no way to clean up
 	// old Jobs or start a new cycle.
-	d := r.checkCycleNeeded(workspace, &planJob, &applyJob, planJobGetErr, applyJobGetErr)
+	d := r.checkCycleNeeded(workspace, rc)
 	if d.start {
-		return r.startFreshCycle(ctx, workspace, &planJob, &applyJob, planJobGetErr, applyJobGetErr, d.reason, d.message)
+		return ctrl.Result{}, r.startFreshCycle(ctx, workspace, rc, d.reason, d.message)
 	}
 
 	// Step 4: Check whether the Rollout controller has granted us permission to
@@ -327,21 +338,20 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// garbage collection will clean it up automatically when the Workspace is
 	// deleted. The creation of the PVC happens only once in the lifetime of a
 	// workspace via ensurePVC.
-	pvcName := fmt.Sprintf("%s-data", workspace.Name)
-	if err := r.ensurePVC(ctx, workspace, pvcName); err != nil {
+	if err := r.ensurePVC(ctx, workspace, rc.pvcName); err != nil {
 		logger.Error(err, "Failed to ensure PVC exists")
 		return ctrl.Result{}, err
 	}
 
 	// Step 6: Run "terraform plan".
-	planResult, planDone, err := r.reconcilePlanJob(ctx, workspace, planJobName, planFile, pvcName, planJobGetErr, &planJob)
+	planDone, err := r.reconcilePlanJob(ctx, workspace, rc)
 	if err != nil || !planDone {
-		return planResult, err
+		return ctrl.Result{}, err
 	}
 
 	// Steps 7+8: Run "terraform apply" (requires approval) and handle completion.
 	// TODO: implement approval feature
-	return r.reconcileApplyJob(ctx, workspace, applyJobName, planJobName, planFile, pvcName, applyJobGetErr, &planJob, &applyJob)
+	return ctrl.Result{}, r.reconcileApplyJob(ctx, workspace, rc)
 }
 
 // trackActiveWorkspaces updates the Prometheus gauge for the number of

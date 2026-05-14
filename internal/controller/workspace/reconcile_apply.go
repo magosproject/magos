@@ -19,10 +19,8 @@ import (
 	"context"
 
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
-	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -45,23 +43,21 @@ import (
 func (r *WorkspaceReconciler) reconcileApplyJob(
 	ctx context.Context,
 	workspace *v1alpha1.Workspace,
-	applyJobName, planJobName, planFile, pvcName string,
-	applyJobGetErr error,
-	planJob, applyJob *batchv1.Job,
-) (ctrl.Result, error) {
+	rc runContext,
+) error {
 	logger := log.FromContext(ctx)
 
-	if applyJobGetErr != nil {
-		if errors.IsNotFound(applyJobGetErr) {
-			return r.createApplyJobIfApproved(ctx, workspace, applyJobName, planJobName, planFile, pvcName, planJob)
+	if rc.applyJobErr != nil {
+		if errors.IsNotFound(rc.applyJobErr) {
+			return r.createApplyJobIfApproved(ctx, workspace, rc)
 		}
-		return ctrl.Result{}, applyJobGetErr
+		return rc.applyJobErr
 	}
 
-	if applyJob.Status.Failed > 0 {
-		logger.Info("Apply Job failed", "job", applyJobName)
-		if err := r.archiveRunLogs(ctx, workspace, applyJob, v1alpha1.RunPhaseApply, v1alpha1.RunLogResultFailed); err != nil {
-			logger.Error(err, "Failed to archive apply logs", "job", applyJobName)
+	if rc.applyJob.Status.Failed > 0 {
+		logger.Info("Apply Job failed", "job", rc.applyJobName)
+		if err := r.archiveRunLogs(ctx, workspace, &rc.applyJob, v1alpha1.RunPhaseApply, v1alpha1.RunLogResultFailed); err != nil {
+			logger.Error(err, "Failed to archive apply logs", "job", rc.applyJobName)
 		}
 		r.updateStatus(ctx, workspace, v1alpha1.PhaseFailed, "ApplyFailed", "Terraform Apply execution failed", metav1.ConditionFalse)
 
@@ -76,18 +72,18 @@ func (r *WorkspaceReconciler) reconcileApplyJob(
 			v1alpha1.WorkspaceReconcileRequestAnnotation,
 		); err != nil {
 			logger.Error(err, "Failed to consume execution annotations via Patch on failure")
-			return ctrl.Result{}, err
+			return err
 		}
-		return ctrl.Result{}, nil
+		return nil
 	}
 
-	if applyJob.Status.Succeeded == 0 {
-		logger.Info("Apply Job is currently running", "job", applyJobName)
+	if rc.applyJob.Status.Succeeded == 0 {
+		logger.Info("Apply Job is currently running", "job", rc.applyJobName)
 		r.updateStatus(ctx, workspace, v1alpha1.PhaseApplying, "Applying", "Terraform Apply execution is running", metav1.ConditionUnknown)
-		return ctrl.Result{}, nil
+		return nil
 	}
 
-	return r.handleApplySuccess(ctx, workspace, applyJob, applyJobName)
+	return r.handleApplySuccess(ctx, workspace, rc)
 }
 
 // createApplyJobIfApproved checks for plan approval (autoApply or annotation)
@@ -102,9 +98,8 @@ func (r *WorkspaceReconciler) reconcileApplyJob(
 func (r *WorkspaceReconciler) createApplyJobIfApproved(
 	ctx context.Context,
 	workspace *v1alpha1.Workspace,
-	applyJobName, planJobName, planFile, pvcName string,
-	planJob *batchv1.Job,
-) (ctrl.Result, error) {
+	rc runContext,
+) error {
 	logger := log.FromContext(ctx)
 
 	isApproved := workspace.Spec.AutoApply
@@ -115,12 +110,12 @@ func (r *WorkspaceReconciler) createApplyJobIfApproved(
 	if !isApproved {
 		logger.Info("Workspace has planned successfully, but is pending approval to apply", "workspace", workspace.Name)
 		if workspace.Status.Phase != v1alpha1.PhasePlanned {
-			if err := r.archiveRunLogs(ctx, workspace, planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultSucceeded); err != nil {
-				logger.Error(err, "Failed to archive plan logs", "job", planJobName)
+			if err := r.archiveRunLogs(ctx, workspace, &rc.planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultSucceeded); err != nil {
+				logger.Error(err, "Failed to archive plan logs", "job", rc.planJobName)
 			}
 		}
 		r.updateStatus(ctx, workspace, v1alpha1.PhasePlanned, "PlanSucceeded", "Terraform Plan succeeded. Waiting for manual approval to Apply.", metav1.ConditionTrue)
-		return ctrl.Result{}, nil
+		return nil
 	}
 
 	// Remove the approval annotation before creating the Job. See the
@@ -130,27 +125,27 @@ func (r *WorkspaceReconciler) createApplyJobIfApproved(
 		delete(workspace.Annotations, v1alpha1.WorkspaceApprovedAnnotation)
 		if err := r.Patch(ctx, workspace, patch); err != nil {
 			logger.Error(err, "Failed to consume approval annotation via Patch")
-			return ctrl.Result{}, err
+			return err
 		}
 	}
 
 	// Archive the completed plan logs before moving on to apply so
 	// both phases end up in the same reconcile run record.
-	if err := r.archiveRunLogs(ctx, workspace, planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultSucceeded); err != nil {
-		logger.Error(err, "Failed to archive plan logs", "job", planJobName)
+	if err := r.archiveRunLogs(ctx, workspace, &rc.planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultSucceeded); err != nil {
+		logger.Error(err, "Failed to archive plan logs", "job", rc.planJobName)
 	}
 
-	logger.Info("Creating a new Apply Job", "job", applyJobName)
+	logger.Info("Creating a new Apply Job", "job", rc.applyJobName)
 	runID := ensureRunMetadata(workspace)
-	newJob, err := r.constructJobForWorkspace(ctx, workspace, applyJobName, jobTypeApply, planFile, pvcName, runID)
+	newJob, err := r.constructJobForWorkspace(ctx, workspace, rc, jobTypeApply, runID)
 	if err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
 	if err := r.Create(ctx, newJob); err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
 	r.updateStatus(ctx, workspace, v1alpha1.PhaseApplying, "ApplyJobCreated", "Terraform Apply job created", metav1.ConditionUnknown)
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // handleApplySuccess handles Step 8: recording the apply result, stamping the
@@ -180,20 +175,19 @@ func (r *WorkspaceReconciler) createApplyJobIfApproved(
 func (r *WorkspaceReconciler) handleApplySuccess(
 	ctx context.Context,
 	workspace *v1alpha1.Workspace,
-	applyJob *batchv1.Job,
-	applyJobName string,
-) (ctrl.Result, error) {
+	rc runContext,
+) error {
 	logger := log.FromContext(ctx)
-	logger.Info("Apply Job completed successfully", "job", applyJobName)
+	logger.Info("Apply Job completed successfully", "job", rc.applyJobName)
 
-	if err := r.archiveRunLogs(ctx, workspace, applyJob, v1alpha1.RunPhaseApply, v1alpha1.RunLogResultSucceeded); err != nil {
-		logger.Error(err, "Failed to archive apply logs", "job", applyJobName)
+	if err := r.archiveRunLogs(ctx, workspace, &rc.applyJob, v1alpha1.RunPhaseApply, v1alpha1.RunLogResultSucceeded); err != nil {
+		logger.Error(err, "Failed to archive apply logs", "job", rc.applyJobName)
 	}
 
 	// Record apply job duration if both start and completion times are
 	// available.
-	if applyJob.Status.StartTime != nil && applyJob.Status.CompletionTime != nil {
-		duration := applyJob.Status.CompletionTime.Time.Sub(applyJob.Status.StartTime.Time).Seconds()
+	if rc.applyJob.Status.StartTime != nil && rc.applyJob.Status.CompletionTime != nil {
+		duration := rc.applyJob.Status.CompletionTime.Time.Sub(rc.applyJob.Status.StartTime.Time).Seconds()
 		jobDurationSeconds.WithLabelValues(workspace.Namespace, workspace.Name, jobTypeApply).Observe(duration)
 	}
 
@@ -228,8 +222,8 @@ func (r *WorkspaceReconciler) handleApplySuccess(
 		v1alpha1.WorkspaceReconcileRequestAnnotation,
 	); err != nil {
 		logger.Error(err, "Failed to consume execution annotations via Patch")
-		return ctrl.Result{}, err
+		return err
 	}
 
-	return ctrl.Result{}, nil
+	return nil
 }
