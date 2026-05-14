@@ -81,6 +81,8 @@ const (
 	SecretKeySSHPrivateKey = "sshPrivateKey"
 
 	runIDLabelKey = "magosproject.io/run-id"
+
+	resetReasonScheduledReconcile = "ScheduledReconcile"
 )
 
 // WorkspaceReconciler reconciles a Workspace object
@@ -405,7 +407,7 @@ func runTriggerFromResetReason(reason string) v1alpha1.RunTrigger {
 		return v1alpha1.RunTriggerConfig
 	case "ManualReconcileRequested":
 		return v1alpha1.RunTriggerManual
-	case "ScheduledReconcile":
+	case resetReasonScheduledReconcile:
 		return v1alpha1.RunTriggerScheduled
 	case "NewRevisionDetected":
 		return v1alpha1.RunTriggerRevision
@@ -576,7 +578,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		if scheduledReconcileDue {
 			needsReset = true
 			if applySucceeded {
-				resetReason = "ScheduledReconcile"
+				resetReason = resetReasonScheduledReconcile
 				resetMessage = "Starting scheduled reconciliation"
 			} else {
 				resetReason = "RetryApply"
@@ -680,7 +682,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		workspace.Status.LastRunStartedAt = &now
 		r.updateStatus(ctx, workspace, v1alpha1.PhasePending, resetReason, resetMessage, metav1.ConditionUnknown)
 
-		if resetReason == "ScheduledReconcile" && r.RunRecorder != nil {
+		if resetReason == resetReasonScheduledReconcile && r.RunRecorder != nil {
 			run := v1alpha1.Run{
 				ID:          workspace.Status.CurrentRunID,
 				Trigger:     workspace.Status.CurrentRunTrigger,
