@@ -111,7 +111,7 @@ function LogPane({ namespace, workspaceName, runID, phase, summary }: LogPanePro
   }
 
   return (
-    <Stack gap="xs">
+    <Stack gap="xs" style={{ flex: 1, minHeight: 0 }}>
       <Group gap="xs">
         <PhaseBadge summary={summary} />
         {summary.startedAt && (
@@ -132,8 +132,8 @@ function LogPane({ namespace, workspaceName, runID, phase, summary }: LogPanePro
         </Text>
       )}
       {!loading && !error && content !== null && (
-        <ScrollArea>
-          <Code block style={{ maxHeight: "60vh", overflow: "auto" }}>
+        <ScrollArea style={{ flex: 1, minHeight: 0 }}>
+          <Code block>
             {content || "Log is empty."}
           </Code>
         </ScrollArea>
@@ -394,9 +394,19 @@ export default function WorkspaceRunHistory({
         }
         position="bottom"
         size={expanded ? "100%" : "60%"}
+        styles={{
+          content: { display: "flex", flexDirection: "column" },
+          body: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" },
+        }}
       >
         {selected && (
-          <Tabs defaultValue="plan">
+          <Tabs
+            defaultValue="plan"
+            styles={{
+              root: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 },
+              panel: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" },
+            }}
+          >
             <Tabs.List>
               <Tabs.Tab value="plan">Plan</Tabs.Tab>
               <Tabs.Tab value="apply">Apply</Tabs.Tab>
