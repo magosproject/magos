@@ -40,23 +40,6 @@ import (
 )
 
 const (
-	// DefaultReconciliationInterval is the fallback duration between scheduled
-	// reconciliations
-	DefaultReconciliationInterval = 3 * time.Minute
-
-	// DefaultJobTimeoutSeconds is the activeDeadlineSeconds applied to plan and
-	// apply Jobs when no per-phase TimeoutSeconds override is set. This
-	// prevents a Workspace from being stuck in Planning or Applying
-	// indefinitely if a Job hangs (e.g. terraform blocks on a provider call).
-	DefaultJobTimeoutSeconds int64 = 86400 // 24 hours
-
-	// jobTypePlan and jobTypeApply are the two values the workspace controller
-	// uses when launching a Kubernetes Job. The value is written into the
-	// MAGOS_JOB_TYPE environment variable so the job knows whether to run
-	// terraform plan or terraform apply.
-	jobTypePlan  = "plan"
-	jobTypeApply = "apply"
-
 	// Label used to identify repository credential secrets
 	RepoSecretLabelKey   = "magosproject.io/secret-type"
 	RepoSecretLabelValue = "repository"
@@ -66,10 +49,6 @@ const (
 	SecretKeyUsername      = "username"
 	SecretKeyPassword      = "password"
 	SecretKeySSHPrivateKey = "sshPrivateKey"
-
-	runIDLabelKey = "magosproject.io/run-id"
-
-	resetReasonScheduledReconcile = "ScheduledReconcile"
 )
 
 // WorkspaceReconciler reconciles a Workspace object

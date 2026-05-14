@@ -34,6 +34,25 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const (
+	// DefaultJobTimeoutSeconds is the activeDeadlineSeconds applied to plan and
+	// apply Jobs when no per-phase TimeoutSeconds override is set. This
+	// prevents a Workspace from being stuck in Planning or Applying
+	// indefinitely if a Job hangs (e.g. terraform blocks on a provider call).
+	DefaultJobTimeoutSeconds int64 = 86400 // 24 hours
+
+	// jobTypePlan and jobTypeApply are the two values the workspace controller
+	// uses when launching a Kubernetes Job. The value is written into the
+	// MAGOS_JOB_TYPE environment variable so the job knows whether to run
+	// terraform plan or terraform apply.
+	jobTypePlan  = "plan"
+	jobTypeApply = "apply"
+
+	// runIDLabelKey is the label key used on Jobs and Pods to carry the current
+	// run ID, allowing log archival to associate pod logs with the correct run.
+	runIDLabelKey = "magosproject.io/run-id"
+)
+
 // getSpecHash produces a short, deterministic hash of the Workspace spec. This
 // hash is used as a suffix on Job names (e.g. "myworkspace-plan-a1b2c3d4") so
 // that a spec change naturally creates new Jobs while leaving old ones to be

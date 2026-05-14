@@ -26,6 +26,16 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
+const (
+	// DefaultReconciliationInterval is the fallback duration between scheduled
+	// reconciliations when no magosproject.io/reconcile-interval annotation is set.
+	DefaultReconciliationInterval = 3 * time.Minute
+
+	// scheduledReconcileReason is the reset reason used when a periodic reconcile
+	// fires. It surfaces in Workspace status and run records as the trigger.
+	scheduledReconcileReason = "ScheduledReconcile"
+)
+
 // computeNextReconcileTime is the single source of truth for the Workspace
 // reconcile interval and schedule cadence. It resolves the effective
 // interval from the magosproject.io/reconcile-interval annotation when
@@ -152,7 +162,7 @@ func runTriggerFromResetReason(reason string) v1alpha1.RunTrigger {
 		return v1alpha1.RunTriggerConfig
 	case "ManualReconcileRequested":
 		return v1alpha1.RunTriggerManual
-	case resetReasonScheduledReconcile:
+	case scheduledReconcileReason:
 		return v1alpha1.RunTriggerScheduled
 	case "NewRevisionDetected":
 		return v1alpha1.RunTriggerRevision

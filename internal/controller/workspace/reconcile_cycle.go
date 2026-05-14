@@ -152,7 +152,7 @@ func (r *WorkspaceReconciler) checkCycleNeeded(
 	if !applyFinished.IsZero() && terminalWorkspaceRunRecorded(workspace.Status.Phase) {
 		if scheduledDue {
 			if applySucceeded {
-				return cycleDecision{start: true, reason: resetReasonScheduledReconcile, message: "Starting scheduled reconciliation"}
+				return cycleDecision{start: true, reason: scheduledReconcileReason, message: "Starting scheduled reconciliation"}
 			}
 			return cycleDecision{start: true, reason: "RetryApply", message: "Retrying failed apply starting from new plan"}
 		}
@@ -269,7 +269,7 @@ func (r *WorkspaceReconciler) startFreshCycle(
 	workspace.Status.LastRunStartedAt = &now
 	r.updateStatus(ctx, workspace, v1alpha1.PhasePending, reason, message, metav1.ConditionUnknown)
 
-	if reason == resetReasonScheduledReconcile && r.RunRecorder != nil {
+	if reason == scheduledReconcileReason && r.RunRecorder != nil {
 		run := v1alpha1.Run{
 			ID:          workspace.Status.CurrentRunID,
 			Trigger:     workspace.Status.CurrentRunTrigger,
