@@ -18,4 +18,6 @@ rules:
   - get
   - list
   - watch
+  - update
+  - patch
 {{- end }}
