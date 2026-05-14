@@ -242,16 +242,14 @@ type runContext struct {
 	applyJobName string
 	planFile     string
 	pvcName      string
-	planJob      batchv1.Job
-	planJobErr   error
-	applyJob     batchv1.Job
-	applyJobErr  error
+	planJob      *batchv1.Job
+	applyJob     *batchv1.Job
 }
 
 // newRunContext derives all stable names from the Workspace spec and fetches
 // the current Plan and Apply Jobs. A NotFound error on either Job is normal
 // and simply means the Job does not exist yet for this spec version.
-func (r *WorkspaceReconciler) newRunContext(ctx context.Context, workspace *v1alpha1.Workspace) runContext {
+func (r *WorkspaceReconciler) newRunContext(ctx context.Context, workspace *v1alpha1.Workspace) (runContext, error) {
 	specHash := r.getSpecHash(workspace)
 	rc := runContext{
 		planJobName:  fmt.Sprintf("%s-plan-%s", workspace.Name, specHash),
@@ -259,9 +257,30 @@ func (r *WorkspaceReconciler) newRunContext(ctx context.Context, workspace *v1al
 		planFile:     fmt.Sprintf("/workspace-data/run-%s.tfplan", specHash),
 		pvcName:      fmt.Sprintf("%s-data", workspace.Name),
 	}
-	rc.planJobErr = r.Get(ctx, types.NamespacedName{Name: rc.planJobName, Namespace: workspace.Namespace}, &rc.planJob)
-	rc.applyJobErr = r.Get(ctx, types.NamespacedName{Name: rc.applyJobName, Namespace: workspace.Namespace}, &rc.applyJob)
-	return rc
+	var err error
+	rc.planJob, err = r.getJobOrNil(ctx, rc.planJobName, workspace.Namespace)
+	if err != nil {
+		return rc, err
+	}
+	rc.applyJob, err = r.getJobOrNil(ctx, rc.applyJobName, workspace.Namespace)
+	if err != nil {
+		return rc, err
+	}
+	return rc, nil
+}
+
+// getJobOrNil returns the Job with the given name, or nil if it does not exist yet.
+// NotFound is treated as a normal state: Jobs are created on demand and may not
+// exist yet for the current spec version.
+func (r *WorkspaceReconciler) getJobOrNil(ctx context.Context, name, namespace string) (*batchv1.Job, error) {
+	var job batchv1.Job
+	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &job); err != nil {
+		if errors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &job, nil
 }
 
 // reconcileWorkspace is the main reconciliation loop for a single Workspace. It
@@ -287,7 +306,10 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	// Steps 1+2: build stable Job names from a hash of the Workspace spec and
 	// clean up any Jobs left over from a previous spec version. See getSpecHash
 	// and cleanupOrphanedJobs for the full reasoning behind each.
-	rc := r.newRunContext(ctx, workspace)
+	rc, err := r.newRunContext(ctx, workspace)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	r.cleanupOrphanedJobs(ctx, workspace, rc)
 
 	// Step 3: Decide whether we need to start a fresh Plan/Apply cycle.

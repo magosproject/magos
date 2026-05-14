@@ -19,7 +19,6 @@ import (
 	"context"
 
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -47,16 +46,13 @@ func (r *WorkspaceReconciler) reconcileApplyJob(
 ) error {
 	logger := log.FromContext(ctx)
 
-	if rc.applyJobErr != nil {
-		if errors.IsNotFound(rc.applyJobErr) {
-			return r.createApplyJobIfApproved(ctx, workspace, rc)
-		}
-		return rc.applyJobErr
+	if rc.applyJob == nil {
+		return r.createApplyJobIfApproved(ctx, workspace, rc)
 	}
 
 	if rc.applyJob.Status.Failed > 0 {
 		logger.Info("Apply Job failed", "job", rc.applyJobName)
-		if err := r.archiveRunLogs(ctx, workspace, &rc.applyJob, v1alpha1.RunPhaseApply, v1alpha1.RunLogResultFailed); err != nil {
+		if err := r.archiveRunLogs(ctx, workspace, rc.applyJob, v1alpha1.RunPhaseApply, v1alpha1.RunLogResultFailed); err != nil {
 			logger.Error(err, "Failed to archive apply logs", "job", rc.applyJobName)
 		}
 		r.updateStatus(ctx, workspace, v1alpha1.PhaseFailed, "ApplyFailed", "Terraform Apply execution failed", metav1.ConditionFalse)
@@ -110,7 +106,7 @@ func (r *WorkspaceReconciler) createApplyJobIfApproved(
 	if !isApproved {
 		logger.Info("Workspace has planned successfully, but is pending approval to apply", "workspace", workspace.Name)
 		if workspace.Status.Phase != v1alpha1.PhasePlanned {
-			if err := r.archiveRunLogs(ctx, workspace, &rc.planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultSucceeded); err != nil {
+			if err := r.archiveRunLogs(ctx, workspace, rc.planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultSucceeded); err != nil {
 				logger.Error(err, "Failed to archive plan logs", "job", rc.planJobName)
 			}
 		}
@@ -131,7 +127,7 @@ func (r *WorkspaceReconciler) createApplyJobIfApproved(
 
 	// Archive the completed plan logs before moving on to apply so
 	// both phases end up in the same reconcile run record.
-	if err := r.archiveRunLogs(ctx, workspace, &rc.planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultSucceeded); err != nil {
+	if err := r.archiveRunLogs(ctx, workspace, rc.planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultSucceeded); err != nil {
 		logger.Error(err, "Failed to archive plan logs", "job", rc.planJobName)
 	}
 
@@ -180,7 +176,7 @@ func (r *WorkspaceReconciler) handleApplySuccess(
 	logger := log.FromContext(ctx)
 	logger.Info("Apply Job completed successfully", "job", rc.applyJobName)
 
-	if err := r.archiveRunLogs(ctx, workspace, &rc.applyJob, v1alpha1.RunPhaseApply, v1alpha1.RunLogResultSucceeded); err != nil {
+	if err := r.archiveRunLogs(ctx, workspace, rc.applyJob, v1alpha1.RunPhaseApply, v1alpha1.RunLogResultSucceeded); err != nil {
 		logger.Error(err, "Failed to archive apply logs", "job", rc.applyJobName)
 	}
 

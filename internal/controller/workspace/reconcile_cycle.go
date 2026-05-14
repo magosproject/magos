@@ -23,7 +23,6 @@ import (
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -75,9 +74,9 @@ func (r *WorkspaceReconciler) cleanupOrphanedJobs(ctx context.Context, workspace
 }
 
 // jobFinishedState returns the finish time and whether the job succeeded.
-// Returns zero time when the job has not finished or was not found.
-func jobFinishedState(job *batchv1.Job, getErr error) (time.Time, bool) {
-	if getErr != nil {
+// Returns zero time when the job has not finished or does not exist.
+func jobFinishedState(job *batchv1.Job) (time.Time, bool) {
+	if job == nil {
 		return time.Time{}, false
 	}
 	if job.Status.CompletionTime != nil {
@@ -112,14 +111,14 @@ func (r *WorkspaceReconciler) checkCycleNeeded(
 ) cycleDecision {
 	nextScheduled, _, scheduledDue := computeNextReconcileTime(workspace, workspace.Status.NextReconcileTime)
 
-	// Both Job names are derived from the current specHash. A NotFound on both
+	// Both Job names are derived from the current specHash. A nil on both
 	// means either the spec changed (new hash → new names → old Jobs no longer
 	// exist) or Jobs were manually deleted. In either case we reset, with one
 	// exception: if the phase is Planning or Applying a Job from the previous
 	// specHash may still be running. Deleting it mid-flight could corrupt
 	// Terraform state, so we leave it and let the next reconcile handle cleanup
 	// once it finishes.
-	if errors.IsNotFound(rc.planJobErr) && errors.IsNotFound(rc.applyJobErr) {
+	if rc.planJob == nil && rc.applyJob == nil {
 		if workspace.Status.Phase != "" && workspace.Status.Phase != v1alpha1.PhasePending &&
 			workspace.Status.Phase != v1alpha1.PhasePlanning && workspace.Status.Phase != v1alpha1.PhaseApplying {
 			return cycleDecision{
@@ -138,7 +137,7 @@ func (r *WorkspaceReconciler) checkCycleNeeded(
 	// Workspace status has moved from Applying to Applied/Failed; in that case
 	// we deliberately skip reset here so the handler can archive logs and
 	// record the terminal status first.
-	applyFinished, applySucceeded := jobFinishedState(&rc.applyJob, rc.applyJobErr)
+	applyFinished, applySucceeded := jobFinishedState(rc.applyJob)
 	if !applyFinished.IsZero() && terminalWorkspaceRunRecorded(workspace.Status.Phase) {
 		if scheduledDue {
 			if applySucceeded {
@@ -147,7 +146,7 @@ func (r *WorkspaceReconciler) checkCycleNeeded(
 			return cycleDecision{start: true, reason: "RetryApply", message: "Retrying failed apply starting from new plan"}
 		}
 		requeue = time.Until(nextScheduled.Time)
-	} else if rc.planJobErr == nil && rc.planJob.Status.Failed > 0 && terminalWorkspaceRunRecorded(workspace.Status.Phase) {
+	} else if rc.planJob != nil && rc.planJob.Status.Failed > 0 && terminalWorkspaceRunRecorded(workspace.Status.Phase) {
 		// We never got to Apply because the Plan itself failed. We use the same
 		// sync-interval cooldown here to avoid hammering a plan that keeps
 		// failing (e.g. bad credentials, broken HCL) on every reconcile loop.
@@ -229,11 +228,11 @@ func (r *WorkspaceReconciler) startFreshCycle(
 	logger := log.FromContext(ctx)
 	logger.Info("Cleaning up jobs to trigger a fresh run.", "reason", reason)
 
-	if rc.planJobErr == nil {
-		_ = r.Delete(ctx, &rc.planJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if rc.planJob != nil {
+		_ = r.Delete(ctx, rc.planJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
 	}
-	if rc.applyJobErr == nil {
-		_ = r.Delete(ctx, &rc.applyJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if rc.applyJob != nil {
+		_ = r.Delete(ctx, rc.applyJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
 	}
 
 	// The status update to Pending must happen before we clear any

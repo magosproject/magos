@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -48,21 +47,18 @@ func (r *WorkspaceReconciler) reconcilePlanJob(
 	// from Step 4) so the Rollout controller knows this Workspace is done and
 	// can move on. A succeeded Job means the plan file is ready on the PVC and
 	// we fall through to Step 7 to decide whether to apply it.
-	if rc.planJobErr != nil {
-		if errors.IsNotFound(rc.planJobErr) {
-			logger.Info("Creating a new Plan Job", "job", rc.planJobName)
-			runID := ensureRunMetadata(workspace)
-			newJob, err := r.constructJobForWorkspace(ctx, workspace, rc, jobTypePlan, runID)
-			if err != nil {
-				return false, err
-			}
-			if err := r.Create(ctx, newJob); err != nil {
-				return false, err
-			}
-			r.updateStatus(ctx, workspace, v1alpha1.PhasePlanning, "PlanJobCreated", "Terraform Plan job created", metav1.ConditionUnknown)
-			return false, nil
+	if rc.planJob == nil {
+		logger.Info("Creating a new Plan Job", "job", rc.planJobName)
+		runID := ensureRunMetadata(workspace)
+		newJob, err := r.constructJobForWorkspace(ctx, workspace, rc, jobTypePlan, runID)
+		if err != nil {
+			return false, err
 		}
-		return false, rc.planJobErr
+		if err := r.Create(ctx, newJob); err != nil {
+			return false, err
+		}
+		r.updateStatus(ctx, workspace, v1alpha1.PhasePlanning, "PlanJobCreated", "Terraform Plan job created", metav1.ConditionUnknown)
+		return false, nil
 	}
 
 	if rc.planJob.Status.Failed > 0 {
@@ -89,7 +85,7 @@ func (r *WorkspaceReconciler) reconcilePlanJob(
 			}
 		}
 
-		if err := r.archiveRunLogs(ctx, workspace, &rc.planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultFailed); err != nil {
+		if err := r.archiveRunLogs(ctx, workspace, rc.planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultFailed); err != nil {
 			logger.Error(err, "Failed to archive plan logs", "job", rc.planJobName)
 		}
 		r.updateStatus(ctx, workspace, phase, reason, message, metav1.ConditionFalse)
