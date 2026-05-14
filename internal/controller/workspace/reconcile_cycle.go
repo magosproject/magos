@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
+
 // cycleDecision communicates the outcome of checkCycleNeeded.
 // When start is true the caller must invoke startFreshCycle.
 // When start is false and requeue > 0 the caller should requeue
