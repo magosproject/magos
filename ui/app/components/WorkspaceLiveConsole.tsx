@@ -200,7 +200,7 @@ export default function WorkspaceLiveConsole({
     <div style={{ height: 430, display: "flex", flexDirection: "column", gap: 8 }}>
       <Title order={4}>Live Console</Title>
       <Group gap="xs">
-        {loading && <Loader size="sm" />}
+        {loading && <Loader size="xs" />}
         <Text size="sm" c="dimmed">
           {isActive && currentRunID
             ? contentState.key === streamKey && content
