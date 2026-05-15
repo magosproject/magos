@@ -61,6 +61,15 @@ export default function WorkspaceLiveConsole({
     }
   }, []);
 
+  // Reset the console whenever the active run/phase changes so plan and apply
+  // output are never mixed together.
+  useEffect(() => {
+    if (!isActive) return;
+    stopRevealTimer();
+    pendingRef.current = [];
+    setContent(null);
+  }, [streamKey, isActive, stopRevealTimer]);
+
   const flushPendingLines = useCallback(() => {
     const pending = pendingRef.current;
     if (pending.length === 0) return;
