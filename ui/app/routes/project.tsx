@@ -11,6 +11,7 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { Link, useLoaderData, useParams } from "react-router";
+import { useTabParam } from "~/hooks/useTabParam";
 import type { CSSProperties } from "react";
 import { IconRefresh } from "@tabler/icons-react";
 import Breadcrumbs from "~/components/Breadcrumbs";
@@ -75,6 +76,8 @@ export default function Project() {
   const flash = useFlashOnChange(phase);
   const flashStyle = { "--flash-color": flashColorVar(phase) } as CSSProperties;
 
+  const [activeTab, setTab] = useTabParam("overview");
+
   return (
     <Stack gap="lg">
       <Breadcrumbs crumbs={[{ label: "Projects", to: "/projects" }, { label: name! }]} />
@@ -100,7 +103,7 @@ export default function Project() {
         </Tooltip>
       </Group>
 
-      <Tabs defaultValue="overview">
+      <Tabs value={activeTab} onChange={setTab}>
         <Tabs.List>
           <Tabs.Tab value="overview">Overview</Tabs.Tab>
           <Tabs.Tab value="workspaces">Workspaces ({workspaces.length})</Tabs.Tab>
