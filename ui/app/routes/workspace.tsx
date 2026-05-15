@@ -2,6 +2,7 @@ import { Button, Group, Stack, Tabs, Text, Title } from "@mantine/core";
 import { IconBug, IconRefresh } from "@tabler/icons-react";
 import { useMemo, useState, type CSSProperties } from "react";
 import { useLoaderData, useParams } from "react-router";
+import { useTabParam } from "../hooks/useTabParam";
 import { resourceId } from "../api/resource";
 import Breadcrumbs from "../components/Breadcrumbs";
 import KubeBadge from "../components/KubeBadge";
@@ -76,6 +77,8 @@ export default function Workspace() {
   );
   const canReconcile = phase ? RECONCILABLE_PHASES.has(phase) : false;
   const reconcileDisabled = isSubmittingReconcile || !canReconcile || !namespace || !name;
+
+  const [activeTab, setTab] = useTabParam("overview");
 
   const debugLogsEnabled = ws.metadata?.annotations?.["magosproject.io/tf-log-level"] === "DEBUG";
 
@@ -153,7 +156,7 @@ export default function Workspace() {
         </Group>
       </Group>
 
-      <Tabs defaultValue="overview">
+      <Tabs value={activeTab} onChange={setTab}>
         <Tabs.List>
           <Tabs.Tab value="overview">Overview</Tabs.Tab>
           <Tabs.Tab value="runs">Runs</Tabs.Tab>

@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { Button, Group, Stack, Tabs, Title, Tooltip } from "@mantine/core";
 import { useLoaderData, useParams } from "react-router";
+import { useTabParam } from "~/hooks/useTabParam";
 import { IconRefresh } from "@tabler/icons-react";
 import Breadcrumbs from "~/components/Breadcrumbs";
 import KubeBadge from "~/components/KubeBadge";
@@ -48,6 +49,8 @@ export default function Rollout() {
   const flash = useFlashOnChange(`${phase}-${currentStep}`);
   const flashStyle = { "--flash-color": flashColorVar(phase ?? "") } as CSSProperties;
 
+  const [activeTab, setTab] = useTabParam("overview");
+
   return (
     <Stack gap="lg">
       <Breadcrumbs crumbs={[{ label: "Rollouts", to: "/rollouts" }, { label: name! }]} />
@@ -66,7 +69,7 @@ export default function Rollout() {
         </Tooltip>
       </Group>
 
-      <Tabs defaultValue="overview">
+      <Tabs value={activeTab} onChange={setTab}>
         <Tabs.List>
           <Tabs.Tab value="overview">Overview</Tabs.Tab>
           <Tabs.Tab value="steps">Steps</Tabs.Tab>
