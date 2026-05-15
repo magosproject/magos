@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
 
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -190,6 +191,9 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 	}
 	if logLevel := ws.Annotations[v1alpha1.WorkspaceTFLogLevelAnnotation]; logLevel != "" {
 		envVars = append(envVars, corev1.EnvVar{Name: "MAGOS_TF_LOG_LEVEL", Value: logLevel})
+	}
+	if os.Getenv("NO_COLOR") != "" {
+		envVars = append(envVars, corev1.EnvVar{Name: "NO_COLOR", Value: "1"})
 	}
 
 	// For plan jobs, resolve and pass the policy selector so the job can list
