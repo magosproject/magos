@@ -154,10 +154,6 @@ github.com/hashicorp/go-retryablehttp v0.7.8 h1:ylXZWnqa7Lhqpk0L1P1LzDtGcCR0rPVU
 github.com/hashicorp/go-retryablehttp v0.7.8/go.mod h1:rjiScheydd+CxvumBsIrFKlx3iS0jrZ7LvzFGFmuKbw=
 github.com/hashicorp/go-version v1.9.0 h1:CeOIz6k+LoN3qX9Z0tyQrPtiB1DFYRPfCIBtaXPSCnA=
 github.com/hashicorp/go-version v1.9.0/go.mod h1:fltr4n8CU8Ke44wwGCBoEymUuxUHl09ZGVZPK5anwXA=
-github.com/hashicorp/hc-install v0.9.3 h1:1H4dgmgzxEVwT6E/d/vIL5ORGVKz9twRwDw+qA5Hyho=
-github.com/hashicorp/hc-install v0.9.3/go.mod h1:FQlQ5I3I/X409N/J1U4pPeQQz1R3BoV0IysB7aiaQE0=
-github.com/hashicorp/terraform-exec v0.25.0 h1:Bkt6m3VkJqYh+laFMrWIpy9KHYFITpOyzRMNI35rNaY=
-github.com/hashicorp/terraform-exec v0.25.0/go.mod h1:dl9IwsCfklDU6I4wq9/StFDp7dNbH/h5AnfS1RmiUl8=
 github.com/hashicorp/terraform-json v0.27.2 h1:BwGuzM6iUPqf9JYM/Z4AF1OJ5VVJEEzoKST/tRDBJKU=
 github.com/hashicorp/terraform-json v0.27.2/go.mod h1:GzPLJ1PLdUG5xL6xn1OXWIjteQRT2CNT9o/6A9mi9hE=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
@@ -189,8 +185,8 @@ github.com/magosproject/go-version v1.9.0 h1:9XfB6inxoqlqFaShgWm6mMd21uG9Kzc9thB
 github.com/magosproject/go-version v1.9.0/go.mod h1:a03JklhIXivTXJM2KLzBRC00POUgobxTnuYotpTb8EQ=
 github.com/magosproject/hc-install v0.9.4 h1:FuE/7PlPTxyFiIvdt5jOs948RIEWN2Y+BX3hRQbI4cw=
 github.com/magosproject/hc-install v0.9.4/go.mod h1:3EdkCVc10M7wSDdHcIvuZ0PjrSekWr9CFvevbchEkHU=
-github.com/magosproject/terraform-exec v0.25.1-0.20260420120402-dbd614cd18d0 h1:3QEwI71zJLug1nWhMqF1PJRWAMKf/kcn2TzYzsoxZ9g=
-github.com/magosproject/terraform-exec v0.25.1-0.20260420120402-dbd614cd18d0/go.mod h1:ujRvUgknJ9FRHickklk4TY4W6v3kY1Chmaxy+KK+8WY=
+github.com/magosproject/terraform-exec v0.25.2-0.20260515052739-70e4052761f8 h1:vB1RzZ2RNf8xNeBkWWiQfAuxfKHKlclcaEfeIi1kr0c=
+github.com/magosproject/terraform-exec v0.25.2-0.20260515052739-70e4052761f8/go.mod h1:Or3NqU/I9taH8FX4BPxDu17JjNJwi7PUasCdvs9pteo=
 github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=
 github.com/mailru/easyjson v0.7.7/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
 github.com/maruel/natural v1.1.1 h1:Hja7XhhmvEFhcByqDoHz9QZbkWey+COd9xWfCfn1ioo=
