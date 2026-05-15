@@ -185,8 +185,8 @@ github.com/magosproject/go-version v1.9.0 h1:9XfB6inxoqlqFaShgWm6mMd21uG9Kzc9thB
 github.com/magosproject/go-version v1.9.0/go.mod h1:a03JklhIXivTXJM2KLzBRC00POUgobxTnuYotpTb8EQ=
 github.com/magosproject/hc-install v0.9.4 h1:FuE/7PlPTxyFiIvdt5jOs948RIEWN2Y+BX3hRQbI4cw=
 github.com/magosproject/hc-install v0.9.4/go.mod h1:3EdkCVc10M7wSDdHcIvuZ0PjrSekWr9CFvevbchEkHU=
-github.com/magosproject/terraform-exec v0.25.2-0.20260427002320-19c93ed9b500 h1:nLIaYPBil0np43aEkF4M5Ee1NFhj6oWeKuupvsuZNkg=
-github.com/magosproject/terraform-exec v0.25.2-0.20260427002320-19c93ed9b500/go.mod h1:Or3NqU/I9taH8FX4BPxDu17JjNJwi7PUasCdvs9pteo=
+github.com/magosproject/terraform-exec v0.25.2-0.20260515052739-70e4052761f8 h1:vB1RzZ2RNf8xNeBkWWiQfAuxfKHKlclcaEfeIi1kr0c=
+github.com/magosproject/terraform-exec v0.25.2-0.20260515052739-70e4052761f8/go.mod h1:Or3NqU/I9taH8FX4BPxDu17JjNJwi7PUasCdvs9pteo=
 github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=
 github.com/mailru/easyjson v0.7.7/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
 github.com/maruel/natural v1.1.1 h1:Hja7XhhmvEFhcByqDoHz9QZbkWey+COd9xWfCfn1ioo=

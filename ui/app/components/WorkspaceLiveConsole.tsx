@@ -1,4 +1,5 @@
-import { Code, Loader, ScrollArea, Stack, Text, Title } from "@mantine/core";
+import { Code, Group, Loader, Text, Title } from "@mantine/core";
+import AnsiToHtml from "ansi-to-html";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiUrl } from "../api/base";
 import type { Phase, Run } from "../api/types";
@@ -38,8 +39,6 @@ export default function WorkspaceLiveConsole({
   phase,
   currentRunID,
 }: Props) {
-  // null = loading/uninitialized, string = content (empty string = loaded with no output)
-  const [content, setContent] = useState<string | null>(null);
   const [status, setStatus] = useState("Loading latest completed run log");
   const viewportRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<string[]>([]);
@@ -53,6 +52,23 @@ export default function WorkspaceLiveConsole({
     [streamPhase, currentRunID]
   );
 
+  // Content is stored together with the streamKey it was produced for.
+  // When streamKey changes the derived `content` value is automatically null
+  // (loading), so no explicit reset logic is needed anywhere.
+  const [contentState, setContentState] = useState<{
+    key: string;
+    value: string | null;
+  }>({
+    key: streamKey,
+    value: null,
+  });
+  const content = contentState.value;
+
+  const setContent = useCallback(
+    (value: string | null) => setContentState({ key: streamKey, value }),
+    [streamKey]
+  );
+
   const stopRevealTimer = useCallback(() => {
     if (revealTimerRef.current != null) {
       window.clearInterval(revealTimerRef.current);
@@ -64,9 +80,12 @@ export default function WorkspaceLiveConsole({
     const pending = pendingRef.current;
     if (pending.length === 0) return;
     const chunk = pending.splice(0, 2).join("\n");
-    setContent((current) => `${current ?? ""}${current && chunk ? "\n" : ""}${chunk}`);
+    setContentState((current) => {
+      const base = current.key === streamKey ? (current.value ?? "") : "";
+      return { key: streamKey, value: `${base}${base && chunk ? "\n" : ""}${chunk}` };
+    });
     if (pending.length === 0) stopRevealTimer();
-  }, [stopRevealTimer]);
+  }, [streamKey, stopRevealTimer]);
 
   // When there is no active run, load the most recent completed run's apply
   // log (falling back to the plan log) so the console is never blank.
@@ -119,7 +138,7 @@ export default function WorkspaceLiveConsole({
       });
 
     return () => controller.abort();
-  }, [isActive, namespace, workspaceName, streamKey]);
+  }, [isActive, namespace, workspaceName, streamKey, setContent]);
 
   // Stream live logs from the active run's pod when a plan or apply is in
   // progress. The EventSource is torn down and rebuilt whenever streamKey
@@ -138,7 +157,6 @@ export default function WorkspaceLiveConsole({
       const payload = JSON.parse(event.data) as StreamEvent;
       switch (payload.type) {
         case "status":
-          setStatus(payload.message || `Waiting for live logs from ${streamPhase} job ${currentRunID}`);
           break;
         case "line":
           pending.push(payload.line ?? "");
@@ -175,36 +193,39 @@ export default function WorkspaceLiveConsole({
     viewport.scrollTop = viewport.scrollHeight;
   }, [content]);
 
-  const loading = content === null;
+  const loading = content === null || (isActive && contentState.key !== streamKey);
+  const ansiConverter = useMemo(() => new AnsiToHtml({ escapeXML: true, stream: false }), []);
 
   return (
-    <Stack gap="xs" h={430}>
+    <div style={{ height: 430, display: "flex", flexDirection: "column", gap: 8 }}>
       <Title order={4}>Live Console</Title>
-      <Text size="sm" c="dimmed">
-        {isActive && currentRunID
-          ? `Waiting for live logs from ${streamPhase} job ${currentRunID}`
-          : status}
-      </Text>
-      {loading && <Loader size="sm" />}
-      <ScrollArea
-        viewportRef={viewportRef}
-        style={{ flex: 1 }}
-        type="always"
-        offsetScrollbars="y"
-        scrollbarSize={10}
-      >
+      <Group gap="xs">
+        {loading && <Loader size="xs" />}
+        <Text size="sm" c="dimmed">
+          {isActive && currentRunID
+            ? contentState.key === streamKey && content
+              ? `Streaming ${streamPhase} logs for job ${currentRunID}`
+              : `Waiting for ${streamPhase} logs from job ${currentRunID}`
+            : status}
+        </Text>
+      </Group>
+      <div ref={viewportRef} style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         <Code
           block
           style={{
+            minHeight: "100%",
             boxSizing: "border-box",
-            height: "100%",
             whiteSpace: "pre-wrap",
             overflowWrap: "anywhere",
           }}
         >
-          {content || "Waiting for the latest completed run log."}
+          <span
+            dangerouslySetInnerHTML={{
+              __html: ansiConverter.toHtml(content || "Waiting for the latest completed run log."),
+            }}
+          />
         </Code>
-      </ScrollArea>
-    </Stack>
+      </div>
+    </div>
   );
 }

@@ -24,6 +24,7 @@ type TerraformClient struct {
 	versionConstraint string
 	logLevel          string
 	logPath           string
+	color             bool
 	// logger            view.Logger
 }
 
@@ -84,6 +85,7 @@ func (c *TerraformClient) Ensure(ctx context.Context) error {
 
 	terraform.SetStdout(c.stdout)
 	terraform.SetStderr(c.stderr)
+	terraform.SetNoColor(!c.color)
 	if c.env != nil {
 		if err := terraform.SetEnv(c.env); err != nil {
 			// c.logger.Error("Failed to set environment variables", "error", err)

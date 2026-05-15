@@ -78,6 +78,10 @@ spec:
         {{- if eq $name "workspace" }}
         - name: MAGOS_JOB_IMAGE
           value: "{{ $root.Values.jobImage.repository }}:{{ $root.Values.jobImage.tag | default $root.Chart.AppVersion }}"
+        {{- if not (($root.Values.job).colorOutput | default true) }}
+        - name: NO_COLOR
+          value: "1"
+        {{- end }}
         {{- include "magos.logstoreEnv" $root | nindent 8 }}
         - name: MAGOS_LOGS_API_URL
           value: {{ printf "http://%s-api:%v" (include "magos.fullname" $root) $root.Values.api.service.port | quote }}

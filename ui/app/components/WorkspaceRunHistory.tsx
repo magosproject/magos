@@ -13,7 +13,8 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import AnsiToHtml from "ansi-to-html";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiUrl } from "../api/base";
 import type { Phase, Run, RunListResponse, RunPhaseSummary } from "../api/types";
 import { formatDateTime } from "../utils/formatDateTime";
@@ -73,6 +74,11 @@ function LogPane({ namespace, workspaceName, runID, phase, summary }: LogPanePro
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(hasLog);
   const [error, setError] = useState("");
+
+  const ansiConverter = useMemo(
+    () => new AnsiToHtml({ escapeXML: true, stream: false }),
+    []
+  );
 
   useEffect(() => {
     if (!hasLog) return;
@@ -134,7 +140,11 @@ function LogPane({ namespace, workspaceName, runID, phase, summary }: LogPanePro
       {!loading && !error && content !== null && (
         <ScrollArea style={{ flex: 1, minHeight: 0 }}>
           <Code block>
-            {content || "Log is empty."}
+            <span
+              dangerouslySetInnerHTML={{
+                __html: ansiConverter.toHtml(content || "Log is empty."),
+              }}
+            />
           </Code>
         </ScrollArea>
       )}
