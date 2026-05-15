@@ -141,7 +141,6 @@ function LogPane({ namespace, workspaceName, runID, phase, summary }: LogPanePro
         <ScrollArea style={{ flex: 1, minHeight: 0 }}>
           <Code block>
             <span
-              // eslint-disable-next-line react/no-danger
               dangerouslySetInnerHTML={{
                 __html: ansiConverter.toHtml(content || "Log is empty."),
               }}
