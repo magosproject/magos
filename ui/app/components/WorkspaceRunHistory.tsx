@@ -117,7 +117,7 @@ function LogPane({ namespace, workspaceName, runID, phase, summary }: LogPanePro
   }
 
   return (
-    <Stack gap="xs">
+    <Stack gap="xs" style={{ flex: 1, minHeight: 0 }}>
       <Group gap="xs">
         <PhaseBadge summary={summary} />
         {summary.startedAt && (
@@ -309,8 +309,13 @@ export default function WorkspaceRunHistory({
           {
             key: "scheduledAt",
             label: "Scheduled",
-            tooltip:
-              "The time this run was originally due according to its schedule. \n\n Runs triggered by a configuration change or manually don't have a scheduled time. \n \n For scheduled runs, the actual start time may be later - this happens when an earlier rollout level (e.g. dev or staging) was still in progress when this workspace's turn came.",
+            tooltip: (
+              <Stack gap={4}>
+                <Text size="xs">The time this workspace was scheduled to run.</Text>
+                <Text size="xs">Not set for runs triggered by a config change or manual request.</Text>
+                <Text size="xs">A later actual start time means the workspace had to wait for an earlier environment in the rollout (e.g. dev or staging) to finish first.</Text>
+              </Stack>
+            ),
           },
           { key: "startedAt", label: "Start time" },
           { key: "finishedAt", label: "End time" },
@@ -404,9 +409,19 @@ export default function WorkspaceRunHistory({
         }
         position="bottom"
         size={expanded ? "100%" : "60%"}
+        styles={{
+          content: { display: "flex", flexDirection: "column" },
+          body: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" },
+        }}
       >
         {selected && (
-          <Tabs defaultValue="plan">
+          <Tabs
+            defaultValue="plan"
+            styles={{
+              root: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 },
+              panel: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" },
+            }}
+          >
             <Tabs.List>
               <Tabs.Tab value="plan">Plan</Tabs.Tab>
               <Tabs.Tab value="apply">Apply</Tabs.Tab>

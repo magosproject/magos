@@ -5,7 +5,7 @@ import { type CSSProperties, type ReactNode } from "react";
 interface Column {
   key: string;
   label: string;
-  tooltip?: string;
+  tooltip?: ReactNode;
 }
 
 interface Row {
