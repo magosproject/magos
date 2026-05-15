@@ -249,7 +249,6 @@ func main() {
 			Client:      mgr.GetClient(),
 			Scheme:      mgr.GetScheme(),
 			JobImage:    jobImage,
-			JobNoColor:  os.Getenv("MAGOS_JOB_NO_COLOR") == "1",
 			Clientset:   clientset,
 			LogStore:    runLogStore,
 			RunRecorder: runRecorder,

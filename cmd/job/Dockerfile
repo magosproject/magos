@@ -13,8 +13,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -ldflags="-s -w" -o job cmd/job/main.go
 
 FROM alpine:3.19
-RUN apk add --no-cache git ca-certificates curl libc6-compat && \
-    echo 'hosts: files dns' > /etc/nsswitch.conf
+RUN apk add --no-cache git ca-certificates curl
 
 # Install Kyverno CLI for JSON policy validation
 RUN curl -sSL https://github.com/kyverno/kyverno/releases/download/v1.17.0/kyverno-cli_v1.17.0_linux_x86_64.tar.gz | tar -xz && \

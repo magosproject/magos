@@ -171,9 +171,9 @@ jobServiceAccount:
 
 job:
   # colorOutput controls whether Terraform output includes ANSI colour codes.
-  # When true (default) the job container does not set NO_COLOR, so plan and
-  # apply output is rendered with colour in the Magos UI. Set to false to
-  # produce plain-text output.
+  # When true (default) plan and apply output is rendered with colour in the
+  # Magos UI. Set to false to produce plain-text output (sets NO_COLOR=1 on
+  # the workspace controller, which forwards it to every job pod).
   colorOutput: true
 
 logs:
