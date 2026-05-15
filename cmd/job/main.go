@@ -200,6 +200,10 @@ func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 		clientOpts = append(clientOpts, terraform.WithLog(cfg.TFLogLevel, "/dev/stderr"))
 	}
 
+	if _, noColor := os.LookupEnv("NO_COLOR"); !noColor {
+		clientOpts = append(clientOpts, terraform.WithColor())
+	}
+
 	log.Printf("Initializing Terraform %s in %s", cfg.TFVersion, workDir)
 	tfClient, err := terraform.NewClientFromInstall(ctx, workDir, cfg.TFVersion, "", clientOpts...)
 	if err != nil {
