@@ -1,4 +1,5 @@
 import { Code, Loader, ScrollArea, Stack, Text, Title } from "@mantine/core";
+import AnsiToHtml from "ansi-to-html";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiUrl } from "../api/base";
 import type { Phase, Run } from "../api/types";
@@ -176,6 +177,7 @@ export default function WorkspaceLiveConsole({
   }, [content]);
 
   const loading = content === null;
+  const ansiConverter = useMemo(() => new AnsiToHtml({ escapeXML: true, stream: false }), []);
 
   return (
     <Stack gap="xs" h={430}>
@@ -202,7 +204,12 @@ export default function WorkspaceLiveConsole({
             overflowWrap: "anywhere",
           }}
         >
-          {content || "Waiting for the latest completed run log."}
+          <span
+            // eslint-disable-next-line react/no-danger
+            dangerouslySetInnerHTML={{
+              __html: ansiConverter.toHtml(content || "Waiting for the latest completed run log."),
+            }}
+          />
         </Code>
       </ScrollArea>
     </Stack>

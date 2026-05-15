@@ -10,7 +10,7 @@ require (
 	github.com/go-git/go-git/v5 v5.18.0
 	github.com/magosproject/go-version v1.9.0
 	github.com/magosproject/hc-install v0.9.4
-	github.com/magosproject/terraform-exec v0.25.2-0.20260514155420-447a0895351e
+	github.com/magosproject/terraform-exec v0.25.1-0.20260420120402-dbd614cd18d0
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/prometheus/client_golang v1.23.2
@@ -81,6 +81,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
 	github.com/hashicorp/go-version v1.9.0 // indirect
+	github.com/hashicorp/terraform-exec v0.25.0 // indirect
 	github.com/hashicorp/terraform-json v0.27.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
