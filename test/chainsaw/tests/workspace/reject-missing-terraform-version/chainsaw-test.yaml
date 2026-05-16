@@ -4,13 +4,8 @@ metadata:
   name: reject-missing-terraform-version
 spec:
   description: |
-    terraform.version is what the Job image consumes at runtime to
-    install the right Terraform binary, and unlike source.path there
-    is no reasonable default: silently picking "latest" would expose
-    every user to breaking releases and state format upgrades they
-    never asked for. Admission rejection is the right escalation
-    path: fail fast, fail loud, and make the user state their intent
-    explicitly.
+    Asserts that the API server rejects a Workspace without
+    spec.terraform.version.
   steps:
   - try:
     - apply:

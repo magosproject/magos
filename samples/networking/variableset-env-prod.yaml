@@ -1,0 +1,18 @@
+apiVersion: magosproject.io/v1alpha1
+kind: VariableSet
+metadata:
+  name: env-prod
+  namespace: default
+spec:
+  description: Production tier sizing overrides for the networking project
+  variables:
+    - name: nat_gateway_count
+      value: "3"
+    - name: enable_flow_logs
+      value: "true"
+    - name: log_retention_days
+      valueFrom:
+        configMapKeyRef:
+          name: networking-prod-defaults
+          key: log_retention_days
+          optional: true

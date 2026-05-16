@@ -4,18 +4,10 @@ metadata:
   name: policy-crd-and-rbac
 spec:
   description: |
-    Plan-time policy evaluation depends on three pieces of cluster
-    infrastructure that the magos chart creates by default:
-    1. The policies.kyverno.io ValidatingPolicy CRD, which must be present
-       for any ValidatingPolicy resource to be accepted.
-    2. The magos-job ServiceAccount in the chart namespace, which the plan
-       Job pod runs as.
-    3. A ClusterRole and ClusterRoleBinding that grant the ServiceAccount
-       get/list/watch on validatingpolicies so the job can fetch matching
-       policies at runtime.
-    If any of these are missing, the plan job silently skips policy
-    evaluation (RBAC errors) or crashes (CRD missing). This test asserts
-    all three are present and functional after chart installation.
+    Asserts that a chart install creates the
+    policies.kyverno.io ValidatingPolicy CRD, the magos-job
+    ServiceAccount, and the ClusterRole and ClusterRoleBinding that
+    grant the ServiceAccount get/list/watch on validatingpolicies.
   steps:
   - try:
     - assert:

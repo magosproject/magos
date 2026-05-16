@@ -4,14 +4,10 @@ metadata:
   name: default-parallel
 spec:
   description: |
-    When no Rollout exists with a matching name, the Project is the
-    orchestrator of last resort: it grants execution permission to every
-    Workspace pointing back at it and reports reason=DefaultParallel so
-    operators can tell at a glance that no staged rollout is in play.
-    This test pins that fallback behaviour, because without it a user
-    who simply creates a Project plus a Workspace and expects `terraform
-    apply` to run would be stuck in AwaitingRollout forever with no
-    indication why.
+    Asserts that a Project with no matching Rollout reaches
+    phase=Ready with reason=DefaultParallel and grants
+    magosproject.io/execution-allowed=true to each Workspace that
+    references it.
   steps:
   - try:
     - apply:

@@ -147,6 +147,19 @@ type WorkspaceSpec struct {
 	// +optional
 	Validation *ValidationSpec `json:"validation,omitempty"`
 
+	// VariableSetRef references one or more VariableSets that contribute
+	// Terraform input variables to this Workspace. They layer on top of the
+	// VariableSets attached to the parent Project: Project sets are applied
+	// first in declaration order, then Workspace sets, and within that
+	// combined order a later set's variable shadows an earlier set's
+	// variable of the same name. Values resolved from VariableSets are
+	// exposed to terraform as TF_VAR_<name> environment variables on the
+	// plan and apply pods, which means they take precedence over any
+	// matching variable declared in spec.terraform.tfvarsPath (env beats
+	// .tfvars in Terraform's precedence rules).
+	// +optional
+	VariableSetRef []VariableSetReference `json:"variableSetRef,omitempty"`
+
 	// ServiceAccountName is the ServiceAccount that plan and apply Job pods
 	// run under. The ServiceAccount must exist in the same namespace as the
 	// Workspace. Defaults to magos-job, which the Helm chart creates with
@@ -227,6 +240,19 @@ type WorkspaceStatus struct {
 	// time without querying the log store.
 	// +optional
 	LastRunStartedAt *metav1.Time `json:"lastRunStartedAt,omitempty"`
+
+	// VariablesHash is a short fingerprint of the effective VariableSet
+	// composition for this Workspace at the time of the last successful
+	// reconcile. It is derived from the (name, source kind, source name,
+	// source key, resourceVersion) tuple for each resolved variable and
+	// from any inline values, so a rotated Secret or a re-ordered ref
+	// layer produces a new hash even though .spec did not change. The
+	// workspace controller compares this against the freshly computed hash
+	// each reconcile; a divergence is treated like a spec change and
+	// triggers a fresh plan, which is how Secret rotations propagate into
+	// Terraform without operator intervention.
+	// +optional
+	VariablesHash string `json:"variablesHash,omitempty"`
 
 	// conditions represent the current state of the Workspace resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.

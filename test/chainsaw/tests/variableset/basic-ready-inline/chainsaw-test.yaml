@@ -1,0 +1,36 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: basic-ready-inline
+spec:
+  description: |
+    Asserts that a VariableSet with two inline values reaches
+    phase=Ready with resolvedVariables=2.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: inline-vs
+          spec:
+            variables:
+              - name: region
+                value: us-east-1
+              - name: replicas
+                value: "3"
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: inline-vs
+          status:
+            phase: Ready
+            reason: AllReferencesResolved
+            resolvedVariables: 2
+            conditions:
+            - type: Ready
+              status: "True"
+              reason: AllReferencesResolved

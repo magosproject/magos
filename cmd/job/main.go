@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -446,6 +447,35 @@ func parseKyvernoReport(output []byte) []policyViolation {
 	return violations
 }
 
+// logTerraformEnvVars writes a single line naming the TF_VAR_* environment
+// variables the workspace controller injected onto this pod. Names are
+// derived from os.Environ() so this works regardless of which path put the
+// value there (inline literal, Secret reference, ConfigMap reference) and
+// stays correct if a future code path adds another source. Names only,
+// never values: archived pod logs are read by humans and stored at rest, so
+// the value of a Secret-backed variable must never appear here.
+func logTerraformEnvVars() {
+	const prefix = "TF_VAR_"
+	var names []string
+	for _, kv := range os.Environ() {
+		eq := strings.IndexByte(kv, '=')
+		if eq <= 0 {
+			continue
+		}
+		if name, ok := strings.CutPrefix(kv[:eq], prefix); ok {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		log.Println("No Terraform inputs from VariableSets attached to this run")
+		return
+	}
+	// Sort so the line is stable across reruns even though os.Environ
+	// itself does not guarantee any ordering.
+	sort.Strings(names)
+	log.Printf("Loaded %d Terraform input(s) from VariableSets: %s", len(names), strings.Join(names, ", "))
+}
+
 // run drives a single job from start to finish. It configures logging, loads
 // and validates the environment configuration, creates a per pod temporary
 // workspace under /tmp, clones the repository into it, and then hands off to
@@ -461,6 +491,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	// Log the Terraform inputs this run will see. We log names only,
+	// never values, because secret-backed variables resolve into the pod
+	// env before the job process starts and the pod log is archived to
+	// the run log store. A single accidental TF_VAR_password value in
+	// archived logs is a real credential leak, so this stays strictly
+	// names-only.
+	logTerraformEnvVars()
 
 	tmpDir, err := os.MkdirTemp("", "magos-workspace-*")
 	if err != nil {

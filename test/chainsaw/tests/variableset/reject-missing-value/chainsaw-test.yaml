@@ -1,0 +1,25 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: reject-missing-value
+spec:
+  description: |
+    Asserts that the API server rejects a VariableSet whose
+    variable sets neither value nor valueFrom.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: neither-set
+          spec:
+            variables:
+              - name: region
+        expect:
+        - match:
+            apiVersion: magosproject.io/v1alpha1
+            kind: VariableSet
+          check:
+            ($error != null): true

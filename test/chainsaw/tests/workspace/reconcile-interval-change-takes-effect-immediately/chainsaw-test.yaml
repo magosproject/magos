@@ -4,13 +4,9 @@ metadata:
   name: reconcile-interval-change-takes-effect-immediately
 spec:
   description: |
-    A change to magosproject.io/reconcile-interval should take effect
-    immediately, even when the Workspace already has a future
-    status.nextReconcileTime persisted from the previous interval. This test
-    drives the Workspace to a terminal failed state with a long interval,
-    stores that initial nextReconcileTime, then shortens the interval and
-    verifies the controller recomputes a materially earlier nextReconcileTime
-    instead of staying pinned to the old schedule.
+    Asserts that shortening magosproject.io/reconcile-interval on a
+    Workspace immediately moves status.nextReconcileTime earlier,
+    instead of waiting for the previously persisted schedule.
   steps:
   - try:
     - apply:

@@ -4,14 +4,8 @@ metadata:
   name: awaiting-rollout
 spec:
   description: |
-    A Workspace on its own, with no Project around to grant
-    DefaultParallel and no Rollout around to include it in a step, must
-    sit idle in Pending rather than charging ahead and running
-    Terraform with no orchestration context behind it. The
-    reason=AwaitingRollout string is what operators and the UI key off
-    to distinguish "blocked on policy" from "blocked on an error", so
-    it is worth pinning down explicitly even though the phase alone
-    would catch a regression.
+    Asserts that a Workspace whose Project does not exist stays in
+    phase=Pending with reason=AwaitingRollout.
   steps:
   - try:
     - apply:
