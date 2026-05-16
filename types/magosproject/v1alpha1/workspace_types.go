@@ -242,15 +242,19 @@ type WorkspaceStatus struct {
 	LastRunStartedAt *metav1.Time `json:"lastRunStartedAt,omitempty"`
 
 	// VariablesHash is a short fingerprint of the effective VariableSet
-	// composition for this Workspace at the time of the last successful
-	// reconcile. It is derived from the (name, source kind, source name,
-	// source key, resourceVersion) tuple for each resolved variable and
-	// from any inline values, so a rotated Secret or a re-ordered ref
-	// layer produces a new hash even though .spec did not change. The
-	// workspace controller compares this against the freshly computed hash
-	// each reconcile; a divergence is treated like a spec change and
-	// triggers a fresh plan, which is how Secret rotations propagate into
-	// Terraform without operator intervention.
+	// composition stamped at the start of the most recent plan and
+	// apply run this controller kicked off. It is derived from the
+	// (name, source kind, source name, source key, resourceVersion)
+	// tuple for each resolved variable and from any inline values, so
+	// a rotated Secret produces a new hash even when .spec did not
+	// change. Re-ordering refs only changes the hash when the new
+	// ordering selects a different winning source for some variable;
+	// reorderings that preserve the name-to-source mapping are a
+	// no-op. The workspace controller compares this against the
+	// freshly computed hash each reconcile; a divergence is treated
+	// like a spec change and triggers a fresh plan, which is how
+	// Secret rotations propagate into Terraform without operator
+	// intervention.
 	// +optional
 	VariablesHash string `json:"variablesHash,omitempty"`
 

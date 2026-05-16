@@ -38,6 +38,13 @@ import (
 // happens entirely inside the variableset package so this controller and the
 // VariableSet controller stay in lockstep about precedence semantics.
 //
+// Unresolved entries are collected from the composed effective list rather
+// than from each set in isolation: a Missing reference in an earlier set
+// that is shadowed by a later set's resolved value must not block the
+// Workspace, since the effective TF_VAR_* the pod would receive is the
+// later value. Missing VariableSet references themselves are collected
+// pre-composition because they cannot be shadowed.
+//
 // A returned error indicates an unexpected API failure such as a transport
 // problem reading the parent Project or one of the VariableSets. A missing
 // VariableSet or a missing Secret/ConfigMap reference does NOT return an
@@ -83,7 +90,10 @@ func (r *WorkspaceReconciler) resolveWorkspaceVariables(ctx context.Context, ws 
 				// status as a single synthetic unresolved entry. We
 				// reuse the UnresolvedReference shape so the message
 				// generator at the call site does not need to know
-				// about a second kind of failure.
+				// about a second kind of failure. Missing
+				// VariableSets cannot be shadowed by a later set,
+				// so we collect them here rather than after
+				// composition.
 				unresolved = append(unresolved, v1alpha1.UnresolvedReference{
 					Variable: "",
 					Kind:     "VariableSet",
@@ -101,24 +111,38 @@ func (r *WorkspaceReconciler) resolveWorkspaceVariables(ctx context.Context, ws 
 			return nil, nil, fmt.Errorf("resolve variableset %s: %w", ref.Name, err)
 		}
 		results = append(results, res)
-		unresolved = append(unresolved, res.Unresolved...)
 	}
 
-	return variableset.ComposeEffective(results), unresolved, nil
+	effective := variableset.ComposeEffective(results)
+
+	// Collect Missing references from the effective list so a hard miss
+	// in an earlier set that was shadowed by a later set's resolved
+	// value does not appear in unresolvedReferences.
+	for i := range effective {
+		if effective[i].Missing != nil {
+			unresolved = append(unresolved, *effective[i].Missing)
+		}
+	}
+
+	return effective, unresolved, nil
 }
 
 // variableEnvVars converts a composed list of resolved variables into the
 // container env entries that the plan and apply pods consume. Inline values
 // land verbatim. Secret and ConfigMap references are forwarded as valueFrom
-// entries so the kubelet performs the actual read at pod startup; this means
-// the controller process never holds the secret bytes and a rotation in the
-// source resource takes effect on the next pod scheduling without any code
-// path in the controller seeing the new value.
+// entries so the kubelet performs the actual read at pod startup, and
+// rotations in the source resource take effect on the next pod scheduling
+// without any code path in the controller seeing the new value.
+//
+// When the original KeySelector was Optional, we propagate that onto the
+// kubelet-facing SecretKeySelector / ConfigMapKeySelector so the pod does
+// not hard-fail at startup if the source disappears in the window between
+// resolve time and pod scheduling.
 //
 // Variables flagged as Missing are skipped silently here. The caller is
 // expected to surface them on status before invoking this helper, and
-// dropping them keeps the pod env clean of placeholder TF_VAR_* entries that
-// would otherwise confuse Terraform.
+// dropping them keeps the pod env clean of placeholder TF_VAR_* entries
+// that would otherwise confuse Terraform.
 func variableEnvVars(vars []variableset.ResolvedVariable) []corev1.EnvVar {
 	if len(vars) == 0 {
 		return nil
@@ -131,24 +155,30 @@ func variableEnvVars(vars []variableset.ResolvedVariable) []corev1.EnvVar {
 		case v.Inline != nil:
 			out = append(out, corev1.EnvVar{Name: envName, Value: *v.Inline})
 		case v.SecretRef != nil:
+			sel := &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: v.SecretRef.Name},
+				Key:                  v.SecretRef.Key,
+			}
+			if v.SecretRef.Optional {
+				optional := true
+				sel.Optional = &optional
+			}
 			out = append(out, corev1.EnvVar{
-				Name: envName,
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{Name: v.SecretRef.Name},
-						Key:                  v.SecretRef.Key,
-					},
-				},
+				Name:      envName,
+				ValueFrom: &corev1.EnvVarSource{SecretKeyRef: sel},
 			})
 		case v.ConfigMapRef != nil:
+			sel := &corev1.ConfigMapKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: v.ConfigMapRef.Name},
+				Key:                  v.ConfigMapRef.Key,
+			}
+			if v.ConfigMapRef.Optional {
+				optional := true
+				sel.Optional = &optional
+			}
 			out = append(out, corev1.EnvVar{
-				Name: envName,
-				ValueFrom: &corev1.EnvVarSource{
-					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{Name: v.ConfigMapRef.Name},
-						Key:                  v.ConfigMapRef.Key,
-					},
-				},
+				Name:      envName,
+				ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: sel},
 			})
 		}
 	}

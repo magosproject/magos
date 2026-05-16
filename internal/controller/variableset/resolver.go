@@ -79,10 +79,15 @@ type ResolvedVariable struct {
 // ResolvedKeyRef captures a successfully resolved Secret or ConfigMap key
 // reference. ResourceVersion is the source object's resourceVersion at
 // resolution time and feeds directly into the variables-hash fingerprint.
+// Optional mirrors KeySelector.Optional so the workspace controller can
+// stamp it onto the pod's SecretKeySelector/ConfigMapKeySelector and the
+// kubelet will skip the env var instead of hard-failing the pod if the
+// source disappears between resolve time and pod start.
 type ResolvedKeyRef struct {
 	Name            string
 	Key             string
 	ResourceVersion string
+	Optional        bool
 }
 
 // Resolve walks a VariableSet's variables and resolves each one against the
@@ -151,6 +156,7 @@ func resolveVariable(ctx context.Context, c client.Client, namespace string, v *
 			Name:            secret.Name,
 			Key:             sel.Key,
 			ResourceVersion: secret.ResourceVersion,
+			Optional:        sel.Optional,
 		}
 		return r, nil
 
@@ -178,6 +184,7 @@ func resolveVariable(ctx context.Context, c client.Client, namespace string, v *
 			Name:            cm.Name,
 			Key:             sel.Key,
 			ResourceVersion: cm.ResourceVersion,
+			Optional:        sel.Optional,
 		}
 		return r, nil
 	}
@@ -337,9 +344,9 @@ func Fingerprint(vars []ResolvedVariable) string {
 		case v.Inline != nil:
 			write("inline", *v.Inline)
 		case v.SecretRef != nil:
-			write("secret", v.SecretRef.Name, v.SecretRef.Key, v.SecretRef.ResourceVersion)
+			write("secret", v.SecretRef.Name, v.SecretRef.Key, v.SecretRef.ResourceVersion, fmt.Sprintf("%t", v.SecretRef.Optional))
 		case v.ConfigMapRef != nil:
-			write("configmap", v.ConfigMapRef.Name, v.ConfigMapRef.Key, v.ConfigMapRef.ResourceVersion)
+			write("configmap", v.ConfigMapRef.Name, v.ConfigMapRef.Key, v.ConfigMapRef.ResourceVersion, fmt.Sprintf("%t", v.ConfigMapRef.Optional))
 		case v.Missing != nil:
 			// A missing reference still contributes to the hash so that
 			// re-creating the source Secret with the same resourceVersion

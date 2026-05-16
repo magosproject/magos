@@ -102,8 +102,10 @@ type Variable struct {
 	// Value is an inline literal. Use this only for non-sensitive data
 	// because the value is stored verbatim in the CR and is visible to
 	// anyone with read access to VariableSets in the namespace. For
-	// sensitive material use ValueFrom.SecretKeyRef instead, which keeps
-	// the secret bytes out of the CR and out of controller process memory.
+	// sensitive material use ValueFrom.SecretKeyRef instead: the
+	// controller never writes the resolved value to the CR, status, or
+	// logs, and the kubelet performs the actual read from the source
+	// Secret at pod start.
 	// +optional
 	Value *string `json:"value,omitempty"`
 
@@ -229,9 +231,11 @@ type VariableSetStatus struct {
 	// +optional
 	UnresolvedReferences []UnresolvedReference `json:"unresolvedReferences,omitempty"`
 
-	// LastReconcileTime is the timestamp of the last reconciliation. Useful
-	// for spotting controllers that have stopped reconciling without
-	// crashing.
+	// LastReconcileTime is the timestamp of the most recent status
+	// change observed by the controller. It is not refreshed on no-op
+	// reconciles, so this field is not a reliable signal for
+	// detecting stalled controllers; use the
+	// variableset_reconcile_total metric for that.
 	// +optional
 	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
 

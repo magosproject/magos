@@ -1,0 +1,71 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: optional-secret-propagates-to-pod-env
+spec:
+  description: |
+    Asserts that an optional secretKeyRef on a VariableSet variable
+    is forwarded to the plan Job as a SecretKeySelector with
+    optional=true.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: optional-source
+          type: Opaque
+          stringData:
+            password: example
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: optional-vs
+          spec:
+            variables:
+              - name: db_password
+                valueFrom:
+                  secretKeyRef:
+                    name: optional-source
+                    key: password
+                    optional: true
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: optional-project
+          spec:
+            variableSetRef:
+              - name: optional-vs
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: optional-ws
+          spec:
+            projectRef:
+              name: optional-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.14.8"
+    - assert:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            labels:
+              magosproject.io/workspace: optional-ws
+              magosproject.io/job-type: plan
+    - script:
+        content: |
+          kubectl get jobs -n "$NAMESPACE" \
+            -l magosproject.io/workspace=optional-ws,magosproject.io/job-type=plan \
+            -o jsonpath='{range .items[0].spec.template.spec.containers[0].env[?(@.name=="TF_VAR_db_password")]}{.valueFrom.secretKeyRef.optional}{end}' \
+            | grep -qx "true"

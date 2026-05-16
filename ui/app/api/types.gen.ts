@@ -994,8 +994,10 @@ export interface components {
              * @description Value is an inline literal. Use this only for non-sensitive data
              *     because the value is stored verbatim in the CR and is visible to
              *     anyone with read access to VariableSets in the namespace. For
-             *     sensitive material use ValueFrom.SecretKeyRef instead, which keeps
-             *     the secret bytes out of the CR and out of controller process memory.
+             *     sensitive material use ValueFrom.SecretKeyRef instead: the
+             *     controller never writes the resolved value to the CR, status, or
+             *     logs, and the kubelet performs the actual read from the source
+             *     Secret at pod start.
              *     +optional
              */
             value?: string;
@@ -1865,9 +1867,11 @@ export interface components {
              */
             conditions?: components["schemas"]["v1.Condition"][];
             /**
-             * @description LastReconcileTime is the timestamp of the last reconciliation. Useful
-             *     for spotting controllers that have stopped reconciling without
-             *     crashing.
+             * @description LastReconcileTime is the timestamp of the most recent status
+             *     change observed by the controller. It is not refreshed on no-op
+             *     reconciles, so this field is not a reliable signal for
+             *     detecting stalled controllers; use the
+             *     variableset_reconcile_total metric for that.
              *     +optional
              */
             lastReconcileTime?: string;
@@ -2061,15 +2065,19 @@ export interface components {
             reason?: string;
             /**
              * @description VariablesHash is a short fingerprint of the effective VariableSet
-             *     composition for this Workspace at the time of the last successful
-             *     reconcile. It is derived from the (name, source kind, source name,
-             *     source key, resourceVersion) tuple for each resolved variable and
-             *     from any inline values, so a rotated Secret or a re-ordered ref
-             *     layer produces a new hash even though .spec did not change. The
-             *     workspace controller compares this against the freshly computed hash
-             *     each reconcile; a divergence is treated like a spec change and
-             *     triggers a fresh plan, which is how Secret rotations propagate into
-             *     Terraform without operator intervention.
+             *     composition stamped at the start of the most recent plan and
+             *     apply run this controller kicked off. It is derived from the
+             *     (name, source kind, source name, source key, resourceVersion)
+             *     tuple for each resolved variable and from any inline values, so
+             *     a rotated Secret produces a new hash even when .spec did not
+             *     change. Re-ordering refs only changes the hash when the new
+             *     ordering selects a different winning source for some variable;
+             *     reorderings that preserve the name-to-source mapping are a
+             *     no-op. The workspace controller compares this against the
+             *     freshly computed hash each reconcile; a divergence is treated
+             *     like a spec change and triggers a fresh plan, which is how
+             *     Secret rotations propagate into Terraform without operator
+             *     intervention.
              *     +optional
              */
             variablesHash?: string;
