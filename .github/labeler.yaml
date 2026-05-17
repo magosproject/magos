@@ -18,7 +18,8 @@ documentation:
 crd:
   - changed-files:
       - any-glob-to-any-file:
-          - "charts/magos/crds/**"
+          - "charts/magos/resources/crds/**"
+          - "charts/magos/templates/crds.yaml"
 
 chart:
   - changed-files:
