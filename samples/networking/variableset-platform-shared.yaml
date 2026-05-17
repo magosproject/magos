@@ -1,0 +1,15 @@
+apiVersion: magosproject.io/v1alpha1
+kind: VariableSet
+metadata:
+  name: platform-shared
+  namespace: default
+spec:
+  description: Shared region and bootstrap secrets for the networking project
+  variables:
+    - name: region
+      value: us-east-1
+    - name: db_admin_password
+      valueFrom:
+        secretKeyRef:
+          name: networking-db-admin
+          key: password

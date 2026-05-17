@@ -4,13 +4,9 @@ metadata:
   name: manual-reconcile-preserves-schedule
 spec:
   description: |
-    A manual reconcile should start a fresh cycle without changing the
-    Workspace's existing drift-detection schedule. The test lets a plain
-    Workspace create its real plan Job, then patches that Job to Failed so the
-    controller naturally reaches a terminal Failed/PlanFailed state with
-    nextReconcileTime populated. It then requests a manual reconcile, patches
-    the replacement plan Job to Failed as well, and verifies
-    status.nextReconcileTime stayed unchanged across the fresh cycle.
+    Asserts that requesting a manual reconcile on a Workspace in a
+    terminal Failed state does not change its
+    status.nextReconcileTime.
   steps:
   - try:
     - apply:

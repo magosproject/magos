@@ -4,11 +4,8 @@ metadata:
   name: policy-selector-matchlabels
 spec:
   description: |
-    When a Workspace declares a policySelector with matchLabels, the
-    workspace controller must pass that selector as MAGOS_POLICY_SELECTOR
-    on the plan Job so the job knows which ValidatingPolicies to
-    fetch at runtime. If that wiring breaks, the job silently skips all
-    policy validation regardless of what the operator configured.
+    Asserts that a Workspace policySelector using matchLabels is
+    passed as MAGOS_POLICY_SELECTOR on the plan Job env.
   steps:
   - try:
     - apply:

@@ -4,13 +4,8 @@ metadata:
   name: deletion
 spec:
   description: |
-    Mirror of project/deletion: delete the Workspace, confirm the
-    finalizer is removed, and confirm the object is actually gone. All
-    cleanup of owned resources (Jobs, PVCs) is delegated to Kubernetes
-    garbage collection via owner references, so if the finalizer ever
-    fails to be removed we also stop cleaning up every piece of child
-    state the Workspace had produced. One regression here leaks both
-    the parent object and everything underneath it.
+    Asserts that deleting a Workspace removes its finalizer and the
+    object is fully reaped.
   steps:
   - try:
     - apply:

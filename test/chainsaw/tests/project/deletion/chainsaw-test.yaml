@@ -4,14 +4,8 @@ metadata:
   name: deletion
 spec:
   description: |
-    Project deletion is a two phase dance: the finalizer keeps the
-    object alive long enough for handleDeletion to run and emit a
-    Deleting status for observability, then the controller removes the
-    finalizer so Kubernetes can finally reap it. Projects own no
-    external infrastructure directly, so the only real work in that
-    second phase is finalizer removal. If we ever regress and forget
-    to remove it, Projects will appear to hang forever in Terminating
-    and operators will be forced to patch the finalizer off by hand.
+    Asserts that deleting a Project removes its finalizer and the
+    object is fully reaped.
   steps:
   - try:
     - apply:

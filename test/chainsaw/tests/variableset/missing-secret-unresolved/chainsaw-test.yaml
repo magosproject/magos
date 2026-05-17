@@ -1,0 +1,47 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: missing-secret-unresolved
+spec:
+  description: |
+    Asserts that a VariableSet with a secretKeyRef pointing at a
+    nonexistent Secret reaches phase=Failed with an
+    UnresolvedReferences entry containing reason=ResourceNotFound.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: missing-secret-vs
+          spec:
+            variables:
+              - name: db_admin_password
+                valueFrom:
+                  secretKeyRef:
+                    name: does-not-exist
+                    key: password
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: missing-secret-vs
+          status:
+            phase: Failed
+            reason: UnresolvedReferences
+            # resolvedVariables is intentionally absent: the field is
+            # omitempty so the API server drops it when the value is
+            # zero. The unresolvedReferences entry below already pins
+            # down the failure shape.
+            unresolvedReferences:
+            - variable: db_admin_password
+              kind: Secret
+              name: does-not-exist
+              key: password
+              reason: ResourceNotFound
+            conditions:
+            - type: Ready
+              status: "False"
+              reason: UnresolvedReferences

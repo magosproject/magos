@@ -129,6 +129,7 @@ export default function Project() {
                 <Title order={4}>Inheritance Lineage</Title>
                 <Text size="sm" c="dimmed">
                   Variable sets flow into the project and are inherited by its workspaces.
+                  A workspace can also attach a variable set directly; those connections appear as dashed edges.
                 </Text>
                 <ProjectLineageGraph
                   project={project}

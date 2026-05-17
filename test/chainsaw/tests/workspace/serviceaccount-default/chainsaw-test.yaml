@@ -4,11 +4,9 @@ metadata:
   name: serviceaccount-default
 spec:
   description: |
-    The CRD schema defaults serviceAccountName to magos-job so that plan
-    and apply Job pods have the RBAC needed to list ValidatingPolicies
-    without operators having to remember to set the field. This test is
-    the canary that catches a CRD regeneration accidentally dropping or
-    changing that default before it ships to users.
+    Asserts that a Workspace created without
+    spec.serviceAccountName has the field defaulted to "magos-job"
+    by the CRD schema.
   steps:
   - try:
     - apply:

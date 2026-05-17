@@ -978,6 +978,31 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        "github_com_magosproject_magos_types_magosproject_v1alpha1.Variable": {
+            /**
+             * @description Name is the Terraform variable name. The workspace controller exposes
+             *     it on the pod as TF_VAR_<name>, so it must be a valid Terraform
+             *     identifier: letters, digits, and underscores, not starting with a
+             *     digit.
+             *     +required
+             *     +kubebuilder:validation:MinLength=1
+             *     +kubebuilder:validation:MaxLength=253
+             *     +kubebuilder:validation:Pattern=`^[a-zA-Z_][a-zA-Z0-9_]*$`
+             */
+            name?: string;
+            /**
+             * @description Value is an inline literal. Use this only for non-sensitive data
+             *     because the value is stored verbatim in the CR and is visible to
+             *     anyone with read access to VariableSets in the namespace. For
+             *     sensitive material use ValueFrom.SecretKeyRef instead: the
+             *     controller never writes the resolved value to the CR, status, or
+             *     logs, and the kubelet performs the actual read from the source
+             *     Secret at pod start.
+             *     +optional
+             */
+            value?: string;
+            valueFrom?: components["schemas"]["v1alpha1.VariableSource"];
+        };
         "handlers.ErrorResponse": {
             error?: string;
         };
@@ -1433,6 +1458,38 @@ export interface components {
             timeoutSeconds?: number;
         };
         /**
+         * @description ConfigMapKeyRef reads the value from a key inside a ConfigMap in the
+         *     same namespace. Useful for non-sensitive shared settings (region,
+         *     account IDs, feature flags) that you still want versioned alongside
+         *     your application configuration.
+         *     +optional
+         */
+        "v1alpha1.KeySelector": {
+            /**
+             * @description Key inside the resource's data map. Must be present on the source
+             *     object unless Optional is true.
+             *     +required
+             *     +kubebuilder:validation:MinLength=1
+             */
+            key?: string;
+            /**
+             * @description Name of the Secret or ConfigMap.
+             *     +required
+             *     +kubebuilder:validation:MinLength=1
+             */
+            name?: string;
+            /**
+             * @description Optional, when true, treats a missing resource or missing key as a
+             *     no-op rather than an error. The variable is omitted from the pod
+             *     environment, and the missing reference is not reported in
+             *     VariableSetStatus.UnresolvedReferences. Useful for variables that are
+             *     only present in some environments (e.g. an optional staging-only
+             *     override).
+             *     +optional
+             */
+            optional?: boolean;
+        };
+        /**
          * @description Phase represents the current phase of the Workspace
          *     +optional
          * @enum {string}
@@ -1713,6 +1770,37 @@ export interface components {
              */
             version?: string;
         };
+        "v1alpha1.UnresolvedReference": {
+            /**
+             * @description Key is the missing key within the referenced resource. Set even when
+             *     the resource itself was not found, so that operators can see at a
+             *     glance which variable is affected without correlating two list
+             *     entries.
+             *     +required
+             */
+            key?: string;
+            /**
+             * @description Kind is "Secret" or "ConfigMap" depending on which valueFrom source
+             *     was used.
+             *     +required
+             */
+            kind?: string;
+            /**
+             * @description Name is the referenced resource's metadata.name.
+             *     +required
+             */
+            name?: string;
+            /**
+             * @description Reason is a CamelCase code: ResourceNotFound, KeyNotFound, Forbidden.
+             *     +required
+             */
+            reason?: string;
+            /**
+             * @description Variable is the .spec.variables[].name that could not be resolved.
+             *     +required
+             */
+            variable?: string;
+        };
         /**
          * @description Validation configures plan-time policy validation for this Workspace.
          *     When nil, the parent Project's Validation applies if set. When non-nil,
@@ -1741,10 +1829,24 @@ export interface components {
          */
         "v1alpha1.VariableSetSpec": {
             /**
-             * @description foo is an example field of VariableSet. Edit variableset_types.go to remove/update
+             * @description Description is a human-readable purpose for this VariableSet. Optional
+             *     and not consumed by any controller; it exists so that operators can
+             *     document intent in the same place as the data.
              *     +optional
              */
-            foo?: string;
+            description?: string;
+            /**
+             * @description Variables is the ordered list of Terraform variables this set
+             *     contributes. Each entry becomes TF_VAR_<name> on the plan and apply
+             *     pods of any Workspace that references this set. Order is preserved on
+             *     the wire so that consumers can rely on a stable iteration order when
+             *     computing hashes, but ordering does not change semantics within a
+             *     single set: duplicate names are rejected.
+             *     +listType=map
+             *     +listMapKey=name
+             *     +kubebuilder:validation:MinItems=1
+             */
+            variables?: components["schemas"]["github_com_magosproject_magos_types_magosproject_v1alpha1.Variable"][];
         };
         /**
          * @description status defines the observed state of VariableSet
@@ -1753,12 +1855,10 @@ export interface components {
         "v1alpha1.VariableSetStatus": {
             /**
              * @description conditions represent the current state of the VariableSet resource.
-             *     Each condition has a unique type and reflects the status of a specific aspect of the resource.
              *
-             *     Standard condition types include:
-             *     - "Available": the resource is fully functional
-             *     - "Progressing": the resource is being created or updated
-             *     - "Degraded": the resource failed to reach or maintain its desired state
+             *     Standard condition types:
+             *     - "Ready": every required reference resolved and the set is safe to
+             *       consume.
              *
              *     The status of each condition is one of True, False, or Unknown.
              *     +listType=map
@@ -1766,6 +1866,59 @@ export interface components {
              *     +optional
              */
             conditions?: components["schemas"]["v1.Condition"][];
+            /**
+             * @description LastReconcileTime is the timestamp of the most recent status
+             *     change observed by the controller. It is not refreshed on no-op
+             *     reconciles, so this field is not a reliable signal for
+             *     detecting stalled controllers; use the
+             *     variableset_reconcile_total metric for that.
+             *     +optional
+             */
+            lastReconcileTime?: string;
+            /**
+             * @description Message is a human-readable explanation of the current phase.
+             *     +optional
+             */
+            message?: string;
+            /**
+             * @description ObservedGeneration is the .metadata.generation observed on the last
+             *     reconcile. Lets consumers distinguish a stale "Ready" condition (from
+             *     before a spec change) from a current one.
+             *     +optional
+             */
+            observedGeneration?: number;
+            phase?: components["schemas"]["v1alpha1.Phase"];
+            /**
+             * @description Reason is a brief CamelCase string explaining the current phase.
+             *     +optional
+             */
+            reason?: string;
+            /**
+             * @description ResolvedVariables is the number of variables whose source was readable
+             *     at the last reconcile. Inline values always count as resolved.
+             *     Optional missing references do not count, which makes this a useful
+             *     quick check for "how many TF_VAR_* will a workspace receive".
+             *     +optional
+             */
+            resolvedVariables?: number;
+            /**
+             * @description UnresolvedReferences lists references that could not be read at the
+             *     last reconcile. Empty when every required reference is satisfied.
+             *     Optional references that resolved to "missing" are intentionally not
+             *     reported here.
+             *     +listType=atomic
+             *     +optional
+             */
+            unresolvedReferences?: components["schemas"]["v1alpha1.UnresolvedReference"][];
+        };
+        /**
+         * @description ValueFrom sources the variable's value from another resource in the
+         *     same namespace. Mutually exclusive with Value.
+         *     +optional
+         */
+        "v1alpha1.VariableSource": {
+            configMapKeyRef?: components["schemas"]["v1alpha1.KeySelector"];
+            secretKeyRef?: components["schemas"]["v1alpha1.KeySelector"];
         };
         "v1alpha1.Workspace": {
             metadata?: components["schemas"]["v1.ObjectMeta"];
@@ -1809,6 +1962,20 @@ export interface components {
             source?: components["schemas"]["v1alpha1.SourceSpec"];
             terraform?: components["schemas"]["v1alpha1.TerraformSpec"];
             validation?: components["schemas"]["v1alpha1.ValidationSpec"];
+            /**
+             * @description VariableSetRef references one or more VariableSets that contribute
+             *     Terraform input variables to this Workspace. They layer on top of the
+             *     VariableSets attached to the parent Project: Project sets are applied
+             *     first in declaration order, then Workspace sets, and within that
+             *     combined order a later set's variable shadows an earlier set's
+             *     variable of the same name. Values resolved from VariableSets are
+             *     exposed to terraform as TF_VAR_<name> environment variables on the
+             *     plan and apply pods, which means they take precedence over any
+             *     matching variable declared in spec.terraform.tfvarsPath (env beats
+             *     .tfvars in Terraform's precedence rules).
+             *     +optional
+             */
+            variableSetRef?: components["schemas"]["v1alpha1.VariableSetReference"][];
         };
         /**
          * @description status defines the observed state of Workspace
@@ -1896,6 +2063,24 @@ export interface components {
              *     +optional
              */
             reason?: string;
+            /**
+             * @description VariablesHash is a short fingerprint of the effective VariableSet
+             *     composition stamped at the start of the most recent plan and
+             *     apply run this controller kicked off. It is derived from the
+             *     (name, source kind, source name, source key, resourceVersion)
+             *     tuple for each resolved variable and from any inline values, so
+             *     a rotated Secret produces a new hash even when .spec did not
+             *     change. Re-ordering refs only changes the hash when the new
+             *     ordering selects a different winning source for some variable;
+             *     reorderings that preserve the name-to-source mapping are a
+             *     no-op. The workspace controller compares this against the
+             *     freshly computed hash each reconcile; a divergence is treated
+             *     like a spec change and triggers a fresh plan, which is how
+             *     Secret rotations propagate into Terraform without operator
+             *     intervention.
+             *     +optional
+             */
+            variablesHash?: string;
         };
         /** @enum {string} */
         "watch.EventType": "ADDED" | "MODIFIED" | "DELETED" | "BOOKMARK" | "ERROR";

@@ -11,6 +11,8 @@ spec:
   projectRef:
     name: networking
   serviceAccountName: magos-job
+  variableSetRef:
+    - name: env-prod
   source:
     repoURL: https://github.com/magosproject/demo.git
     targetRevision: main

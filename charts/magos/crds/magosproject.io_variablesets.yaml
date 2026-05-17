@@ -14,7 +14,17 @@ spec:
     singular: variableset
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.resolvedVariables
+      name: Resolved
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: VariableSet is the Schema for the variablesets API
@@ -39,10 +49,133 @@ spec:
           spec:
             description: spec defines the desired state of VariableSet
             properties:
-              foo:
-                description: foo is an example field of VariableSet. Edit variableset_types.go
-                  to remove/update
+              description:
+                description: |-
+                  Description is a human-readable purpose for this VariableSet. Optional
+                  and not consumed by any controller; it exists so that operators can
+                  document intent in the same place as the data.
                 type: string
+              variables:
+                description: |-
+                  Variables is the ordered list of Terraform variables this set
+                  contributes. Each entry becomes TF_VAR_<name> on the plan and apply
+                  pods of any Workspace that references this set. Order is preserved on
+                  the wire so that consumers can rely on a stable iteration order when
+                  computing hashes, but ordering does not change semantics within a
+                  single set: duplicate names are rejected.
+                items:
+                  description: |-
+                    Variable is a single Terraform input variable definition. Exactly one of
+                    Value or ValueFrom must be set; the CEL rule on the type enforces that so
+                    the API server rejects misconfigured objects before they ever reach the
+                    controller.
+                  properties:
+                    name:
+                      description: |-
+                        Name is the Terraform variable name. The workspace controller exposes
+                        it on the pod as TF_VAR_<name>, so it must be a valid Terraform
+                        identifier: letters, digits, and underscores, not starting with a
+                        digit.
+                      maxLength: 253
+                      minLength: 1
+                      pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$
+                      type: string
+                    value:
+                      description: |-
+                        Value is an inline literal. Use this only for non-sensitive data
+                        because the value is stored verbatim in the CR and is visible to
+                        anyone with read access to VariableSets in the namespace. For
+                        sensitive material use ValueFrom.SecretKeyRef instead: the
+                        controller never writes the resolved value to the CR, status, or
+                        logs, and the kubelet performs the actual read from the source
+                        Secret at pod start.
+                      type: string
+                    valueFrom:
+                      description: |-
+                        ValueFrom sources the variable's value from another resource in the
+                        same namespace. Mutually exclusive with Value.
+                      properties:
+                        configMapKeyRef:
+                          description: |-
+                            ConfigMapKeyRef reads the value from a key inside a ConfigMap in the
+                            same namespace. Useful for non-sensitive shared settings (region,
+                            account IDs, feature flags) that you still want versioned alongside
+                            your application configuration.
+                          properties:
+                            key:
+                              description: |-
+                                Key inside the resource's data map. Must be present on the source
+                                object unless Optional is true.
+                              minLength: 1
+                              type: string
+                            name:
+                              description: Name of the Secret or ConfigMap.
+                              minLength: 1
+                              type: string
+                            optional:
+                              description: |-
+                                Optional, when true, treats a missing resource or missing key as a
+                                no-op rather than an error. The variable is omitted from the pod
+                                environment, and the missing reference is not reported in
+                                VariableSetStatus.UnresolvedReferences. Useful for variables that are
+                                only present in some environments (e.g. an optional staging-only
+                                override).
+                              type: boolean
+                          required:
+                          - key
+                          - name
+                          type: object
+                        secretKeyRef:
+                          description: |-
+                            SecretKeyRef reads the value from a key inside a Kubernetes Secret in
+                            the same namespace as the VariableSet. The kubelet resolves the value
+                            at pod startup time when the workspace controller wires it into the
+                            plan or apply Job, so the controller process never holds the secret
+                            bytes in memory.
+                          properties:
+                            key:
+                              description: |-
+                                Key inside the resource's data map. Must be present on the source
+                                object unless Optional is true.
+                              minLength: 1
+                              type: string
+                            name:
+                              description: Name of the Secret or ConfigMap.
+                              minLength: 1
+                              type: string
+                            optional:
+                              description: |-
+                                Optional, when true, treats a missing resource or missing key as a
+                                no-op rather than an error. The variable is omitted from the pod
+                                environment, and the missing reference is not reported in
+                                VariableSetStatus.UnresolvedReferences. Useful for variables that are
+                                only present in some environments (e.g. an optional staging-only
+                                override).
+                              type: boolean
+                          required:
+                          - key
+                          - name
+                          type: object
+                      type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of secretKeyRef or configMapKeyRef must
+                          be set
+                        rule: '(has(self.secretKeyRef) ? 1 : 0) + (has(self.configMapKeyRef)
+                          ? 1 : 0) == 1'
+                  required:
+                  - name
+                  type: object
+                  x-kubernetes-validations:
+                  - message: exactly one of value or valueFrom must be set
+                    rule: '(has(self.value) ? 1 : 0) + (has(self.valueFrom) ? 1 :
+                      0) == 1'
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+            required:
+            - variables
             type: object
           status:
             description: status defines the observed state of VariableSet
@@ -50,12 +183,10 @@ spec:
               conditions:
                 description: |-
                   conditions represent the current state of the VariableSet resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
 
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
+                  Standard condition types:
+                  - "Ready": every required reference resolved and the set is safe to
+                    consume.
 
                   The status of each condition is one of True, False, or Unknown.
                 items:
@@ -116,6 +247,101 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastReconcileTime:
+                description: |-
+                  LastReconcileTime is the timestamp of the most recent status
+                  change observed by the controller. It is not refreshed on no-op
+                  reconciles, so this field is not a reliable signal for
+                  detecting stalled controllers; use the
+                  variableset_reconcile_total metric for that.
+                format: date-time
+                type: string
+              message:
+                description: Message is a human-readable explanation of the current
+                  phase.
+                type: string
+              observedGeneration:
+                description: |-
+                  ObservedGeneration is the .metadata.generation observed on the last
+                  reconcile. Lets consumers distinguish a stale "Ready" condition (from
+                  before a spec change) from a current one.
+                format: int64
+                type: integer
+              phase:
+                description: |-
+                  Phase reflects the high-level lifecycle of the VariableSet. Mirrors
+                  the Pending/Ready/Failed pattern used by the other Magos CRDs so that
+                  `kubectl get variablesets` is uniform across the project.
+                enum:
+                - Pending
+                - Reconciling
+                - Ready
+                - Idle
+                - Planning
+                - Planned
+                - Applying
+                - Applied
+                - Failed
+                - ValidationFailed
+                - Deleting
+                type: string
+              reason:
+                description: Reason is a brief CamelCase string explaining the current
+                  phase.
+                type: string
+              resolvedVariables:
+                description: |-
+                  ResolvedVariables is the number of variables whose source was readable
+                  at the last reconcile. Inline values always count as resolved.
+                  Optional missing references do not count, which makes this a useful
+                  quick check for "how many TF_VAR_* will a workspace receive".
+                format: int32
+                type: integer
+              unresolvedReferences:
+                description: |-
+                  UnresolvedReferences lists references that could not be read at the
+                  last reconcile. Empty when every required reference is satisfied.
+                  Optional references that resolved to "missing" are intentionally not
+                  reported here.
+                items:
+                  description: |-
+                    UnresolvedReference describes a single variable whose source could not be
+                    read at the last reconcile. Optional references that resolved to "missing"
+                    are not reported here; only hard failures are surfaced so that consumers
+                    can rely on UnresolvedReferences being a true error list.
+                  properties:
+                    key:
+                      description: |-
+                        Key is the missing key within the referenced resource. Set even when
+                        the resource itself was not found, so that operators can see at a
+                        glance which variable is affected without correlating two list
+                        entries.
+                      type: string
+                    kind:
+                      description: |-
+                        Kind is "Secret" or "ConfigMap" depending on which valueFrom source
+                        was used.
+                      type: string
+                    name:
+                      description: Name is the referenced resource's metadata.name.
+                      type: string
+                    reason:
+                      description: 'Reason is a CamelCase code: ResourceNotFound,
+                        KeyNotFound, Forbidden.'
+                      type: string
+                    variable:
+                      description: Variable is the .spec.variables[].name that could
+                        not be resolved.
+                      type: string
+                  required:
+                  - key
+                  - kind
+                  - name
+                  - reason
+                  - variable
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
             type: object
         required:
         - spec
