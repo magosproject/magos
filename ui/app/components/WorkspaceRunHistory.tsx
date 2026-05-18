@@ -125,6 +125,11 @@ function LogPane({ namespace, workspaceName, runID, phase, summary }: LogPanePro
             {formatDateTime(summary.startedAt)} · {formatDuration(summary.startedAt, summary.finishedAt)}
           </Text>
         )}
+        {summary.podName && (
+          <Text size="xs" c="dimmed">
+            pod: <Code fz="xs">{summary.podName}</Code>
+          </Text>
+        )}
       </Group>
 
       {loading && (
