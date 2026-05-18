@@ -1412,10 +1412,9 @@ func (r *WorkspaceReconciler) archiveRunLogs(
 // that Kubernetes resolves them at Pod startup from the referenced Secret, and
 // we never have to copy secret data into the Job spec.
 //
-// The Job mounts the Workspace's shared PVC at /workspace-data. Each run
-// uses its own /workspace-data/runs/<runID>/ subdirectory. The Plan Job
-// clones into it and runs terraform init+plan; the Apply Job reuses that
-// tree without re-cloning. The directory is removed on a successful apply.
+// The Job mounts the Workspace's PVC at /workspace-data. The plan pod
+// clones into /workspace-data/runs/<runID>/source; the apply pod reuses
+// that tree and removes the run dir on exit.
 //
 // We set backoffLimit to 0 so Kubernetes does not automatically retry a failed
 // Job. Terraform failures (bad HCL, provider errors, state locks) are unlikely
@@ -1438,10 +1437,8 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 		{Name: "MAGOS_RUN_ID", Value: runID},
 	}
 
-	// TARGET_REVISION is the git ref the plan pod checks out. The apply pod
-	// does not clone; it reuses the working tree the plan pod left at
-	// /workspace-data/source on the shared PVC, so the env var is set only
-	// on plan jobs.
+	// Only the plan pod clones the repo. The apply pod reuses the
+	// working tree the plan pod produced.
 	if jobType == jobTypePlan {
 		envVars = append(envVars, corev1.EnvVar{Name: "TARGET_REVISION", Value: ws.Spec.Source.TargetRevision})
 	}
