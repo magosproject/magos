@@ -40,6 +40,7 @@ export default function WorkspaceLiveConsole({
   currentRunID,
 }: Props) {
   const [status, setStatus] = useState("Loading latest completed run log");
+  const [podName, setPodName] = useState<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<string[]>([]);
   const revealTimerRef = useRef<number | null>(null);
@@ -157,6 +158,7 @@ export default function WorkspaceLiveConsole({
       const payload = JSON.parse(event.data) as StreamEvent;
       switch (payload.type) {
         case "status":
+          if (payload.podName) setPodName(payload.podName);
           break;
         case "line":
           pending.push(payload.line ?? "");
@@ -181,6 +183,7 @@ export default function WorkspaceLiveConsole({
     return () => {
       source.close();
       stopRevealTimer();
+      setPodName(null);
       while (pending.length > 0) {
         flushPendingLines();
       }
@@ -204,8 +207,8 @@ export default function WorkspaceLiveConsole({
         <Text size="sm" c="dimmed">
           {isActive && currentRunID
             ? contentState.key === streamKey && content
-              ? `Streaming ${streamPhase} logs for job ${currentRunID}`
-              : `Waiting for ${streamPhase} logs from job ${currentRunID}`
+              ? `Streaming ${streamPhase} logs for pod ${podName}`
+              : `Waiting for ${streamPhase} logs from pod ${podName}`
             : status}
         </Text>
       </Group>
