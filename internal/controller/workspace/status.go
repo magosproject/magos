@@ -58,6 +58,13 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 			needsUpdate = true
 		}
 
+		// Preserve the variables fingerprint stamped in startFreshCycle so a
+		// failed plan does not loop on VariablesChanged under contention.
+		if workspace.Status.VariablesHash != "" && latest.Status.VariablesHash != workspace.Status.VariablesHash {
+			latest.Status.VariablesHash = workspace.Status.VariablesHash
+			needsUpdate = true
+		}
+
 		// Carry the run ID and trigger forward when a new plan and apply run has
 		// started in the in-memory copy. Both fields are written before the
 		// first status update of a run, so they must survive the

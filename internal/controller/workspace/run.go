@@ -158,7 +158,7 @@ func currentRunObservedRevision(workspace *v1alpha1.Workspace) string {
 
 func runTriggerFromReason(reason string) v1alpha1.RunTrigger {
 	switch reason {
-	case "ConfigurationChanged":
+	case "ConfigurationChanged", "VariablesChanged":
 		return v1alpha1.RunTriggerConfig
 	case "ManualReconcileRequested":
 		return v1alpha1.RunTriggerManual

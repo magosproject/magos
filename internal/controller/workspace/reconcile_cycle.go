@@ -210,6 +210,21 @@ func (r *WorkspaceReconciler) checkCycleNeeded(
 		}
 	}
 
+	// A change in the effective VariableSet composition is treated like a
+	// new revision detection: the resolved hash differs from the last hash
+	// we stamped, so the previous plan no longer represents what we should
+	// apply. The same phase guard applies, so a Secret rotation that lands
+	// while a Plan or Apply Job is already in flight does not interrupt
+	// the run; the next reconcile after that run terminates picks it up.
+	if rc.variablesHash != workspace.Status.VariablesHash &&
+		(workspace.Status.Phase == "" || terminalWorkspaceRunRecorded(workspace.Status.Phase)) {
+		return cycleDecision{
+			start:   true,
+			reason:  "VariablesChanged",
+			message: "Effective VariableSet composition changed since the last run",
+		}
+	}
+
 	return cycleDecision{requeue: requeue}
 }
 
@@ -255,6 +270,11 @@ func (r *WorkspaceReconciler) startFreshCycle(
 	workspace.Status.CurrentRunTrigger = runTriggerFromReason(reason)
 	now := metav1.Now()
 	workspace.Status.LastRunStartedAt = &now
+	// Stamp the hash that this run is about to be planned against.
+	// Persisting it here prevents a failed plan from looping on
+	// VariablesChanged: the hash matches what we last attempted, so the
+	// run waits for the normal retry cooldown instead.
+	workspace.Status.VariablesHash = rc.variablesHash
 	r.updateStatus(ctx, workspace, v1alpha1.PhasePending, reason, message, metav1.ConditionUnknown)
 
 	if reason == scheduledReconcileReason && r.RunRecorder != nil {

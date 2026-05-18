@@ -189,6 +189,13 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 	if ws.Spec.Terraform.TfvarsPath != "" {
 		envVars = append(envVars, corev1.EnvVar{Name: "TF_VAR_FILE", Value: ws.Spec.Terraform.TfvarsPath})
 	}
+
+	// Append resolved VariableSet entries as TF_VAR_* env vars. Inline values
+	// land verbatim; secretKeyRef and configMapKeyRef are forwarded as valueFrom
+	// entries so the kubelet resolves them at pod startup. Terraform reads
+	// TF_VAR_<name> with higher precedence than any value in a .tfvars file.
+	envVars = append(envVars, variableEnvVars(rc.resolvedVars)...)
+
 	if logLevel := ws.Annotations[v1alpha1.WorkspaceTFLogLevelAnnotation]; logLevel != "" {
 		envVars = append(envVars, corev1.EnvVar{Name: "MAGOS_TF_LOG_LEVEL", Value: logLevel})
 	}

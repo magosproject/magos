@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/magosproject/magos/internal/controller/variableset"
 	"github.com/magosproject/magos/internal/logstore"
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -142,8 +143,11 @@ func (r *WorkspaceReconciler) findWorkspacesForSecret(ctx context.Context, o cli
 // +kubebuilder:rbac:groups=magosproject.io,resources=workspaces,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=magosproject.io,resources=workspaces/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=magosproject.io,resources=workspaces/finalizers,verbs=update
+// +kubebuilder:rbac:groups=magosproject.io,resources=projects,verbs=get;list;watch
+// +kubebuilder:rbac:groups=magosproject.io,resources=variablesets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods/log,verbs=get
@@ -244,6 +248,8 @@ type runContext struct {
 	pvcName      string
 	planJob      *batchv1.Job
 	applyJob     *batchv1.Job
+	resolvedVars []variableset.ResolvedVariable
+	variablesHash string
 }
 
 // newRunContext derives all stable names from the Workspace spec and fetches
@@ -311,6 +317,25 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		return ctrl.Result{}, err
 	}
 	r.cleanupOrphanedJobs(ctx, workspace, rc)
+
+	// Step 0: Resolve VariableSets attached to this Workspace.
+	//
+	// The effective set is the ordered concatenation of the parent Project's
+	// VariableSetRef and the Workspace's own VariableSetRef. We fail fast when
+	// a required reference is missing so we don't create a Plan Job that will
+	// break at terraform time. The resolved list is stored in rc so it flows
+	// through to constructJobForWorkspace without an extra parameter.
+	resolvedVars, unresolved, err := r.resolveWorkspaceVariables(ctx, workspace)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if len(unresolved) > 0 {
+		message := fmt.Sprintf("%d variable reference(s) unresolved: %s", len(unresolved), formatUnresolved(unresolved))
+		r.updateStatus(ctx, workspace, v1alpha1.PhaseFailed, "UnresolvedVariables", message, metav1.ConditionFalse)
+		return ctrl.Result{}, nil
+	}
+	rc.resolvedVars = resolvedVars
+	rc.variablesHash = variableset.Fingerprint(resolvedVars)
 
 	// Step 3: Decide whether we need to start a fresh Plan/Apply cycle.
 	//
@@ -401,6 +426,11 @@ func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findWorkspacesForSecret),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
+		Watches(
+			&v1alpha1.VariableSet{},
+			handler.EnqueueRequestsFromMapFunc(r.findWorkspacesForVariableSet),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Named("workspace").
