@@ -83,13 +83,24 @@ type RunListResponse struct {
 	NextCursor string            `json:"nextCursor,omitempty"`
 }
 
+// RunLogStreamEventType identifies the kind of a RunLogStreamEvent.
+type RunLogStreamEventType string
+
+const (
+	RunLogStreamEventTypePhaseStart RunLogStreamEventType = "phase_start"
+	RunLogStreamEventTypeStatus     RunLogStreamEventType = "status"
+	RunLogStreamEventTypeLine       RunLogStreamEventType = "line"
+	RunLogStreamEventTypeError      RunLogStreamEventType = "error"
+	RunLogStreamEventTypeEOF        RunLogStreamEventType = "eof"
+)
+
 type RunLogStreamEvent struct {
-	Type    string               `json:"type"`
-	RunID   string               `json:"runID,omitempty"`
-	Phase   apiv1alpha1.RunPhase `json:"phase,omitempty"`
-	PodName string               `json:"podName,omitempty"`
-	Line    string               `json:"line,omitempty"`
-	Message string               `json:"message,omitempty"`
+	Type    RunLogStreamEventType `json:"type"`
+	RunID   string                `json:"runID,omitempty"`
+	Phase   apiv1alpha1.RunPhase  `json:"phase,omitempty"`
+	PodName string                `json:"podName,omitempty"`
+	Line    string                `json:"line,omitempty"`
+	Message string                `json:"message,omitempty"`
 }
 
 type workspaceService struct {
@@ -297,24 +308,24 @@ func (s *workspaceService) StreamCurrentRunLogs(ctx context.Context, namespace, 
 		defer close(ch)
 
 		if s.kube == nil {
-			sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: "error", Message: "kubernetes client is not configured"})
+			sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: RunLogStreamEventTypeError, Message: "kubernetes client is not configured"})
 			return
 		}
 
 		workspace, err := s.Get(ctx, namespace, name)
 		if err != nil {
-			sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: "error", Message: "workspace not found"})
+			sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: RunLogStreamEventTypeError, Message: "workspace not found"})
 			return
 		}
 
 		runID := workspace.Status.CurrentRunID
 		if runID == "" {
-			sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: "status", Message: "no active run"})
+			sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: RunLogStreamEventTypeStatus, Message: "no active run"})
 			return
 		}
 
 		for _, phase := range []apiv1alpha1.RunPhase{apiv1alpha1.RunPhasePlan, apiv1alpha1.RunPhaseApply} {
-			if !sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: "phase_start", RunID: runID, Phase: phase}) {
+			if !sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: RunLogStreamEventTypePhaseStart, RunID: runID, Phase: phase}) {
 				return
 			}
 
@@ -323,11 +334,11 @@ func (s *workspaceService) StreamCurrentRunLogs(ctx context.Context, namespace, 
 				break
 			}
 			if err != nil {
-				sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: "error", RunID: runID, Phase: phase, Message: err.Error()})
+				sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: RunLogStreamEventTypeError, RunID: runID, Phase: phase, Message: err.Error()})
 				return
 			}
 
-			sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: "status", RunID: runID, Phase: phase, PodName: pod.Name, Message: "streaming"})
+			sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: RunLogStreamEventTypeStatus, RunID: runID, Phase: phase, PodName: pod.Name, Message: "streaming"})
 
 			req := s.kube.CoreV1().Pods(namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
 				Container: "job",
@@ -335,7 +346,7 @@ func (s *workspaceService) StreamCurrentRunLogs(ctx context.Context, namespace, 
 			})
 			stream, err := req.Stream(ctx)
 			if err != nil {
-				sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: "error", RunID: runID, Phase: phase, PodName: pod.Name, Message: fmt.Sprintf("open pod logs: %v", err)})
+				sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: RunLogStreamEventTypeError, RunID: runID, Phase: phase, PodName: pod.Name, Message: fmt.Sprintf("open pod logs: %v", err)})
 				return
 			}
 
@@ -343,7 +354,7 @@ func (s *workspaceService) StreamCurrentRunLogs(ctx context.Context, namespace, 
 			scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 			for scanner.Scan() {
 				if !sendRunLogEvent(ctx, ch, RunLogStreamEvent{
-					Type:    "line",
+					Type:    RunLogStreamEventTypeLine,
 					RunID:   runID,
 					Phase:   phase,
 					PodName: pod.Name,
@@ -355,13 +366,13 @@ func (s *workspaceService) StreamCurrentRunLogs(ctx context.Context, namespace, 
 			}
 			if scanErr := scanner.Err(); scanErr != nil && ctx.Err() == nil {
 				_ = stream.Close()
-				sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: "error", RunID: runID, Phase: phase, PodName: pod.Name, Message: fmt.Sprintf("read pod logs: %v", scanErr)})
+				sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: RunLogStreamEventTypeError, RunID: runID, Phase: phase, PodName: pod.Name, Message: fmt.Sprintf("read pod logs: %v", scanErr)})
 				return
 			}
 			_ = stream.Close()
 		}
 
-		sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: "eof", RunID: runID, Message: "log stream completed"})
+		sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: RunLogStreamEventTypeEOF, RunID: runID, Message: "log stream completed"})
 	}()
 
 	return ch

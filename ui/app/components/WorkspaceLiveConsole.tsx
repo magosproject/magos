@@ -2,26 +2,27 @@ import { Code, Group, Loader, Text, Title } from "@mantine/core";
 import AnsiToHtml from "ansi-to-html";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiUrl } from "../api/base";
-import type { Run } from "../api/types";
+import type { Phase, Run, RunLogStreamEvent, RunLogStreamEventType } from "../api/types";
 
-type StreamEvent = {
-  type?: "status" | "line" | "error" | "phase_start" | "eof";
-  runID?: string;
-  phase?: "plan" | "apply";
-  podName?: string;
-  line?: string;
-  message?: string;
-};
+const EVENT = {
+  PhaseStart: "phase_start",
+  Status: "status",
+  Line: "line",
+  Error: "error",
+  EOF: "eof",
+} as const satisfies Record<string, RunLogStreamEventType>;
 
 interface Props {
   namespace: string;
   workspaceName: string;
+  phase?: Phase;
   currentRunID?: string;
 }
 
 export default function WorkspaceLiveConsole({
   namespace,
   workspaceName,
+  phase,
   currentRunID,
 }: Props) {
   const [status, setStatus] = useState("Loading latest completed run log");
@@ -31,7 +32,7 @@ export default function WorkspaceLiveConsole({
   const viewportRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<string[]>([]);
   const revealTimerRef = useRef<number | null>(null);
-  const isActive = Boolean(currentRunID);
+  const isActive = phase === "Planning" || phase === "Planned" || phase === "Applying";
   const streamKey = currentRunID ?? "";
 
   const [contentState, setContentState] = useState<{ key: string; value: string | null }>({
@@ -120,9 +121,9 @@ export default function WorkspaceLiveConsole({
     );
 
     source.onmessage = (event) => {
-      const payload = JSON.parse(event.data) as StreamEvent;
+      const payload = JSON.parse(event.data) as RunLogStreamEvent;
       switch (payload.type) {
-        case "phase_start":
+        case EVENT.PhaseStart:
           // Clear the console when the apply phase begins. For the plan phase
           // (the first event on a fresh connection) there is nothing to clear.
           if (payload.phase === "apply") {
@@ -133,19 +134,19 @@ export default function WorkspaceLiveConsole({
           setCurrentStreamPhase(payload.phase ?? null);
           setPodName(null);
           break;
-        case "status":
+        case EVENT.Status:
           if (payload.podName) setPodName(payload.podName);
           break;
-        case "line":
+        case EVENT.Line:
           pending.push(payload.line ?? "");
           if (revealTimerRef.current == null) {
             revealTimerRef.current = window.setInterval(flushPendingLines, 60);
           }
           break;
-        case "error":
+        case EVENT.Error:
           setStatus(payload.message || "Error streaming logs");
           break;
-        case "eof":
+        case EVENT.EOF:
           setStreamDone(true);
           setStatus("Run completed");
           source.close();
@@ -184,12 +185,16 @@ export default function WorkspaceLiveConsole({
       <Group gap="xs">
         {loading && <Loader size="xs" />}
         <Text size="sm" c="dimmed">
-          {isActive && !streamDone
-            ? currentStreamPhase
-              ? podName
-                ? `Streaming ${currentStreamPhase} logs for pod ${podName}`
-                : `Waiting for ${currentStreamPhase} logs`
-              : "Connecting..."
+          {isActive
+            ? streamDone
+              ? currentStreamPhase && podName
+                ? `Run completed – showing ${currentStreamPhase} logs for pod ${podName}`
+                : "Run completed"
+              : currentStreamPhase
+                ? podName
+                  ? `Streaming ${currentStreamPhase} logs for pod ${podName}`
+                  : `Waiting for ${currentStreamPhase} logs`
+                : "Connecting..."
             : status}
         </Text>
       </Group>

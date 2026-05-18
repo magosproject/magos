@@ -161,10 +161,27 @@
                         "type": "string"
                     },
                     "type": {
-                        "type": "string"
+                        "$ref": "#/components/schemas/service.RunLogStreamEventType"
                     }
                 },
                 "type": "object"
+            },
+            "service.RunLogStreamEventType": {
+                "enum": [
+                    "phase_start",
+                    "status",
+                    "line",
+                    "error",
+                    "eof"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "RunLogStreamEventTypePhaseStart",
+                    "RunLogStreamEventTypeStatus",
+                    "RunLogStreamEventTypeLine",
+                    "RunLogStreamEventTypeError",
+                    "RunLogStreamEventTypeEOF"
+                ]
             },
             "service.VariableSetEvent": {
                 "properties": {

@@ -1054,8 +1054,10 @@ export interface components {
             phase?: components["schemas"]["v1alpha1.RunPhase"];
             podName?: string;
             runID?: string;
-            type?: string;
+            type?: components["schemas"]["service.RunLogStreamEventType"];
         };
+        /** @enum {string} */
+        "service.RunLogStreamEventType": "phase_start" | "status" | "line" | "error" | "eof";
         "service.VariableSetEvent": {
             object?: components["schemas"]["v1alpha1.VariableSet"];
             type?: components["schemas"]["watch.EventType"];

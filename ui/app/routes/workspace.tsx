@@ -213,6 +213,7 @@ export default function Workspace() {
               <WorkspaceLiveConsole
                 namespace={namespace}
                 workspaceName={name}
+                phase={phase}
                 currentRunID={ws.status?.currentRunID}
               />
             )}
