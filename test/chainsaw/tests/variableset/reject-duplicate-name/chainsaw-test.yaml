@@ -1,0 +1,28 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: reject-duplicate-name
+spec:
+  description: |
+    Asserts that the API server rejects a VariableSet that declares
+    two variables with the same name.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: duplicate-name
+          spec:
+            variables:
+              - name: region
+                value: us-east-1
+              - name: region
+                value: eu-west-1
+        expect:
+        - match:
+            apiVersion: magosproject.io/v1alpha1
+            kind: VariableSet
+          check:
+            ($error != null): true

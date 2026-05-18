@@ -4,20 +4,10 @@ metadata:
   name: reconcile-interval-honored
 spec:
   description: |
-    The reconcile interval annotation is how users dial the drift
-    detection cadence of a single Workspace away from the three
-    minute default: a mostly static prod environment might set it to
-    1h to ease API pressure, while a fast moving dev Workspace might
-    stay at 30s. This test exercises the whole path: the annotation
-    is parsed by computeNextReconcileTime as the single source of
-    truth for the effective reconcile interval, used in the scheduling
-    decision, and then
-    surfaced back into status.nextReconcileTime by
-    updateNextReconcileTime. We deliberately do not assert a specific
-    timestamp value because clock skew in CI makes that brittle, but
-    we do assert the field is not null, which is enough to prove the
-    controller ran its full bookkeeping at the end of the reconcile
-    rather than bailing out early.
+    Asserts that a Workspace with a
+    magosproject.io/reconcile-interval annotation has a non-null
+    status.nextReconcileTime, proving the controller honored the
+    annotation and ran its schedule bookkeeping.
   steps:
   - try:
     - apply:

@@ -1,10 +1,11 @@
-import { Button, Group, SimpleGrid, Stack, Title } from "@mantine/core";
-import { IconRefresh } from "@tabler/icons-react";
+import { Group, Stack, Text, Title } from "@mantine/core";
 import { useLoaderData, useParams } from "react-router";
 import Breadcrumbs from "../components/Breadcrumbs";
-import InfoCard from "../components/InfoCard";
 import KubeBadge from "../components/KubeBadge";
+import StatusBadge from "../components/StatusBadge";
 import ConditionsTable from "../components/ConditionsTable";
+import VariablesTable from "../components/VariablesTable";
+import UnresolvedReferencesTable from "../components/UnresolvedReferencesTable";
 import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
 import type { VariableSet } from "../api/types";
@@ -36,27 +37,33 @@ export default function VariableSetDetail() {
     (obj) => obj.metadata?.namespace === namespace && obj.metadata?.name === name
   );
 
+  const description = vs.spec?.description;
+  const variables = vs.spec?.variables ?? [];
+  const phase = vs.status?.phase ?? "";
+  const unresolved = vs.status?.unresolvedReferences ?? [];
+
   return (
     <Stack gap="lg">
       <Breadcrumbs
         crumbs={[{ label: "Variable Sets", to: "/variable-sets" }, { label: name! }]}
       />
 
-      <Group justify="space-between" align="flex-start">
+      <Stack gap={4}>
         <Group gap="xs" align="center">
           <Title order={2}>{name}</Title>
           <KubeBadge label={namespace!} />
+          {phase && <StatusBadge status={phase} size="md" />}
         </Group>
-        <Button leftSection={<IconRefresh size={16} />} variant="default" size="sm">
-          Reconcile
-        </Button>
-      </Group>
+        {description && (
+          <Text size="sm" c="dimmed">
+            {description}
+          </Text>
+        )}
+      </Stack>
 
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-        <InfoCard label="Kubernetes Namespace">
-          <KubeBadge label={namespace!} />
-        </InfoCard>
-      </SimpleGrid>
+      <UnresolvedReferencesTable references={unresolved} />
+
+      <VariablesTable variables={variables} />
 
       {vs.status?.conditions && vs.status.conditions.length > 0 && (
         <ConditionsTable conditions={vs.status.conditions} />

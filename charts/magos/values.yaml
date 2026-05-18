@@ -15,6 +15,12 @@ fullnameOverride: ""
 rbac:
   create: true
 
+crds:
+  install: true
+  # Annotate CRDs with `helm.sh/resource-policy: keep` so `helm uninstall`
+  # does not delete them (and every CR of that kind).
+  keep: true
+
 podDefaults:
   annotations: {}
   labels: {}

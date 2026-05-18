@@ -4,14 +4,8 @@ metadata:
   name: finalizer-added
 spec:
   description: |
-    Same principle as Project: the Workspace controller installs its
-    finalizer at the very top of Reconcile, before it touches PVCs or
-    Jobs, so that `kubectl delete` is always routed through
-    handleDeletion. Without the finalizer an Apply that is still in
-    flight could be torn down by Kubernetes garbage collection while
-    Terraform is in the middle of mutating state, and we would be one
-    crash away from a corrupted tfstate, exactly the class of bug we
-    built this controller to prevent.
+    Asserts that a newly created Workspace has the
+    magosproject.io/finalizer set by the controller.
   steps:
   - try:
     - apply:

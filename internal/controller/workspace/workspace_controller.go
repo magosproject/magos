@@ -242,13 +242,13 @@ func (r *WorkspaceReconciler) handleDeletion(ctx context.Context, workspace *v1a
 // reconcile iteration. It is built once in reconcileWorkspace and passed to
 // all step functions so nothing is re-derived or re-fetched independently.
 type runContext struct {
-	planJobName  string
-	applyJobName string
-	planFile     string
-	pvcName      string
-	planJob      *batchv1.Job
-	applyJob     *batchv1.Job
-	resolvedVars []variableset.ResolvedVariable
+	planJobName   string
+	applyJobName  string
+	planFile      string
+	pvcName       string
+	planJob       *batchv1.Job
+	applyJob      *batchv1.Job
+	resolvedVars  []variableset.ResolvedVariable
 	variablesHash string
 }
 

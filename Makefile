@@ -6,7 +6,6 @@ UI_IMG ?= ui:$(TAG)
 API_IMG ?= magos-api:$(TAG)
 RUSTFS_S3_PORT ?= 9000
 POSTGRES_PORT ?= 15432
-DEV_CLUSTER ?= kind
 LOCAL_VALUES ?= hack/local-values.yaml
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
@@ -51,7 +50,7 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./types/..." output:crd:artifacts:config=charts/magos/crds
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./types/..." output:crd:artifacts:config=charts/magos/resources/crds
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -63,36 +62,30 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out
 
-# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
-# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
-# CertManager is installed by default; skip with:
-# - CERT_MANAGER_INSTALL_SKIP=true
-KIND_CLUSTER ?= magos-test-e2e
+# KIND_CLUSTER is the single Kind cluster name used by every flow that
+# touches a local cluster: `make kind-cluster`, `make install`,
+# `make kind-load`, and `make run`.
+KIND_CLUSTER ?= magos-test
 
 .PHONY: kind-cluster
-kind-cluster: kind ## Create a Kind cluster named $(KIND_CLUSTER) if it does not exist.
+kind-cluster: kind ## Create the Kind cluster named $(KIND_CLUSTER) with RustFS/PostgreSQL port mappings (hack/kind-config.yaml) if it does not exist.
 	@case "$$($(KIND) get clusters)" in \
 		*"$(KIND_CLUSTER)"*) \
 			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
 		*) \
 			echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
-			$(KIND) create cluster --name $(KIND_CLUSTER) ;; \
+			$(KIND) create cluster --name $(KIND_CLUSTER) --config hack/kind-config.yaml ;; \
 	esac
 
-.PHONY: test-e2e
-test-e2e: kind-cluster manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
-	$(MAKE) cleanup-test-e2e
-
-.PHONY: cleanup-test-e2e
-cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
+.PHONY: kind-cluster-delete
+kind-cluster-delete: ## Tear down the Kind cluster named $(KIND_CLUSTER).
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
 .PHONY: test-chainsaw
 test-chainsaw: chainsaw ## Run controller behavior chainsaw tests (no helm install required).
-	$(CHAINSAW) test test/chainsaw/tests/workspace test/chainsaw/tests/rollout test/chainsaw/tests/project
+	$(CHAINSAW) test test/chainsaw/tests/workspace test/chainsaw/tests/rollout test/chainsaw/tests/project test/chainsaw/tests/variableset
 
 .PHONY: test-chainsaw-chart
 test-chainsaw-chart: chainsaw ## Run chart installation chainsaw tests (requires helm install of magos in magos-system).
@@ -109,16 +102,6 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 .PHONY: lint-config
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
-
-.PHONY: dev-cluster
-dev-cluster: kind ## Create a Kind cluster for local development with port mappings for RustFS and PostgreSQL.
-	@case "$$($(KIND) get clusters)" in \
-		*"$(DEV_CLUSTER)"*) \
-			echo "Kind cluster '$(DEV_CLUSTER)' already exists. Skipping creation." ;; \
-		*) \
-			echo "Creating Kind cluster '$(DEV_CLUSTER)'..."; \
-			$(KIND) create cluster --name $(DEV_CLUSTER) --config hack/kind-config.yaml ;; \
-	esac
 
 .PHONY: deps
 deps:
@@ -249,7 +232,7 @@ endif
 
 .PHONY: install
 install: manifests install-local-chart ## Install local development dependencies and CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUBECTL) apply -f charts/magos/crds/
+	$(KUBECTL) apply -f charts/magos/resources/crds/
 
 .PHONY: install-local-chart
 install-local-chart: ## Install the local development chart render.
@@ -264,7 +247,7 @@ uninstall-validatingpolicy-crd: ## Remove the Kyverno ValidatingPolicy CRD (skip
 
 .PHONY: uninstall
 uninstall: uninstall-validatingpolicy-crd ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f charts/magos/crds/
+	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f charts/magos/resources/crds/
 
 ##@ Dependencies
 

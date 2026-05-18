@@ -4,14 +4,8 @@ metadata:
   name: reject-empty-projectref
 spec:
   description: |
-    projectRef.name has minLength: 1 because every Workspace must
-    belong to exactly one Project: the Project controller discovers
-    its Workspaces by exact string match on this field, and the
-    Rollout's projectRef filter does the same. Allowing an empty
-    string would let Workspaces float in limbo, never granted
-    permission by anything and invisible to any orchestrator, so we
-    reject them at the admission boundary instead of letting them
-    silently rot.
+    Asserts that the API server rejects a Workspace with an empty
+    spec.projectRef.name.
   steps:
   - try:
     - apply:

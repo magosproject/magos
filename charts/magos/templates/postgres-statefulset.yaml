@@ -78,7 +78,7 @@ spec:
   - metadata:
       name: data
       labels:
-        {{- include "magos.labels" . | nindent 8 }}
+        {{- include "magos.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: postgres
     spec:
       accessModes:

@@ -4,11 +4,9 @@ metadata:
   name: policy-selector-workspace-overrides-project
 spec:
   description: |
-    When both the Project and the Workspace define a policySelector, the
-    Workspace selector must win. This lets individual Workspaces narrow or
-    expand the set of policies applied to them without changing the
-    project-wide default. If the override logic regresses, Workspaces
-    silently evaluate against the wrong set of policies.
+    Asserts that when both Project and Workspace define a
+    policySelector, the Workspace's selector is the one passed as
+    MAGOS_POLICY_SELECTOR on the plan Job.
   steps:
   - try:
     - apply:

@@ -1,0 +1,40 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: configmap-resolved
+spec:
+  description: |
+    Asserts that a VariableSet sourcing a value from a ConfigMap key
+    reaches phase=Ready with resolvedVariables=1.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: platform-defaults
+          data:
+            log_retention_days: "30"
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: cm-vs
+          spec:
+            variables:
+              - name: log_retention_days
+                valueFrom:
+                  configMapKeyRef:
+                    name: platform-defaults
+                    key: log_retention_days
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: cm-vs
+          status:
+            phase: Ready
+            resolvedVariables: 1

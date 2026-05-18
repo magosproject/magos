@@ -4,13 +4,8 @@ metadata:
   name: finalizer-added
 spec:
   description: |
-    The Project controller installs its finalizer at the very top of
-    Reconcile, before touching any other state, so that a later `kubectl
-    delete` gets routed through handleDeletion instead of racing
-    Kubernetes garbage collection. Without that window we would lose
-    the ability to surface a Deleting phase for observability, and the
-    object would disappear in the middle of a status update with no
-    graceful exit path.
+    Asserts that a newly created Project has the
+    magosproject.io/finalizer set by the controller.
   steps:
   - try:
     - apply:

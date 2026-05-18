@@ -1,0 +1,84 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: variableset-env-injected
+spec:
+  description: |
+    Asserts that the plan Job pod for a Workspace using a
+    VariableSet receives the inline value as TF_VAR_region=us-east-1
+    and the secretKeyRef as TF_VAR_db_admin_password sourced from
+    the referenced Secret.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: env-db-admin
+          type: Opaque
+          stringData:
+            password: example-rotated-value
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: env-vs
+          spec:
+            variables:
+              - name: region
+                value: us-east-1
+              - name: db_admin_password
+                valueFrom:
+                  secretKeyRef:
+                    name: env-db-admin
+                    key: password
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: env-project
+          spec:
+            variableSetRef:
+              - name: env-vs
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: env-ws
+          spec:
+            projectRef:
+              name: env-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.14.8"
+    # Wait for the plan job to exist before scripting against it. We
+    # do not assert anything about the env here because chainsaw does
+    # structural diffing on lists, which would force us to enumerate
+    # every controller-injected env entry. The script assertions
+    # below check only what this test owns: the two TF_VAR_* entries.
+    - assert:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            labels:
+              magosproject.io/workspace: env-ws
+              magosproject.io/job-type: plan
+    - script:
+        content: |
+          kubectl get jobs -n "$NAMESPACE" \
+            -l magosproject.io/workspace=env-ws,magosproject.io/job-type=plan \
+            -o jsonpath='{range .items[0].spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' \
+            | grep -qF "TF_VAR_region=us-east-1"
+    - script:
+        content: |
+          kubectl get jobs -n "$NAMESPACE" \
+            -l magosproject.io/workspace=env-ws,magosproject.io/job-type=plan \
+            -o jsonpath='{range .items[0].spec.template.spec.containers[0].env[*]}{.name}={.valueFrom.secretKeyRef.name}/{.valueFrom.secretKeyRef.key}{"\n"}{end}' \
+            | grep -qF "TF_VAR_db_admin_password=env-db-admin/password"

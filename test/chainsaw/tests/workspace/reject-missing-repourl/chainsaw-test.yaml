@@ -4,12 +4,8 @@ metadata:
   name: reject-missing-repourl
 spec:
   description: |
-    source.repoURL has no default and no sensible fallback, and
-    without it we do not know where to clone from: the Job container
-    would simply crash at startup with an empty REPO_URL env var. We
-    push this check up to admission so users get a synchronous
-    validation error at `kubectl apply` time instead of discovering
-    the problem via a Failed phase ten seconds later in a Pod log.
+    Asserts that the API server rejects a Workspace without
+    spec.source.repoURL.
   steps:
   - try:
     - apply:
