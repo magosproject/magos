@@ -49,7 +49,7 @@ type Config struct {
 	GitSSHKey      string
 	JobType        string
 	PlanFile       string
-	RunID          string // identifies the per-run subdirectory on the workspace PVC
+	RunID          string
 	PolicySelector string // a label selector for kyverno policies to evaluate the plan against, e.g. "env=prod"
 	TFLogLevel     string // TF_LOG level (TRACE, DEBUG, INFO, WARN, ERROR); empty means logging is suppressed
 }
