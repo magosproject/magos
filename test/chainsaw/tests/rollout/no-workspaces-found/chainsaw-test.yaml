@@ -4,15 +4,8 @@ metadata:
   name: no-workspaces-found
 spec:
   description: |
-    A selector that matches zero Workspaces is treated as a hard Failed
-    state, not silently skipped. This is a deliberate safety property:
-    the most common cause of zero matches is either a typo in the
-    selector or a Workspace that failed to apply upstream, and silently
-    advancing past that step would mean skipping a production
-    environment entirely. The test pins us to "fail loud" so that
-    nobody ever weakens this to a soft warning. A single broken label
-    key must never let a Rollout walk straight past prod without
-    touching it.
+    Asserts that a Rollout whose first step selector matches zero
+    Workspaces reaches phase=Failed with reason=NoWorkspacesFound.
   steps:
   - try:
     - apply:

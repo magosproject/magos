@@ -1,0 +1,44 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: secret-resolved
+spec:
+  description: |
+    Asserts that a VariableSet mixing one inline value and one
+    secretKeyRef reaches phase=Ready with resolvedVariables=2.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: db-admin
+          type: Opaque
+          stringData:
+            password: example-rotated-value
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: mixed-vs
+          spec:
+            variables:
+              - name: region
+                value: us-east-1
+              - name: db_admin_password
+                valueFrom:
+                  secretKeyRef:
+                    name: db-admin
+                    key: password
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: mixed-vs
+          status:
+            phase: Ready
+            reason: AllReferencesResolved
+            resolvedVariables: 2

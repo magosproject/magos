@@ -4,17 +4,10 @@ metadata:
   name: basic-orchestration
 spec:
   description: |
-    Full happy path for the Rollout state machine: three Workspaces
-    labelled by environment, three sequential steps, and the
-    expectation that only the step 0 cohort is unlocked at first while
-    staging and prod remain parked. The revocation branch is exercised
-    implicitly here because the Project controller briefly grants
-    DefaultParallel before the Rollout races in and reclaims permission
-    from the later steps, which is exactly the scenario the revoke
-    execution permission block in rollout_controller.go was written
-    for. If this test regresses, sequential rollouts have silently
-    become parallel rollouts and the safety guarantee we promise users
-    is gone.
+    Asserts that a Rollout with three sequential steps pins
+    status.currentStep at 0, grants execution-allowed=true only to
+    the step-0 Workspace, and leaves the step-1 and step-2
+    Workspaces without that annotation.
   steps:
   - try:
     - apply:

@@ -1,0 +1,28 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: finalizer-added
+spec:
+  description: |
+    Asserts that a newly created VariableSet has the
+    magosproject.io/finalizer set by the controller.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: finalizer-vs
+          spec:
+            variables:
+              - name: region
+                value: us-east-1
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: finalizer-vs
+            finalizers:
+            - magosproject.io/finalizer

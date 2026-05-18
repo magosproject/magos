@@ -4,16 +4,10 @@ metadata:
   name: cross-project-isolation
 spec:
   description: |
-    The rollout reconcile loop lists Workspaces by label selector and
-    then filters by spec.projectRef, because on a busy namespace the
-    initial list can easily match Workspaces that belong to entirely
-    different Projects. This test sets up exactly that collision: two
-    Workspaces with identical labels, one owned by the Rollout's
-    Project and one orphaned under a projectRef that does not exist.
-    If the projectRef filter is ever removed or bypassed the orphan
-    would incorrectly be granted execution permission, and a Rollout
-    for Project A could start running Project B's Terraform, which is
-    the single worst regression in the entire orchestration model.
+    Asserts that a Rollout only grants execution-allowed=true to
+    Workspaces whose spec.projectRef matches its own projectRef,
+    even when other Workspaces in the namespace match the same
+    label selector.
   steps:
   - try:
     - apply:

@@ -1,0 +1,68 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: unresolved-variableset-blocks-plan
+spec:
+  description: |
+    Asserts that a Workspace whose VariableSet has an unresolved
+    secretKeyRef reaches phase=Failed with reason=UnresolvedVariables
+    and that no plan Job is created.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: broken-vs
+          spec:
+            variables:
+              - name: db_admin_password
+                valueFrom:
+                  secretKeyRef:
+                    name: does-not-exist
+                    key: password
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: broken-project
+          spec:
+            variableSetRef:
+              - name: broken-vs
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: broken-ws
+          spec:
+            projectRef:
+              name: broken-project
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.14.8"
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: broken-ws
+          status:
+            phase: Failed
+            reason: UnresolvedVariables
+            conditions:
+            - type: Ready
+              status: "False"
+              reason: UnresolvedVariables
+    - error:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            labels:
+              magosproject.io/workspace: broken-ws
+              magosproject.io/job-type: plan

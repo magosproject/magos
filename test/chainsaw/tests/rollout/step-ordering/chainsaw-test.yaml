@@ -4,14 +4,9 @@ metadata:
   name: step-ordering
 spec:
   description: |
-    A minimal ordering test, one Workspace per step, that asserts the
-    Rollout controller never reaches ahead of its currently active
-    step. Step 0's Workspace is granted execution permission, step 1's
-    is not, and status.currentStep stays pinned at 0 until step 0
-    completes. The basic orchestration test already covers this
-    property across three tiers, but the ordering invariant deserves
-    its own small, fast test that you can point to when bisecting a
-    regression.
+    Asserts that a Rollout with two sequential steps grants
+    execution-allowed=true to the step-0 Workspace, leaves the
+    step-1 Workspace without it, and keeps status.currentStep at 0.
   steps:
   - try:
     - apply:

@@ -1,0 +1,68 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: shadowed-unresolved-variableset
+spec:
+  description: |
+    Asserts that a plan Job is created for a Workspace whose
+    project-level VariableSet has an unresolved secretKeyRef but
+    whose workspace-level VariableSet overrides that variable with
+    an inline value.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: broken-vs
+          spec:
+            variables:
+              - name: db_password
+                valueFrom:
+                  secretKeyRef:
+                    name: does-not-exist
+                    key: password
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: override-vs
+          spec:
+            variables:
+              - name: db_password
+                value: literal-override
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: shadow-project
+          spec:
+            variableSetRef:
+              - name: broken-vs
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: shadow-ws
+          spec:
+            projectRef:
+              name: shadow-project
+            variableSetRef:
+              - name: override-vs
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+            terraform:
+              version: "1.14.8"
+    - assert:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            labels:
+              magosproject.io/workspace: shadow-ws
+              magosproject.io/job-type: plan

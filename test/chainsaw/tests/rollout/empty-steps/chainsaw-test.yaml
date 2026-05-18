@@ -4,13 +4,8 @@ metadata:
   name: empty-steps
 spec:
   description: |
-    An empty strategy is not an error, it is simply a noop: the Rollout
-    still exists as the logical handle the Project controller defers
-    to, there is just nothing to schedule yet. We assert phase=Ready
-    with reason=NoSteps rather than Failed because treating it as an
-    error would make Rollout a footgun while users are iterating on a
-    strategy and happen to save an empty array in the middle of an
-    edit.
+    Asserts that a Rollout with an empty strategy.steps list
+    reaches phase=Ready with reason=NoSteps.
   steps:
   - try:
     - apply:

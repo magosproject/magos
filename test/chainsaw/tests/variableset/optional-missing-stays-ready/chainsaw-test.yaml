@@ -1,0 +1,36 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: optional-missing-stays-ready
+spec:
+  description: |
+    Asserts that a VariableSet with an optional secretKeyRef
+    pointing at a nonexistent Secret still reaches phase=Ready and
+    contributes nothing to resolvedVariables.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: optional-vs
+          spec:
+            variables:
+              - name: region
+                value: us-east-1
+              - name: optional_override
+                valueFrom:
+                  secretKeyRef:
+                    name: never-created
+                    key: value
+                    optional: true
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: VariableSet
+          metadata:
+            name: optional-vs
+          status:
+            phase: Ready
+            resolvedVariables: 1

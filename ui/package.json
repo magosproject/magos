@@ -20,6 +20,7 @@
     "@react-router/node": "7.13.2",
     "@tabler/icons-react": "^3.41.0",
     "@xyflow/react": "^12.10.2",
+    "ansi-to-html": "^0.7.2",
     "isbot": "^5.1.36",
     "openapi-fetch": "^0.17.0",
     "react": "^19.2.4",

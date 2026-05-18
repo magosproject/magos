@@ -27,9 +27,11 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/magosproject/magos/internal/controller/variableset"
 	"github.com/magosproject/magos/internal/logstore"
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -176,8 +178,11 @@ func (r *WorkspaceReconciler) findWorkspacesForSecret(ctx context.Context, o cli
 // +kubebuilder:rbac:groups=magosproject.io,resources=workspaces,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=magosproject.io,resources=workspaces/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=magosproject.io,resources=workspaces/finalizers,verbs=update
+// +kubebuilder:rbac:groups=magosproject.io,resources=projects,verbs=get;list;watch
+// +kubebuilder:rbac:groups=magosproject.io,resources=variablesets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods/log,verbs=get
@@ -403,7 +408,14 @@ func currentRunObservedRevision(workspace *v1alpha1.Workspace) string {
 
 func runTriggerFromResetReason(reason string) v1alpha1.RunTrigger {
 	switch reason {
-	case "ConfigurationChanged":
+	case "ConfigurationChanged", "VariablesChanged":
+		// VariablesChanged is treated as a configuration trigger
+		// because, from the user's perspective, a VariableSet edit or a
+		// rotated Secret is a change to the inputs the workspace runs
+		// against. Splitting it into its own trigger code would force
+		// every downstream consumer (UI, run-log store, metrics labels)
+		// to learn about it, and there is no behavioral difference
+		// between "spec field changed" and "TF_VAR_* changed".
 		return v1alpha1.RunTriggerConfig
 	case "ManualReconcileRequested":
 		return v1alpha1.RunTriggerManual
@@ -444,6 +456,30 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 			activeCount.Set(active)
 		}
 	}()
+
+	// Step 0: Resolve VariableSets attached to this Workspace.
+	//
+	// The effective set is the ordered concatenation of the parent Project's
+	// VariableSetRef and the Workspace's own VariableSetRef. The variableset
+	// helper handles the composition and fingerprinting; we just have to
+	// fail fast when a required reference is missing so we don't end up
+	// creating a Plan Job that we know will break at terraform time. The
+	// resolved list is also passed into constructJobForWorkspace below so
+	// inline values and secretKeyRef entries land directly on the pod env.
+	resolvedVars, unresolved, err := r.resolveWorkspaceVariables(ctx, workspace)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if len(unresolved) > 0 {
+		message := fmt.Sprintf("%d variable reference(s) unresolved: %s", len(unresolved), formatUnresolved(unresolved))
+		r.updateStatus(ctx, workspace, v1alpha1.PhaseFailed, "UnresolvedVariables", message, metav1.ConditionFalse)
+		// Returning nil lets the controller wait for a VariableSet watch
+		// event to bring the workspace back. Returning an error here would
+		// also work but would log a noisy stack trace on every poll while
+		// the user fixes the missing Secret.
+		return ctrl.Result{}, nil
+	}
+	variablesHash := variableset.Fingerprint(resolvedVars)
 
 	// Step 1: Build Job names from a hash of the Workspace spec.
 	//
@@ -652,6 +688,19 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		}
 	}
 
+	// A change in the effective VariableSet composition is treated like a
+	// new revision detection: the resolved hash differs from the last hash
+	// we stamped, so the previous plan no longer represents what we should
+	// apply. The same phase guard applies, so a Secret rotation that lands
+	// while a Plan or Apply Job is already in flight does not interrupt
+	// the run; the next reconcile after that run terminates picks it up.
+	if !needsReset && variablesHash != workspace.Status.VariablesHash &&
+		(workspace.Status.Phase == "" || terminalWorkspaceRunRecorded(workspace.Status.Phase)) {
+		needsReset = true
+		resetReason = "VariablesChanged"
+		resetMessage = "Effective VariableSet composition changed since the last run"
+	}
+
 	if needsReset {
 		logger.Info("Cleaning up jobs to trigger a fresh run.", "reason", resetReason)
 		if planJobGetErr == nil {
@@ -680,6 +729,13 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		workspace.Status.CurrentRunTrigger = runTriggerFromResetReason(resetReason)
 		now := metav1.Now()
 		workspace.Status.LastRunStartedAt = &now
+		// Stamp the hash that this run is about to be planned against.
+		// Persisting it here, rather than on apply success, prevents a
+		// failed plan from looping back through the VariablesChanged reset
+		// check on the very next reconcile: the hash matches what we last
+		// attempted, so the run waits for the normal retry cooldown
+		// instead.
+		workspace.Status.VariablesHash = variablesHash
 		r.updateStatus(ctx, workspace, v1alpha1.PhasePending, resetReason, resetMessage, metav1.ConditionUnknown)
 
 		if resetReason == resetReasonScheduledReconcile && r.RunRecorder != nil {
@@ -774,7 +830,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		if errors.IsNotFound(planJobGetErr) {
 			logger.Info("Creating a new Plan Job", "job", planJobName)
 			runID := ensureRunMetadata(workspace)
-			newJob, err := r.constructJobForWorkspace(ctx, workspace, planJobName, jobTypePlan, planFile, pvcName, runID)
+			newJob, err := r.constructJobForWorkspace(ctx, workspace, planJobName, jobTypePlan, planFile, pvcName, runID, resolvedVars)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -913,7 +969,7 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 
 			logger.Info("Creating a new Apply Job", "job", applyJobName)
 			runID := ensureRunMetadata(workspace)
-			newJob, err := r.constructJobForWorkspace(ctx, workspace, applyJobName, jobTypeApply, planFile, pvcName, runID)
+			newJob, err := r.constructJobForWorkspace(ctx, workspace, applyJobName, jobTypeApply, planFile, pvcName, runID, resolvedVars)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -1348,7 +1404,7 @@ func (r *WorkspaceReconciler) archiveRunLogs(
 //
 // The Job is owned by the Workspace via SetControllerReference, so Kubernetes
 // garbage collection will delete it when the Workspace is removed.
-func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *v1alpha1.Workspace, jobName, jobType, planFile, pvcName, runID string) (*batchv1.Job, error) {
+func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *v1alpha1.Workspace, jobName, jobType, planFile, pvcName, runID string, resolvedVars []variableset.ResolvedVariable) (*batchv1.Job, error) {
 	// The below map holds configuration that every Job needs: where to clone
 	// from, which revision to check out, which Terraform version to use, and
 	// whether this is a "plan" or "apply" run.
@@ -1369,8 +1425,20 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 	if ws.Spec.Terraform.TfvarsPath != "" {
 		envVars = append(envVars, corev1.EnvVar{Name: "TF_VAR_FILE", Value: ws.Spec.Terraform.TfvarsPath})
 	}
+
+	// Append the resolved VariableSet entries as TF_VAR_* env vars. Inline
+	// values land verbatim, secretKeyRef and configMapKeyRef are forwarded
+	// as valueFrom entries so the kubelet resolves them at pod startup and
+	// the secret bytes never pass through this controller process. Terraform
+	// reads TF_VAR_<name> with higher precedence than any value in a .tfvars
+	// file, which is intentional: this is how VariableSets layer over the
+	// in-repo tfvars file from spec.terraform.tfvarsPath.
+	envVars = append(envVars, variableEnvVars(resolvedVars)...)
 	if logLevel := ws.Annotations[v1alpha1.WorkspaceTFLogLevelAnnotation]; logLevel != "" {
 		envVars = append(envVars, corev1.EnvVar{Name: "MAGOS_TF_LOG_LEVEL", Value: logLevel})
+	}
+	if os.Getenv("NO_COLOR") != "" {
+		envVars = append(envVars, corev1.EnvVar{Name: "NO_COLOR", Value: "1"})
 	}
 
 	// For plan jobs, resolve and pass the policy selector so the job can list
@@ -1565,6 +1633,16 @@ func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alp
 			needsUpdate = true
 		}
 
+		// Preserve the variables fingerprint stamped earlier in the
+		// reconcile. The reset path writes this just before the Pending
+		// status update so that a failed plan does not loop on
+		// VariablesChanged; carrying it through the optimistic-concurrency
+		// retry here keeps the same guarantee under contention.
+		if workspace.Status.VariablesHash != "" && latest.Status.VariablesHash != workspace.Status.VariablesHash {
+			latest.Status.VariablesHash = workspace.Status.VariablesHash
+			needsUpdate = true
+		}
+
 		// Carry the run ID and trigger forward when a new plan and apply run has
 		// started in the in-memory copy. Both fields are written before the
 		// first status update of a run, so they must survive the
@@ -1681,6 +1759,16 @@ func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findWorkspacesForSecret),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
+		Watches(
+			// VariableSets are not owned by a Workspace, but a change in
+			// their spec or status (the latter happens after the
+			// variableset controller observes a rotated Secret) needs to
+			// re-resolve every consumer's variables hash. The mapper
+			// performs the namespace-local fanout.
+			&v1alpha1.VariableSet{},
+			handler.EnqueueRequestsFromMapFunc(r.findWorkspacesForVariableSet),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Named("workspace").
