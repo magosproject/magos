@@ -14,6 +14,8 @@ export type LabelSelector = components["schemas"]["v1.LabelSelector"];
 export type RunPhaseSummary = components["schemas"]["v1alpha1.RunPhaseSummary"];
 export type Run = components["schemas"]["v1alpha1.Run"];
 export type RunListResponse = components["schemas"]["service.RunListResponse"];
+export type RunLogStreamEvent = components["schemas"]["service.RunLogStreamEvent"];
+export type RunLogStreamEventType = components["schemas"]["service.RunLogStreamEventType"];
 
 export type ResourceObject = {
   metadata?: ObjectMeta;
