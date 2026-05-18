@@ -105,6 +105,8 @@ func jobFinishedState(job *batchv1.Job) (time.Time, bool) {
 //
 // When no reset is needed but the caller should wait for the next scheduled
 // reconcile, exactRequeue is set to the remaining duration.
+//
+//nolint:gocyclo // Intentional orchestration logic kept in one place for readability.
 func (r *WorkspaceReconciler) checkCycleNeeded(
 	workspace *v1alpha1.Workspace,
 	rc runContext,
