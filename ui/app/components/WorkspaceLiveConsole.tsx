@@ -2,10 +2,10 @@ import { Code, Group, Loader, Text, Title } from "@mantine/core";
 import AnsiToHtml from "ansi-to-html";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiUrl } from "../api/base";
-import type { Phase, Run } from "../api/types";
+import type { Run } from "../api/types";
 
 type StreamEvent = {
-  type?: "status" | "line" | "error" | "eof";
+  type?: "status" | "line" | "error" | "phase_start" | "eof";
   runID?: string;
   phase?: "plan" | "apply";
   podName?: string;
@@ -16,50 +16,25 @@ type StreamEvent = {
 interface Props {
   namespace: string;
   workspaceName: string;
-  phase?: Phase;
   currentRunID?: string;
-}
-
-// activeStreamPhase returns the log phase to stream for the current workspace
-// phase, or null when no active run is in progress.
-function activeStreamPhase(phase?: Phase): "plan" | "apply" | null {
-  switch (phase) {
-    case "Planning":
-      return "plan";
-    case "Applying":
-      return "apply";
-    default:
-      return null;
-  }
 }
 
 export default function WorkspaceLiveConsole({
   namespace,
   workspaceName,
-  phase,
   currentRunID,
 }: Props) {
   const [status, setStatus] = useState("Loading latest completed run log");
   const [podName, setPodName] = useState<string | null>(null);
+  const [streamDone, setStreamDone] = useState(false);
+  const [currentStreamPhase, setCurrentStreamPhase] = useState<"plan" | "apply" | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<string[]>([]);
   const revealTimerRef = useRef<number | null>(null);
-  const streamPhase = activeStreamPhase(phase);
-  const isActive = Boolean(streamPhase && currentRunID);
-  // streamKey changes whenever the run or active phase changes, causing all
-  // effects that depend on it to re-run with a clean slate.
-  const streamKey = useMemo(
-    () => `${currentRunID ?? ""}:${streamPhase ?? ""}`,
-    [streamPhase, currentRunID]
-  );
+  const isActive = Boolean(currentRunID);
+  const streamKey = currentRunID ?? "";
 
-  // Content is stored together with the streamKey it was produced for.
-  // When streamKey changes the derived `content` value is automatically null
-  // (loading), so no explicit reset logic is needed anywhere.
-  const [contentState, setContentState] = useState<{
-    key: string;
-    value: string | null;
-  }>({
+  const [contentState, setContentState] = useState<{ key: string; value: string | null }>({
     key: streamKey,
     value: null,
   });
@@ -88,17 +63,13 @@ export default function WorkspaceLiveConsole({
     if (pending.length === 0) stopRevealTimer();
   }, [streamKey, stopRevealTimer]);
 
-  // When there is no active run, load the most recent completed run's apply
-  // log (falling back to the plan log) so the console is never blank.
   useEffect(() => {
     if (isActive) return;
 
     const controller = new AbortController();
 
     fetch(
-      apiUrl(
-        `/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs?limit=1`
-      ),
+      apiUrl(`/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs?limit=1`),
       { signal: controller.signal, cache: "no-store" }
     )
       .then(async (response) => {
@@ -112,15 +83,12 @@ export default function WorkspaceLiveConsole({
           setStatus("No logs recorded yet");
           return;
         }
-
-        // Prefer the apply log; fall back to plan when apply did not run.
         const logPhase = latest.apply ? "apply" : latest.plan ? "plan" : null;
         if (!logPhase) {
           setContent("");
           setStatus("No logs recorded yet");
           return;
         }
-
         const response = await fetch(
           apiUrl(
             `/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs/${latest.runID}/log?phase=${logPhase}`
@@ -141,22 +109,30 @@ export default function WorkspaceLiveConsole({
     return () => controller.abort();
   }, [isActive, namespace, workspaceName, streamKey, setContent]);
 
-  // Stream live logs from the active run's pod when a plan or apply is in
-  // progress. The EventSource is torn down and rebuilt whenever streamKey
-  // changes so stale streams from a previous run do not bleed into the next.
   useEffect(() => {
-    if (!isActive || !streamPhase) return;
+    if (!isActive) return;
 
     const pending = pendingRef.current;
     const source = new EventSource(
       apiUrl(
-        `/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs/current/log/stream?phase=${streamPhase}`
+        `/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs/current/log/stream`
       )
     );
 
     source.onmessage = (event) => {
       const payload = JSON.parse(event.data) as StreamEvent;
       switch (payload.type) {
+        case "phase_start":
+          // Clear the console when the apply phase begins. For the plan phase
+          // (the first event on a fresh connection) there is nothing to clear.
+          if (payload.phase === "apply") {
+            pending.splice(0);
+            stopRevealTimer();
+            setContentState({ key: streamKey, value: "" });
+          }
+          setCurrentStreamPhase(payload.phase ?? null);
+          setPodName(null);
+          break;
         case "status":
           if (payload.podName) setPodName(payload.podName);
           break;
@@ -167,10 +143,11 @@ export default function WorkspaceLiveConsole({
           }
           break;
         case "error":
-          setStatus(payload.message || `Error streaming ${streamPhase} logs`);
+          setStatus(payload.message || "Error streaming logs");
           break;
         case "eof":
-          setStatus("Run phase completed");
+          setStreamDone(true);
+          setStatus("Run completed");
           source.close();
           break;
       }
@@ -184,11 +161,13 @@ export default function WorkspaceLiveConsole({
       source.close();
       stopRevealTimer();
       setPodName(null);
+      setStreamDone(false);
+      setCurrentStreamPhase(null);
       while (pending.length > 0) {
         flushPendingLines();
       }
     };
-  }, [streamPhase, isActive, namespace, streamKey, workspaceName, currentRunID, flushPendingLines, stopRevealTimer]);
+  }, [isActive, namespace, streamKey, workspaceName, flushPendingLines, stopRevealTimer]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -205,10 +184,12 @@ export default function WorkspaceLiveConsole({
       <Group gap="xs">
         {loading && <Loader size="xs" />}
         <Text size="sm" c="dimmed">
-          {isActive && currentRunID
-            ? contentState.key === streamKey && content
-              ? `Streaming ${streamPhase} logs for pod ${podName}`
-              : `Waiting for ${streamPhase} logs from pod ${podName}`
+          {isActive && !streamDone
+            ? currentStreamPhase
+              ? podName
+                ? `Streaming ${currentStreamPhase} logs for pod ${podName}`
+                : `Waiting for ${currentStreamPhase} logs`
+              : "Connecting..."
             : status}
         </Text>
       </Group>

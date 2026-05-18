@@ -1851,14 +1851,6 @@
                         "schema": {
                             "type": "string"
                         }
-                    },
-                    {
-                        "description": "Phase to stream: plan or apply (defaults to apply)",
-                        "in": "query",
-                        "name": "phase",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "responses": {
@@ -1893,7 +1885,7 @@
                         "description": "Not Found"
                     }
                 },
-                "summary": "Stream live logs from the active phase of the in-progress plan and apply run",
+                "summary": "Stream live logs from the in-progress plan and apply run",
                 "tags": [
                     "Workspace"
                 ]

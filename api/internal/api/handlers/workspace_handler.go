@@ -334,12 +334,11 @@ func (h *WorkspaceHandler) RecordRunPhase(w http.ResponseWriter, r *http.Request
 
 // StreamCurrentRunLog godoc
 //
-//	@Summary	Stream live logs from the active phase of the in-progress plan and apply run
+//	@Summary	Stream live logs from the in-progress plan and apply run
 //	@Tags		Workspace
 //	@Produce	text/event-stream
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
-//	@Param		phase		query		string	false	"Phase to stream: plan or apply (defaults to apply)"
 //	@Success	200			{object}	service.RunLogStreamEvent
 //	@Failure	400			{object}	ErrorResponse
 //	@Failure	404			{object}	ErrorResponse
@@ -358,9 +357,8 @@ func (h *WorkspaceHandler) StreamCurrentRunLog(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	phase := parseRunPhase(r.URL.Query().Get("phase"))
 	StreamSSE(w, r, func(ctx context.Context) <-chan service.RunLogStreamEvent {
-		return h.service.StreamCurrentRunLogs(ctx, namespace, name, phase)
+		return h.service.StreamCurrentRunLogs(ctx, namespace, name)
 	})
 }
 

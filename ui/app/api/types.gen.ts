@@ -779,13 +779,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Stream live logs from the active phase of the in-progress plan and apply run */
+        /** Stream live logs from the in-progress plan and apply run */
         get: {
             parameters: {
-                query?: {
-                    /** @description Phase to stream: plan or apply (defaults to apply) */
-                    phase?: string;
-                };
+                query?: never;
                 header?: never;
                 path: {
                     /** @description Namespace */
