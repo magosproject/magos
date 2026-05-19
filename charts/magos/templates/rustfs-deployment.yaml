@@ -1,7 +1,8 @@
+{{- if eq (include "magos.logsStorageMode" .) "embedded" }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+  name: {{ include "magos.rustfsName" . }}
   labels:
     {{- include "magos.labels" . | nindent 4 }}
     app.kubernetes.io/component: rustfs
@@ -51,12 +52,12 @@ spec:
         - name: RUSTFS_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+              name: {{ include "magos.rustfsSecretName" . }}
               key: accessKey
         - name: RUSTFS_SECRET_KEY
           valueFrom:
             secretKeyRef:
-              name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+              name: {{ include "magos.rustfsSecretName" . }}
               key: secretKey
         securityContext:
           allowPrivilegeEscalation: false
@@ -65,6 +66,8 @@ spec:
             - ALL
           readOnlyRootFilesystem: false
           runAsNonRoot: true
+        resources:
+          {{- toYaml .Values.logs.storage.resources | nindent 10 }}
         volumeMounts:
         - name: data
           mountPath: /data
@@ -73,6 +76,7 @@ spec:
       volumes:
       - name: data
         persistentVolumeClaim:
-          claimName: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+          claimName: {{ include "magos.rustfsName" . }}
       - name: logs
         emptyDir: {}
+{{- end }}

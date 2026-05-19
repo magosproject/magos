@@ -1,7 +1,8 @@
+{{- if eq (include "magos.logsStorageMode" .) "embedded" }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
+  name: {{ include "magos.rustfsName" . }}
   labels:
     {{- include "magos.labels" . | nindent 4 }}
     app.kubernetes.io/component: rustfs
@@ -14,3 +15,4 @@ spec:
   resources:
     requests:
       storage: {{ .Values.logs.storage.persistence.size }}
+{{- end }}

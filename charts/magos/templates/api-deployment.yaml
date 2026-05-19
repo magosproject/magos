@@ -44,7 +44,7 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         {{- include "magos.logstoreEnv" . | nindent 8 }}
-        {{- if .Values.postgres.enabled }}
+        {{- if eq (include "magos.postgresEnvEnabled" .) "true" }}
         {{- include "magos.postgresEnv" . | nindent 8 }}
         {{- end }}
         {{- with .Values.api.env }}

@@ -36,8 +36,8 @@ podDefaults:
       - ALL
   resources:
     limits:
-      cpu: 500m
-      memory: 256Mi
+      cpu: 250m
+      memory: 128Mi
     requests:
       cpu: 100m
       memory: 128Mi
@@ -74,8 +74,8 @@ controllers:
       name: ""
     resources:
       limits:
-        cpu: 500m
-        memory: 256Mi
+        cpu: 250m
+        memory: 128Mi
       requests:
         cpu: 100m
         memory: 128Mi
@@ -89,8 +89,8 @@ controllers:
       name: ""
     resources:
       limits:
-        cpu: 500m
-        memory: 256Mi
+        cpu: 250m
+        memory: 128Mi
       requests:
         cpu: 100m
         memory: 128Mi
@@ -104,8 +104,8 @@ controllers:
       name: ""
     resources:
       limits:
-        cpu: 500m
-        memory: 256Mi
+        cpu: 250m
+        memory: 128Mi
       requests:
         cpu: 100m
         memory: 128Mi
@@ -119,8 +119,8 @@ controllers:
       name: ""
     resources:
       limits:
-        cpu: 500m
-        memory: 256Mi
+        cpu: 250m
+        memory: 128Mi
       requests:
         cpu: 100m
         memory: 128Mi
@@ -137,8 +137,8 @@ controllers:
       name: ""
     resources:
       limits:
-        cpu: 500m
-        memory: 256Mi
+        cpu: 250m
+        memory: 128Mi
       requests:
         cpu: 100m
         memory: 128Mi
@@ -157,8 +157,8 @@ ui:
     port: 80
   resources:
     limits:
-      cpu: 200m
-      memory: 128Mi
+      cpu: 100m
+      memory: 64Mi
     requests:
       cpu: 50m
       memory: 64Mi
@@ -188,6 +188,10 @@ workspace:
 
 logs:
   storage:
+    # Select how Magos reaches the S3-compatible log backend.
+    # - embedded: deploy the bundled RustFS instance and wire it automatically.
+    # - external: skip RustFS and wire the API/controllers to your own S3 endpoint.
+    mode: embedded
     image:
       repository: rustfs/rustfs
       tag: latest
@@ -204,10 +208,27 @@ logs:
     persistence:
       size: 10Gi
       # storageClass: "" # Leave empty to use the cluster default.
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    external:
+      endpoint: ""
+      existingSecret: ""
+      accessKeyKey: accessKey
+      secretKeyKey: secretKey
 
 postgres:
   # First-party PostgreSQL instance used for run metadata and future
   # operational metadata. RustFS remains the storage backend for log blobs.
+  # mode can be used to explicitly choose the database wiring strategy:
+  # - embedded: deploy the bundled PostgreSQL instance and wire it automatically.
+  # - external: skip the bundled PostgreSQL instance and wire the API to your own database.
+  # Leave empty to keep the legacy `enabled`-based behaviour.
+  mode: ""
   enabled: true
   image:
     repository: postgres
@@ -228,6 +249,14 @@ postgres:
     enabled: true
     size: 10Gi
     # storageClass: "" # Leave empty to use the cluster default.
+  external:
+    host: ""
+    port: 5432
+    database: magos
+    username: magos
+    existingSecret: ""
+    passwordKey: password
+    sslMode: disable
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 70
@@ -243,8 +272,8 @@ postgres:
       - ALL
   resources:
     limits:
-      cpu: "1"
-      memory: 1Gi
+      cpu: 500m
+      memory: 512Mi
     requests:
       cpu: 100m
       memory: 256Mi
@@ -277,8 +306,8 @@ api:
   env: []
   resources:
     limits:
-      cpu: 500m
-      memory: 256Mi
+      cpu: 250m
+      memory: 128Mi
     requests:
       cpu: 100m
       memory: 128Mi

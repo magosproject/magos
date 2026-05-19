@@ -82,6 +82,37 @@ Create the name of the service account to use for the API
 {{- end }}
 
 {{/*
+Create the bundled RustFS resource names.
+*/}}
+{{- define "magos.rustfsName" -}}
+{{- printf "%s-rustfs" (include "magos.fullname" .) -}}
+{{- end }}
+
+{{- define "magos.rustfsSecretName" -}}
+{{- if eq (include "magos.logsStorageMode" .) "external" -}}
+{{- required "logs.storage.external.existingSecret is required when logs.storage.mode=external" .Values.logs.storage.external.existingSecret -}}
+{{- else -}}
+{{- include "magos.rustfsName" . -}}
+{{- end -}}
+{{- end }}
+
+{{- define "magos.rustfsAccessKeyKey" -}}
+{{- if eq (include "magos.logsStorageMode" .) "external" -}}
+{{- default "accessKey" .Values.logs.storage.external.accessKeyKey -}}
+{{- else -}}
+accessKey
+{{- end -}}
+{{- end }}
+
+{{- define "magos.rustfsSecretKeyKey" -}}
+{{- if eq (include "magos.logsStorageMode" .) "external" -}}
+{{- default "secretKey" .Values.logs.storage.external.secretKeyKey -}}
+{{- else -}}
+secretKey
+{{- end -}}
+{{- end }}
+
+{{/*
 Create the bundled PostgreSQL resource names
 */}}
 {{- define "magos.postgresName" -}}
@@ -97,15 +128,71 @@ Create the bundled PostgreSQL resource names
 {{- end }}
 
 {{- define "magos.postgresPasswordKey" -}}
+{{- if eq (include "magos.postgresMode" .) "external" -}}
+{{- default "password" .Values.postgres.external.passwordKey -}}
+{{- else -}}
 {{- default "password" .Values.postgres.auth.passwordKey -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Resolve the selected storage/database wiring modes.
+*/}}
+{{- define "magos.logsStorageMode" -}}
+{{- $mode := default "embedded" .Values.logs.storage.mode -}}
+{{- if and (ne $mode "embedded") (ne $mode "external") -}}
+{{- fail (printf "logs.storage.mode must be either embedded or external, got %q" $mode) -}}
+{{- end -}}
+{{- $mode -}}
+{{- end }}
+
+{{- define "magos.postgresMode" -}}
+{{- $mode := default "" .Values.postgres.mode -}}
+{{- if eq $mode "" -}}
+{{- if .Values.postgres.enabled -}}
+embedded
+{{- else if or .Values.postgres.external.host .Values.postgres.external.existingSecret -}}
+external
+{{- else -}}
+disabled
+{{- end -}}
+{{- else -}}
+{{- if and (ne $mode "embedded") (ne $mode "external") -}}
+{{- fail (printf "postgres.mode must be either embedded or external, got %q" $mode) -}}
+{{- end -}}
+{{- $mode -}}
+{{- end -}}
+{{- end }}
+
+{{- define "magos.postgresEnvEnabled" -}}
+{{- $mode := include "magos.postgresMode" . -}}
+{{- if or (eq $mode "embedded") (eq $mode "external") -}}true{{- end -}}
 {{- end }}
 
 {{/*
 Environment variables for the run-summary database. The API can also be
-pointed at an external database by disabling postgres.enabled and providing
-MAGOS_DATABASE_URL or the MAGOS_POSTGRES_* variables via api.env.
+pointed at an external database by setting postgres.mode=external (or, for the
+legacy flow, disabling postgres.enabled) and configuring postgres.external or
+providing MAGOS_DATABASE_URL / MAGOS_POSTGRES_* via api.env.
 */}}
 {{- define "magos.postgresEnv" -}}
+{{- if eq (include "magos.postgresMode" .) "external" }}
+- name: MAGOS_POSTGRES_HOST
+  value: {{ required "postgres.external.host is required when postgres.mode=external" .Values.postgres.external.host | quote }}
+- name: MAGOS_POSTGRES_PORT
+  value: {{ .Values.postgres.external.port | quote }}
+- name: MAGOS_POSTGRES_DATABASE
+  value: {{ .Values.postgres.external.database | quote }}
+- name: MAGOS_POSTGRES_USER
+  value: {{ .Values.postgres.external.username | quote }}
+- name: MAGOS_POSTGRES_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ required "postgres.external.existingSecret is required when postgres.mode=external" .Values.postgres.external.existingSecret }}
+      key: {{ include "magos.postgresPasswordKey" . }}
+- name: MAGOS_POSTGRES_SSLMODE
+  value: {{ .Values.postgres.external.sslMode | quote }}
+{{- else }}
 - name: MAGOS_POSTGRES_HOST
   value: {{ include "magos.postgresName" . | quote }}
 - name: MAGOS_POSTGRES_PORT
@@ -122,22 +209,28 @@ MAGOS_DATABASE_URL or the MAGOS_POSTGRES_* variables via api.env.
 - name: MAGOS_POSTGRES_SSLMODE
   value: {{ .Values.postgres.sslMode | quote }}
 {{- end }}
+{{- end }}
 
 {{/*
-Environment variables for the log store. Credentials and endpoint are wired
-automatically from the bundled RustFS deployment and are not user-configurable.
+Environment variables for the log store. These are wired either from the
+bundled RustFS deployment or from an external S3-compatible backend.
 */}}
 {{- define "magos.logstoreEnv" -}}
+{{- if eq (include "magos.logsStorageMode" .) "external" }}
 - name: MAGOS_LOGS_S3_ENDPOINT
-  value: {{ printf "http://%s-rustfs:%v" (include "magos.fullname" .) .Values.logs.storage.service.port | quote }}
+  value: {{ required "logs.storage.external.endpoint is required when logs.storage.mode=external" .Values.logs.storage.external.endpoint | quote }}
+{{- else }}
+- name: MAGOS_LOGS_S3_ENDPOINT
+  value: {{ printf "http://%s:%v" (include "magos.rustfsName" .) .Values.logs.storage.service.port | quote }}
+{{- end }}
 - name: MAGOS_LOGS_S3_ACCESS_KEY_ID
   valueFrom:
     secretKeyRef:
-      name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
-      key: accessKey
+      name: {{ include "magos.rustfsSecretName" . }}
+      key: {{ include "magos.rustfsAccessKeyKey" . }}
 - name: MAGOS_LOGS_S3_SECRET_ACCESS_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ printf "%s-rustfs" (include "magos.fullname" .) }}
-      key: secretKey
+      name: {{ include "magos.rustfsSecretName" . }}
+      key: {{ include "magos.rustfsSecretKeyKey" . }}
 {{- end }}
