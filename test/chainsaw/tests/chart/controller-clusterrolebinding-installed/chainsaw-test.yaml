@@ -18,6 +18,7 @@ spec:
             name: magos
     - script:
         content: |
+          set -euo pipefail
           actual="$(kubectl get clusterrolebinding magos -o go-template='{{range .subjects}}{{.kind}}:{{.namespace}}:{{.name}}{{"\n"}}{{end}}' | sort)"
           expected="$(cat <<'EOF' | sort
           ServiceAccount:magos-system:magos-workspace
