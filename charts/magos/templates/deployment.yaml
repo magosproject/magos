@@ -78,6 +78,8 @@ spec:
         {{- if eq $name "workspace" }}
         - name: MAGOS_JOB_IMAGE
           value: "{{ $root.Values.jobImage.repository }}:{{ $root.Values.jobImage.tag | default $root.Chart.AppVersion }}"
+        - name: MAGOS_WORKSPACE_PVC_SIZE_DEFAULT
+          value: {{ $root.Values.workspace.defaultPVCSize | quote }}
         {{- if not (($root.Values.job).colorOutput | default true) }}
         - name: NO_COLOR
           value: "1"
