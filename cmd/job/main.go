@@ -49,9 +49,15 @@ type Config struct {
 	GitSSHKey      string
 	JobType        string
 	PlanFile       string
+	RunID          string
 	PolicySelector string // a label selector for kyverno policies to evaluate the plan against, e.g. "env=prod"
 	TFLogLevel     string // TF_LOG level (TRACE, DEBUG, INFO, WARN, ERROR); empty means logging is suppressed
 }
+
+const (
+	jobTypePlan  = "plan"
+	jobTypeApply = "apply"
+)
 
 // loadConfig reads the job configuration from environment variables. The
 // workspace controller sets these when it constructs the Job spec, so env vars
@@ -71,16 +77,24 @@ func loadConfig() (*Config, error) {
 		GitSSHKey:      os.Getenv("GIT_SSH_PRIVATE_KEY"),
 		JobType:        os.Getenv("MAGOS_JOB_TYPE"),
 		PlanFile:       os.Getenv("MAGOS_PLAN_FILE"),
+		RunID:          os.Getenv("MAGOS_RUN_ID"),
 		PolicySelector: os.Getenv("MAGOS_POLICY_SELECTOR"),
 		TFLogLevel:     os.Getenv("MAGOS_TF_LOG_LEVEL"),
 	}
 
-	if cfg.RepoURL == "" || cfg.TargetRevision == "" || cfg.TFVersion == "" || cfg.JobType == "" || cfg.PlanFile == "" {
-		return nil, errors.New("REPO_URL, TARGET_REVISION, TF_VERSION, MAGOS_JOB_TYPE, and MAGOS_PLAN_FILE are required")
+	if cfg.RepoURL == "" || cfg.TFVersion == "" || cfg.JobType == "" || cfg.PlanFile == "" || cfg.RunID == "" {
+		return nil, errors.New("REPO_URL, TF_VERSION, MAGOS_JOB_TYPE, MAGOS_PLAN_FILE, and MAGOS_RUN_ID are required")
 	}
 
-	if cfg.JobType != "plan" && cfg.JobType != "apply" {
+	if cfg.JobType != jobTypePlan && cfg.JobType != jobTypeApply {
 		return nil, fmt.Errorf("invalid MAGOS_JOB_TYPE: %s (must be 'plan' or 'apply')", cfg.JobType)
+	}
+
+	// Only the plan pod clones the repo, so TARGET_REVISION is only required
+	// for plan jobs. The apply pod inherits the working tree the plan pod left
+	// on the shared PVC and does not resolve any git ref of its own.
+	if cfg.JobType == jobTypePlan && cfg.TargetRevision == "" {
+		return nil, errors.New("TARGET_REVISION is required for plan jobs")
 	}
 
 	return cfg, nil
@@ -118,12 +132,51 @@ func getAuthMethod(cfg *Config) (transport.AuthMethod, error) {
 	return nil, nil // Public repository fallback
 }
 
+// runsBase is the parent for per-run subdirectories on the workspace PVC.
+const runsBase = "/workspace-data/runs"
+
+// runDir returns the directory on the PVC for a given run.
+func runDir(runID string) string {
+	return filepath.Join(runsBase, runID)
+}
+
+// sourcePath returns the source tree path for a given run.
+func sourcePath(runID string) string {
+	return filepath.Join(runDir(runID), "source")
+}
+
+// validateSourceDir checks that the apply pod's working tree is present
+// and that terraform init ran in it. Fails fast otherwise.
+func validateSourceDir(sourceDir, tfPath string) error {
+	if _, err := os.Stat(sourceDir); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf(
+				"source directory %q is missing; the plan pod did not prepare a working tree for this run",
+				sourceDir,
+			)
+		}
+		return fmt.Errorf("failed to stat source directory %q: %w", sourceDir, err)
+	}
+
+	tfDir := filepath.Join(sourceDir, tfPath, ".terraform")
+	if _, err := os.Stat(tfDir); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf(
+				"expected .terraform directory at %q is missing; the plan pod did not complete terraform init for this run",
+				tfDir,
+			)
+		}
+		return fmt.Errorf("failed to stat %q: %w", tfDir, err)
+	}
+
+	return nil
+}
+
 // cloneRepository performs a shallow clone of the configured repository into
 // dest and checks out the exact revision the controller asked for. The shallow
 // clone keeps pod startup fast and avoids pulling years of history the job is
-// never going to read. Resolving the revision explicitly (rather than relying
-// on the clone's default branch) means a branch moving between the plan and
-// apply phases cannot silently change what we are about to apply.
+// never going to read. Only the plan pod calls this; the apply pod reuses the
+// working tree the plan pod produced. dest is expected to be empty or missing.
 func cloneRepository(ctx context.Context, cfg *Config, dest string) error {
 	auth, err := getAuthMethod(cfg)
 	if err != nil {
@@ -217,7 +270,7 @@ func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 	}
 
 	switch cfg.JobType {
-	case "plan":
+	case jobTypePlan:
 		log.Println("Running 'terraform plan'...")
 		var planOpts []tfexec.PlanOption
 		if cfg.TFVarsPath != "" {
@@ -252,8 +305,19 @@ func execTerraform(ctx context.Context, cfg *Config, cloneDir string) error {
 			}
 		}
 
-	case "apply":
+	case jobTypeApply:
 		log.Printf("Running 'terraform apply' using plan %s...", cfg.PlanFile)
+
+		// Always remove the run dir when the apply pod exits, success or
+		// failure. The next plan's prune is the fallback for the case
+		// where the pod is killed before this defer runs.
+		defer func() {
+			runPath := runDir(cfg.RunID)
+			log.Printf("Removing run directory %s...", runPath)
+			if err := os.RemoveAll(runPath); err != nil {
+				log.Printf("Warning: failed to remove run dir: %v", err)
+			}
+		}()
 
 		// Hack to handle local kind (Kubernetes-in-Docker) filesystem lag. My
 		// (@bschaatsbergen) container runtime (using sshfs or virtiofs under
@@ -476,12 +540,9 @@ func logTerraformEnvVars() {
 	log.Printf("Loaded %d Terraform input(s) from VariableSets: %s", len(names), strings.Join(names, ", "))
 }
 
-// run drives a single job from start to finish. It configures logging, loads
-// and validates the environment configuration, creates a per pod temporary
-// workspace under /tmp, clones the repository into it, and then hands off to
-// execTerraform. Each pod gets its own temp directory so concurrent jobs cannot
-// see each other's files, and the deferred RemoveAll makes sure we do not leave
-// stale clones behind when the pod terminates.
+// run drives a single job. Plan pods clone into
+// /workspace-data/runs/<runID>/source; apply pods reuse that tree. A
+// successful apply removes the run's directory.
 func run() error {
 	// Prefix every log line with [magos-job] so pod logs are easy to scan.
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
@@ -500,23 +561,31 @@ func run() error {
 	// names-only.
 	logTerraformEnvVars()
 
-	tmpDir, err := os.MkdirTemp("", "magos-workspace-*")
-	if err != nil {
-		return fmt.Errorf("failed to create temporary workspace directory: %w", err)
-	}
-	defer func() {
-		if err := os.RemoveAll(tmpDir); err != nil {
-			log.Printf("Warning: failed to remove temporary workspace %q: %v", tmpDir, err)
-		}
-	}()
-
 	ctx := context.Background()
+	src := sourcePath(cfg.RunID)
 
-	if err := cloneRepository(ctx, cfg, tmpDir); err != nil {
-		return err
+	switch cfg.JobType {
+	case jobTypePlan:
+		// Start from a clean slate. The previous run's apply pod removes
+		// its own run dir on exit, but a wipe of runsBase covers the case
+		// where that defer never ran (pod killed, OOM, eviction).
+		if err := os.RemoveAll(runsBase); err != nil {
+			return fmt.Errorf("failed to clear runs dir: %w", err)
+		}
+		if err := os.MkdirAll(runDir(cfg.RunID), 0o755); err != nil {
+			return fmt.Errorf("failed to create run dir: %w", err)
+		}
+		if err := cloneRepository(ctx, cfg, src); err != nil {
+			return err
+		}
+	case jobTypeApply:
+		// The plan pod is the only writer; confirm its tree is still here.
+		if err := validateSourceDir(src, cfg.TFPath); err != nil {
+			return err
+		}
 	}
 
-	if err := execTerraform(ctx, cfg, tmpDir); err != nil {
+	if err := execTerraform(ctx, cfg, src); err != nil {
 		return err
 	}
 
