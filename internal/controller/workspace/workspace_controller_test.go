@@ -47,3 +47,31 @@ func TestResolveWorkspacePVCSizeFallsBackToBuiltInDefault(t *testing.T) {
 
 	assert.Equal(t, DefaultWorkspacePVCSize, reconciler.resolveWorkspacePVCSize(&v1alpha1.Workspace{}))
 }
+
+func TestNormalizeRepoURLStripsGitSuffix(t *testing.T) {
+	assert.Equal(t, "https://github.com/foo/bar", normalizeRepoURL("https://github.com/foo/bar.git"))
+}
+
+func TestNormalizeRepoURLLeavesPlainURLUnchanged(t *testing.T) {
+	assert.Equal(t, "https://github.com/foo/bar", normalizeRepoURL("https://github.com/foo/bar"))
+}
+
+func TestNormalizeRepoURLStripsTrailingSlash(t *testing.T) {
+	assert.Equal(t, "https://github.com/foo/bar", normalizeRepoURL("https://github.com/foo/bar/"))
+}
+
+func TestNormalizeRepoURLStripsTrailingSlashAfterGitSuffix(t *testing.T) {
+	assert.Equal(t, "https://github.com/foo/bar", normalizeRepoURL("https://github.com/foo/bar.git/"))
+}
+
+func TestNormalizeRepoURLStripsSurroundingWhitespace(t *testing.T) {
+	assert.Equal(t, "https://github.com/foo/bar", normalizeRepoURL("  https://github.com/foo/bar.git  "))
+}
+
+func TestNormalizeRepoURLHandlesSSHForm(t *testing.T) {
+	assert.Equal(t, "git@github.com:foo/bar", normalizeRepoURL("git@github.com:foo/bar.git"))
+}
+
+func TestNormalizeRepoURLDoesNotStripGitInsidePath(t *testing.T) {
+	assert.Equal(t, "https://github.com/foo/bar.gitlab", normalizeRepoURL("https://github.com/foo/bar.gitlab"))
+}
