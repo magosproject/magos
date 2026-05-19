@@ -16,17 +16,8 @@ specific language governing permissions and limitations under the License.
 package workspace
 
 import (
-	"bufio"
-	"bytes"
-	"compress/gzip"
 	"context"
-	crand "crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
-	"maps"
 	"os"
 	"strings"
 	"time"
@@ -37,13 +28,11 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -55,27 +44,6 @@ import (
 )
 
 const (
-	// DefaultReconciliationInterval is the fallback duration between scheduled
-	// reconciliations
-	DefaultReconciliationInterval = 3 * time.Minute
-
-	// DefaultJobTimeoutSeconds is the activeDeadlineSeconds applied to plan and
-	// apply Jobs when no per-phase TimeoutSeconds override is set. This
-	// prevents a Workspace from being stuck in Planning or Applying
-	// indefinitely if a Job hangs (e.g. terraform blocks on a provider call).
-	DefaultJobTimeoutSeconds int64 = 86400 // 24 hours
-
-	// DefaultWorkspacePVCSize is the storage request used for Workspace PVCs
-	// when neither the Workspace spec nor controller config provides a value.
-	DefaultWorkspacePVCSize = "1Gi"
-
-	// jobTypePlan and jobTypeApply are the two values the workspace controller
-	// uses when launching a Kubernetes Job. The value is written into the
-	// MAGOS_JOB_TYPE environment variable so the job knows whether to run
-	// terraform plan or terraform apply.
-	jobTypePlan  = "plan"
-	jobTypeApply = "apply"
-
 	// Label used to identify repository credential secrets
 	RepoSecretLabelKey   = "magosproject.io/secret-type"
 	RepoSecretLabelValue = "repository"
@@ -85,10 +53,6 @@ const (
 	SecretKeyUsername      = "username"
 	SecretKeyPassword      = "password"
 	SecretKeySSHPrivateKey = "sshPrivateKey"
-
-	runIDLabelKey = "magosproject.io/run-id"
-
-	resetReasonScheduledReconcile = "ScheduledReconcile"
 )
 
 // WorkspaceReconciler reconciles a Workspace object
@@ -121,7 +85,6 @@ func normalizeRepoURL(u string) string {
 func (r *WorkspaceReconciler) getRepoCredentials(ctx context.Context, namespace, targetRepoURL string) (*corev1.Secret, error) {
 	var secretList corev1.SecretList
 
-	// List secrets in the namespace with the specific label
 	err := r.List(ctx, &secretList,
 		client.InNamespace(namespace),
 		client.MatchingLabels{RepoSecretLabelKey: RepoSecretLabelValue},
@@ -131,8 +94,6 @@ func (r *WorkspaceReconciler) getRepoCredentials(ctx context.Context, namespace,
 	}
 
 	target := normalizeRepoURL(targetRepoURL)
-
-	// Find the secret that matches the requested RepoURL
 	for i := range secretList.Items {
 		secret := &secretList.Items[i]
 		if normalizeRepoURL(string(secret.Data[SecretKeyRepoURL])) == target {
@@ -145,14 +106,6 @@ func (r *WorkspaceReconciler) getRepoCredentials(ctx context.Context, namespace,
 
 // findWorkspacesForSecret maps Secret watch events to Workspace reconcile
 // requests.
-//
-// We need this because repository credential Secrets are not owned by any
-// Workspace. Without this mapper, updates to a Secret, such as SSH private key
-// rotation, would not automatically trigger a reconcile of the Workspaces that
-// use it. By mapping Secrets to the Workspaces referencing the same repoURL, we
-// ensure that any change in credentials properly propagates, allowing the
-// controller to react (e.g., by re-running jobs that may have failed due to Git
-// auth issues).
 func (r *WorkspaceReconciler) findWorkspacesForSecret(ctx context.Context, o client.Object) []reconcile.Request {
 	secret, ok := o.(*corev1.Secret)
 	if !ok {
@@ -174,11 +127,8 @@ func (r *WorkspaceReconciler) findWorkspacesForSecret(ctx context.Context, o cli
 		return nil
 	}
 
-	// For each workspace in the same namespace, if its Spec.Source.RepoURL
-	// matches the repoURL from the secret, enqueue a reconcile request for that
-	// workspace.
 	target := normalizeRepoURL(string(repoURL))
-	var requests []reconcile.Request
+	requests := make([]reconcile.Request, 0, len(workspaces.Items))
 	for _, ws := range workspaces.Items {
 		if normalizeRepoURL(ws.Spec.Source.RepoURL) == target {
 			requests = append(requests, reconcile.Request{
@@ -209,7 +159,6 @@ func (r *WorkspaceReconciler) findWorkspacesForSecret(ctx context.Context, o cli
 func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	// Fetch the Workspace instance
 	workspace := &v1alpha1.Workspace{}
 	if err := r.Get(ctx, req.NamespacedName, workspace); err != nil {
 		if errors.IsNotFound(err) {
@@ -220,10 +169,6 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	// Ensure a finalizer is present so Kubernetes delays actual deletion until
-	// we explicitly remove it. This guarantees the controller gets a chance to
-	// run handleDeletion before the object disappears, even if someone deletes
-	// the Workspace manually via kubectl.
 	if controllerutil.AddFinalizer(workspace, v1alpha1.WorkspaceFinalizerName) {
 		if err := r.Update(ctx, workspace); err != nil {
 			return ctrl.Result{}, err
@@ -239,8 +184,6 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if finished {
 			return ctrl.Result{}, nil
 		}
-		// Finalizer was removed but the object hasn't been garbage-collected
-		// yet. Requeue briefly so we don't spin on every event in the meantime.
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
@@ -253,33 +196,19 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	reconcileTotal.WithLabelValues(req.Namespace, req.Name, "success").Inc()
 
-	// Always requeue on the periodic schedule so we periodically re-plan even
-	// when nothing in the cluster changes. This is how we detect
-	// infrastructure drift that happened outside of Magos.
 	nextReconcileTime, reconcileInterval, _ := computeNextReconcileTime(workspace, workspace.Status.NextReconcileTime)
 	r.updateNextReconcileTime(ctx, workspace, nextReconcileTime, reconcileInterval)
-	// Calculate RequeueAfter after status writes. controller-runtime starts the
-	// timer only after Reconcile returns, so doing this earlier would add status
-	// update latency to every scheduled cycle.
 	res = withScheduledRequeue(res, nextReconcileTime.Time)
 
 	return res, nil
 }
 
 // handleDeletion removes the finalizer from a Workspace that is being deleted.
-// Since all Jobs and PVCs are owned by the Workspace (via OwnerReferences),
-// Kubernetes garbage collection automatically deletes them once the Workspace
-// itself is removed. All we need to do here is remove our finalizer so that
-// Kubernetes can proceed with the actual deletion.
 func (r *WorkspaceReconciler) handleDeletion(ctx context.Context, workspace *v1alpha1.Workspace) (bool, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Handling workspace deletion")
 
 	r.updateStatus(ctx, workspace, v1alpha1.PhaseDeleting, "Deleting", "Workspace is being deleted", metav1.ConditionFalse)
-
-	// Since Jobs and PVCs are owned by the Workspace (via OwnerReferences),
-	// Kubernetes garbage collection will automatically clean them up. We don't
-	// need to manually delete them.
 
 	if controllerutil.ContainsFinalizer(workspace, v1alpha1.WorkspaceFinalizerName) {
 		logger.Info("Removing finalizer")
@@ -291,198 +220,62 @@ func (r *WorkspaceReconciler) handleDeletion(ctx context.Context, workspace *v1a
 	return true, nil
 }
 
-// getSpecHash produces a short, deterministic hash of the Workspace spec. This
-// hash is used as a suffix on Job names (e.g. "myworkspace-plan-a1b2c3d4") so
-// that a spec change naturally creates new Jobs while leaving old ones to be
-// cleaned up by Step 2. The approval annotation is deliberately excluded from
-// the hash so that approving a plan does not invalidate the existing Plan Job.
-func (r *WorkspaceReconciler) getSpecHash(ws *v1alpha1.Workspace) string {
-	data, _ := json.Marshal(ws.Spec)
-
-	hash := sha256.Sum256(data)
-	return hex.EncodeToString(hash[:])[:8] // Short 8-character hash
+// runContext holds the derived names and current job state for a single
+// reconcile iteration.
+type runContext struct {
+	planJobName   string
+	applyJobName  string
+	planFile      string
+	pvcName       string
+	planJob       *batchv1.Job
+	applyJob      *batchv1.Job
+	resolvedVars  []variableset.ResolvedVariable
+	variablesHash string
 }
 
-// computeNextReconcileTime is the single source of truth for the Workspace
-// reconcile interval and schedule cadence. It resolves the effective
-// interval from the magosproject.io/reconcile-interval annotation when
-// present and valid, or falls back to DefaultReconciliationInterval
-// otherwise. It also remaps a persisted NextReconcileTime onto the new
-// cadence when the configured interval changes, so annotation updates take
-// effect immediately instead of waiting for the previously scheduled time.
-func computeNextReconcileTime(ws *v1alpha1.Workspace, existing *metav1.Time) (metav1.Time, time.Duration, bool) {
-	interval := DefaultReconciliationInterval
-	if ws.Annotations != nil {
-		if val, ok := ws.Annotations[v1alpha1.WorkspaceReconcileIntervalAnnotation]; ok {
-			if d, err := time.ParseDuration(val); err == nil && d > 0 {
-				interval = d
-			}
+func (r *WorkspaceReconciler) newRunContext(ctx context.Context, workspace *v1alpha1.Workspace) (runContext, error) {
+	specHash := r.getSpecHash(workspace)
+	rc := runContext{
+		planJobName:  fmt.Sprintf("%s-plan-%s", workspace.Name, specHash),
+		applyJobName: fmt.Sprintf("%s-apply-%s", workspace.Name, specHash),
+		planFile:     fmt.Sprintf("/workspace-data/run-%s.tfplan", specHash),
+		pvcName:      fmt.Sprintf("%s-data", workspace.Name),
+	}
+	var err error
+	rc.planJob, err = r.getJobOrNil(ctx, rc.planJobName, workspace.Namespace)
+	if err != nil {
+		return rc, err
+	}
+	rc.applyJob, err = r.getJobOrNil(ctx, rc.applyJobName, workspace.Namespace)
+	if err != nil {
+		return rc, err
+	}
+	return rc, nil
+}
+
+func (r *WorkspaceReconciler) getJobOrNil(ctx context.Context, name, namespace string) (*batchv1.Job, error) {
+	var job batchv1.Job
+	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &job); err != nil {
+		if errors.IsNotFound(err) {
+			return nil, nil
 		}
+		return nil, err
 	}
-	now := time.Now()
-
-	// this condition triggers on the first reconcile when there is
-	// no existing nextReconcileTime set yet
-	if existing == nil || existing.IsZero() {
-		return metav1.NewTime(now.Add(interval)), interval, false
-	}
-
-	next := existing.Time
-
-	// this condition triggers when the reconcileInterval annotation on
-	// the workspace was updated between reconciles for example when a user
-	// changes the annotation to lower the reconcile interval. this check
-	// ensures the updated interval takes effect immediately instead of waiting
-	// for the previously scheduled time to elapse
-	if ws.Status.ObservedReconcileInterval != "" && ws.Status.ObservedReconcileInterval != interval.String() {
-		previousInterval, err := time.ParseDuration(ws.Status.ObservedReconcileInterval)
-		if err == nil && previousInterval > 0 {
-			for next.After(now) {
-				next = next.Add(-previousInterval)
-			}
-			next = next.Add(interval)
-		}
-	}
-
-	// this is the usual condition that triggers when the scheduled time arrives.
-	// we update the nextReconcileTime by adding the interval with the original
-	// nextReconcileTime as the base, so that we maintain a consistent cadence
-	// even if individual reconciles are delayed for some reason (e.g. cluster load,
-	// long terraform execution).
-	due := !next.After(now)
-	for !next.After(now) {
-		next = next.Add(interval)
-	}
-
-	return metav1.NewTime(next), interval, due
-}
-
-// withScheduledRequeue keeps any deliberately shorter requeue while preventing
-// stale schedule durations from drifting after status update latency.
-func withScheduledRequeue(res ctrl.Result, next time.Time) ctrl.Result {
-	scheduled := time.Until(next)
-	if scheduled <= 0 {
-		scheduled = time.Nanosecond
-	}
-	if res.RequeueAfter == 0 || res.RequeueAfter > scheduled {
-		res.RequeueAfter = scheduled
-	}
-	return res
-}
-
-func newRunID() string {
-	now := time.Now().UTC()
-	var suffix [4]byte
-	if _, err := crand.Read(suffix[:]); err != nil {
-		// Fall back to a timestamp-derived suffix so the ID is always in the
-		// form "20060102T150405-{hex}" that parseRunIDTime expects.
-		return fmt.Sprintf("%s-%08x", now.Format("20060102T150405"), now.UnixNano()&0xffffffff)
-	}
-	return fmt.Sprintf("%s-%s", now.Format("20060102T150405"), hex.EncodeToString(suffix[:]))
-}
-
-// ensureRunMetadata returns the workspace's current run ID, minting one when a
-// run starts. It also stamps the run trigger. Initial runs do not pass through
-// the reset path, so job creation is the first point where both values must be
-// made durable for log archival.
-func ensureRunMetadata(workspace *v1alpha1.Workspace) string {
-	if workspace.Status.CurrentRunID == "" {
-		workspace.Status.CurrentRunID = newRunID()
-		now := metav1.Now()
-		workspace.Status.LastRunStartedAt = &now
-	}
-	ensureCurrentRunTrigger(workspace)
-	return workspace.Status.CurrentRunID
-}
-
-func ensureCurrentRunTrigger(workspace *v1alpha1.Workspace) v1alpha1.RunTrigger {
-	if workspace.Status.CurrentRunTrigger == "" {
-		workspace.Status.CurrentRunTrigger = inferMissingRunTrigger(workspace)
-	}
-	return workspace.Status.CurrentRunTrigger
-}
-
-func inferMissingRunTrigger(workspace *v1alpha1.Workspace) v1alpha1.RunTrigger {
-	if workspace.Annotations != nil {
-		if detected := workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation]; detected != "" && detected != workspace.Status.ObservedRevision {
-			return v1alpha1.RunTriggerRevision
-		}
-		if workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
-			return v1alpha1.RunTriggerManual
-		}
-	}
-	return v1alpha1.RunTriggerConfig
-}
-
-func currentRunObservedRevision(workspace *v1alpha1.Workspace) string {
-	if workspace.Annotations != nil {
-		if sha := workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation]; sha != "" {
-			return sha
-		}
-	}
-	return workspace.Spec.Source.TargetRevision
-}
-
-func runTriggerFromResetReason(reason string) v1alpha1.RunTrigger {
-	switch reason {
-	case "ConfigurationChanged", "VariablesChanged":
-		// VariablesChanged is treated as a configuration trigger
-		// because, from the user's perspective, a VariableSet edit or a
-		// rotated Secret is a change to the inputs the workspace runs
-		// against. Splitting it into its own trigger code would force
-		// every downstream consumer (UI, run-log store, metrics labels)
-		// to learn about it, and there is no behavioral difference
-		// between "spec field changed" and "TF_VAR_* changed".
-		return v1alpha1.RunTriggerConfig
-	case "ManualReconcileRequested":
-		return v1alpha1.RunTriggerManual
-	case resetReasonScheduledReconcile:
-		return v1alpha1.RunTriggerScheduled
-	case "NewRevisionDetected":
-		return v1alpha1.RunTriggerRevision
-	case "RetryApply", "RetryPlan":
-		return v1alpha1.RunTriggerRetry
-	default:
-		return v1alpha1.RunTriggerUnknown
-	}
-}
-
-func terminalWorkspaceRunRecorded(phase v1alpha1.Phase) bool {
-	switch phase {
-	case v1alpha1.PhaseApplied, v1alpha1.PhaseFailed, v1alpha1.PhaseValidationFailed:
-		return true
-	default:
-		return false
-	}
+	return &job, nil
 }
 
 func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace *v1alpha1.Workspace) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Workspace", "name", workspace.Name, "namespace", workspace.Namespace)
 
-	// Track active workspace count at the end of reconciliation.
-	defer func() {
-		var allWorkspaces v1alpha1.WorkspaceList
-		if err := r.List(ctx, &allWorkspaces); err == nil {
-			var active float64
-			for _, ws := range allWorkspaces.Items {
-				if ws.Status.Phase == v1alpha1.PhasePlanning || ws.Status.Phase == v1alpha1.PhaseApplying {
-					active++
-				}
-			}
-			activeCount.Set(active)
-		}
-	}()
+	defer r.trackActiveWorkspaces(ctx)
 
-	// Step 0: Resolve VariableSets attached to this Workspace.
-	//
-	// The effective set is the ordered concatenation of the parent Project's
-	// VariableSetRef and the Workspace's own VariableSetRef. The variableset
-	// helper handles the composition and fingerprinting; we just have to
-	// fail fast when a required reference is missing so we don't end up
-	// creating a Plan Job that we know will break at terraform time. The
-	// resolved list is also passed into constructJobForWorkspace below so
-	// inline values and secretKeyRef entries land directly on the pod env.
+	rc, err := r.newRunContext(ctx, workspace)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	r.cleanupOrphanedJobs(ctx, workspace, rc)
+
 	resolvedVars, unresolved, err := r.resolveWorkspaceVariables(ctx, workspace)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -490,1334 +283,50 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	if len(unresolved) > 0 {
 		message := fmt.Sprintf("%d variable reference(s) unresolved: %s", len(unresolved), formatUnresolved(unresolved))
 		r.updateStatus(ctx, workspace, v1alpha1.PhaseFailed, "UnresolvedVariables", message, metav1.ConditionFalse)
-		// Returning nil lets the controller wait for a VariableSet watch
-		// event to bring the workspace back. Returning an error here would
-		// also work but would log a noisy stack trace on every poll while
-		// the user fixes the missing Secret.
 		return ctrl.Result{}, nil
 	}
-	variablesHash := variableset.Fingerprint(resolvedVars)
+	rc.resolvedVars = resolvedVars
+	rc.variablesHash = variableset.Fingerprint(resolvedVars)
 
-	// Step 1: Build Job names from a hash of the Workspace spec.
-	//
-	// Each Workspace reconciliation produces a Plan Job and an Apply Job. The
-	// Kubernetes jobs are suffixed with  a short hash (specHash) so that a
-	// given Apply always runs against the exact plan file that was generated
-	// for the same spec. When someone changes the spec, the hash changes and we
-	// get a new pair of Jobs. Importantly, approving a plan does not change the
-	// hash (the approval annotation is not part of the spec) so the Apply Job
-	// is guaranteed to execute the plan that was reviewed and approved.
-	specHash := r.getSpecHash(workspace)
-	planJobName := fmt.Sprintf("%s-plan-%s", workspace.Name, specHash)
-	applyJobName := fmt.Sprintf("%s-apply-%s", workspace.Name, specHash)
-	planFile := fmt.Sprintf("/workspace-data/run-%s.tfplan", specHash)
-
-	// Step 2: Clean up Jobs left over from a previous spec version.
-	//
-	// When the Workspace spec changes (e.g. a new targetRevision), the specHash
-	// changes too, so the old Plan/Apply Jobs no longer match. We find any Jobs
-	// still owned by this Workspace that don't match the current specHash and
-	// delete them to avoid leaving stale resources in the cluster.
-	//
-	// We only clean up orphaned Jobs when the Workspace is NOT actively
-	// planning or applying. Deleting a running Job mid-execution (especially
-	// during terraform apply) would corrupt Terraform state. We wait for the
-	// current Job to finish, which moves the Workspace to a terminal phase, and
-	// then the next reconcile will clean up old Jobs and start fresh with the
-	// new spec.
-	if workspace.Status.Phase != v1alpha1.PhasePlanning && workspace.Status.Phase != v1alpha1.PhaseApplying {
-		var childJobs batchv1.JobList
-		if err := r.List(ctx, &childJobs, client.InNamespace(workspace.Namespace)); err == nil {
-			for _, j := range childJobs.Items {
-				isOwned := false
-				for _, owner := range j.OwnerReferences {
-					if owner.UID == workspace.UID {
-						isOwned = true
-						break
-					}
-				}
-				// Delete Jobs that belong to this Workspace but were created
-				// for an older specHash.
-				if isOwned && j.Name != planJobName && j.Name != applyJobName {
-					logger.Info("Cleaning up orphaned job from previous run", "job", j.Name)
-					_ = r.Delete(ctx, &j, client.PropagationPolicy(metav1.DeletePropagationBackground))
-				}
-			}
-		}
+	d := r.checkCycleNeeded(workspace, rc)
+	if d.start {
+		return ctrl.Result{}, r.startFreshCycle(ctx, workspace, rc, d.reason, d.message)
 	}
 
-	// Look up the current Plan and Apply Jobs. A NotFound error is normal and
-	// just means the Job hasn't been created yet for this specHash.
-	var planJob batchv1.Job
-	planJobGetErr := r.Get(ctx, types.NamespacedName{Name: planJobName, Namespace: workspace.Namespace}, &planJob)
-
-	var applyJob batchv1.Job
-	applyJobGetErr := r.Get(ctx, types.NamespacedName{Name: applyJobName, Namespace: workspace.Namespace}, &applyJob)
-
-	// Step 3: Decide whether we need to start a fresh Plan/Apply cycle.
-	//
-	// After a Workspace finishes (successfully or not), its Jobs stick around
-	// until the next sync interval elapses. Once enough time has passed we
-	// delete the old Jobs and reset the phase to Pending, which kicks off a new
-	// cycle. This handles three scenarios:
-	//   - Periodic reconciliation: re-plan after a successful apply to detect drift.
-	//   - Retry on failure: re-plan after a failed apply or plan.
-	//   - Spec change: the specHash shifted so the old Jobs no longer exist.
-	//
-	// This logic must run before Step 4. Step 4 evaluates the Rollout execution
-	// lock annotation (magosproject.io/execution-allowed). The Rollout
-	// controller adds that annotation to allow a Workspace to execute, and
-	// removes it again once the Workspace finishes.
-	//
-	// If we checked the execution lock first, a completed Workspace could
-	// appear "not allowed" and we would never reach this reset path. That would
-	// leave the Workspace stuck in a terminal(?) phase with no way to clean up
-	// old Jobs or start a new cycle.
-	nextScheduledReconcile, _, scheduledReconcileDue := computeNextReconcileTime(workspace, workspace.Status.NextReconcileTime)
-	needsReset := false
-	resetReason := ""
-	resetMessage := ""
-	var exactRequeue time.Duration
-
-	// When the Workspace spec changes the specHash changes too, so the Plan and
-	// Apply Job names change. The GETs above will return NotFound because no
-	// Jobs with the new names exist yet. Similarly, if someone manually deletes
-	// the Jobs, both GETs return NotFound.
-	//
-	// In either case, if the phase is already past Pending (e.g. Planned,
-	// Applied, Failed) we reset back to Pending to kick off a fresh cycle.
-	//
-	// Exception: we do NOT reset when the phase is Planning or Applying. At
-	// that point a Job from the *previous* specHash may still be running. Its
-	// name no longer matches the current hash (hence the NotFound), but it is
-	// actively mutating Terraform state. Deleting it mid-run could leave state
-	// locks or partial applies (corruption). We let it finish naturally; once
-	// it completes the phase moves to a terminal state, and the next reconcile
-	// will handle the reset.
-	if planJobGetErr != nil && errors.IsNotFound(planJobGetErr) && applyJobGetErr != nil && errors.IsNotFound(applyJobGetErr) {
-		if workspace.Status.Phase != "" && workspace.Status.Phase != v1alpha1.PhasePending &&
-			workspace.Status.Phase != v1alpha1.PhasePlanning && workspace.Status.Phase != v1alpha1.PhaseApplying {
-			needsReset = true
-			resetReason = "ConfigurationChanged"
-			resetMessage = "Workspace spec was modified or jobs were deleted, triggering fresh execution"
-		}
-	}
-
-	// Check whether the Apply Job finished (succeeded or failed)
-	var applyFinishedTime time.Time
-	var applySucceeded bool
-	if applyJobGetErr == nil {
-		if applyJob.Status.CompletionTime != nil {
-			applyFinishedTime = applyJob.Status.CompletionTime.Time
-			applySucceeded = true
-		} else if applyJob.Status.Failed > 0 {
-			for _, cond := range applyJob.Status.Conditions {
-				if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
-					applyFinishedTime = cond.LastTransitionTime.Time
-					applySucceeded = false
-					break
-				}
-			}
-		}
-	}
-
-	// If the Apply Job already finished and the Workspace has already recorded
-	// that terminal result, we wait for the sync interval to elapse before
-	// starting the next run. A just-finished Job can be observed before the
-	// Workspace status has moved from Applying to Applied/Failed; in that case
-	// we deliberately skip reset here so Step 8 below can archive logs and
-	// record the terminal status first.
-	if !applyFinishedTime.IsZero() && terminalWorkspaceRunRecorded(workspace.Status.Phase) {
-		if scheduledReconcileDue {
-			needsReset = true
-			if applySucceeded {
-				resetReason = resetReasonScheduledReconcile
-				resetMessage = "Starting scheduled reconciliation"
-			} else {
-				resetReason = "RetryApply"
-				resetMessage = "Retrying failed apply starting from new plan"
-			}
-		} else {
-			exactRequeue = time.Until(nextScheduledReconcile.Time)
-		}
-	} else if planJobGetErr == nil && planJob.Status.Failed > 0 && terminalWorkspaceRunRecorded(workspace.Status.Phase) {
-		// We never got to Apply because the Plan itself failed. We use the same
-		// sync-interval cooldown here to avoid hammering a plan that keeps
-		// failing (e.g. bad credentials, broken HCL) on every reconcile loop.
-		// As with finished Apply Jobs above, reset is only allowed after the
-		// Workspace has already recorded the failed terminal status, because the
-		// first reconcile that observes the failed Job still needs to archive logs.
-		var failedTime time.Time
-		for _, cond := range planJob.Status.Conditions {
-			if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
-				failedTime = cond.LastTransitionTime.Time
-				break
-			}
-		}
-		if !failedTime.IsZero() {
-			if scheduledReconcileDue {
-				needsReset = true
-				resetReason = "RetryPlan"
-				resetMessage = "Retrying failed plan"
-			} else {
-				exactRequeue = time.Until(nextScheduledReconcile.Time)
-			}
-		}
-	}
-
-	// The RefWatcher controller runs in a separate goroutine and polls Git
-	// remotes on a configurable interval. When it discovers that a branch or
-	// tag (e.g. "main") now points to a different commit, it patches the
-	// detected-revision annotation on the Workspace with the new SHA. That
-	// annotation is the handoff signal between the two controllers: the
-	// RefWatcher writes it, and we consume it here by starting a fresh
-	// plan and apply run immediately rather than waiting for the sync interval.
-	//
-	// The phase guard below is critical. The reset path deliberately preserves
-	// the detected-revision annotation so that Step 8 can read the exact commit
-	// SHA and record it as status.observedRevision after a successful apply. If
-	// we allowed the check to fire from in-progress phases (Pending, Planning,
-	// Planned, Applying) the annotation would trigger a reset on every
-	// reconcile, creating an infinite loop because it is never cleared until
-	// Step 8. By restricting to recorded terminal phases and the initial empty
-	// phase, we guarantee the reset fires exactly once per new commit: the
-	// Workspace resets, progresses through its plan and apply run, and only then
-	// is the annotation consumed.
-	if !needsReset && workspace.Annotations != nil &&
-		(workspace.Status.Phase == "" || terminalWorkspaceRunRecorded(workspace.Status.Phase)) {
-		if detected, ok := workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation]; ok && detected != workspace.Status.ObservedRevision {
-			needsReset = true
-			resetReason = "NewRevisionDetected"
-			resetMessage = fmt.Sprintf("RefWatcher detected new revision %s", detected)
-		}
-	}
-
-	// Manual reconcile requests behave similarly, but unlike
-	// detected-revision they do not carry data that must survive the cycle.
-	// The same phase guard ensures the request triggers exactly one fresh
-	// plan and apply run and does not keep resetting an in-progress run.
-	if !needsReset && workspace.Annotations != nil &&
-		(workspace.Status.Phase == "" || terminalWorkspaceRunRecorded(workspace.Status.Phase)) {
-		if req := workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation]; req != "" {
-			needsReset = true
-			resetReason = "ManualReconcileRequested"
-			resetMessage = fmt.Sprintf("Manual reconcile requested at %s", req)
-		}
-	}
-
-	// A change in the effective VariableSet composition is treated like a
-	// new revision detection: the resolved hash differs from the last hash
-	// we stamped, so the previous plan no longer represents what we should
-	// apply. The same phase guard applies, so a Secret rotation that lands
-	// while a Plan or Apply Job is already in flight does not interrupt
-	// the run; the next reconcile after that run terminates picks it up.
-	if !needsReset && variablesHash != workspace.Status.VariablesHash &&
-		(workspace.Status.Phase == "" || terminalWorkspaceRunRecorded(workspace.Status.Phase)) {
-		needsReset = true
-		resetReason = "VariablesChanged"
-		resetMessage = "Effective VariableSet composition changed since the last run"
-	}
-
-	if needsReset {
-		logger.Info("Cleaning up jobs to trigger a fresh run.", "reason", resetReason)
-		if planJobGetErr == nil {
-			_ = r.Delete(ctx, &planJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
-		}
-		if applyJobGetErr == nil {
-			_ = r.Delete(ctx, &applyJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
-		}
-		// The status update to Pending must happen before we clear any
-		// annotations. The Rollout controller watches Workspace objects and
-		// uses workspaceFullyApplied() to decide whether a level has completed.
-		// That function returns true when phase is Applied and the
-		// detected-revision annotation is absent. If we cleared annotations
-		// first, there would be a brief window where the Workspace is still in
-		// PhaseApplied but has no detected-revision. The Rollout would observe
-		// that state, conclude the Workspace is done, and advance to the next
-		// level, granting execution permission to later Workspaces (e.g. prod)
-		// before earlier ones (e.g. dev) have even started their new cycle.
-		// Writing Pending first closes that window: the Rollout sees
-		// PhasePending and knows the Workspace still has work to do.
-		// Stamp a fresh run ID and trigger reason before writing Pending.
-		// Both values are shared across the plan job and the apply job that
-		// follows it so the log store can group both into a single run record
-		// and report what originally caused this plan and apply run to start.
-		workspace.Status.CurrentRunID = newRunID()
-		workspace.Status.CurrentRunTrigger = runTriggerFromResetReason(resetReason)
-		now := metav1.Now()
-		workspace.Status.LastRunStartedAt = &now
-		// Stamp the hash that this run is about to be planned against.
-		// Persisting it here, rather than on apply success, prevents a
-		// failed plan from looping back through the VariablesChanged reset
-		// check on the very next reconcile: the hash matches what we last
-		// attempted, so the run waits for the normal retry cooldown
-		// instead.
-		workspace.Status.VariablesHash = variablesHash
-		r.updateStatus(ctx, workspace, v1alpha1.PhasePending, resetReason, resetMessage, metav1.ConditionUnknown)
-
-		if resetReason == resetReasonScheduledReconcile && r.RunRecorder != nil {
-			run := v1alpha1.Run{
-				ID:          workspace.Status.CurrentRunID,
-				Trigger:     workspace.Status.CurrentRunTrigger,
-				ScheduledAt: workspace.Status.NextReconcileTime,
-			}
-			if err := r.RunRecorder.RecordRun(ctx, workspace.Namespace, workspace.Name, run); err != nil {
-				logger.Error(err, "failed to record scheduled run")
-			}
-		}
-
-		// Clear execution-allowed so the Rollout controller must re-grant
-		// permission before this Workspace can proceed. The Rollout decides
-		// when each Workspace runs based on level ordering; without clearing
-		// this annotation the Workspace would skip the gate in Step 4 and start
-		// planning immediately, ignoring the rollout sequence.
-		//
-		// We intentionally keep detected-revision alive through the cycle. The
-		// RefWatcher wrote the exact commit SHA into that annotation, and Step
-		// 8 reads it after a successful apply to populate
-		// status.observedRevision with the SHA (e.g. "a1b2c3d") instead of the
-		// branch name (e.g. "main"). Clearing it here would discard the SHA and
-		// Step 8 would fall back to spec.source.targetRevision. The phase guard
-		// on the detected-revision check above prevents the annotation from
-		// re-triggering a reset while the Workspace progresses through Pending,
-		// Planning, and Applying.
-		if workspace.Annotations != nil {
-			if _, ok := workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation]; ok {
-				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
-				if err := r.Update(ctx, workspace); err != nil {
-					return ctrl.Result{}, err
-				}
-			}
-		}
-		return ctrl.Result{}, nil
-	}
-
-	// Step 4: Check whether the Rollout controller has granted us permission to
-	// execute.
-	//
-	// A Rollout groups multiple Workspaces and controls the order they run in
-	// (e.g. "dev must succeed before prod starts"). It does this by setting the
-	// execution-allowed annotation on each Workspace when it is that
-	// Workspace's turn. If the annotation is absent or not "true", it means the
-	// Rollout controller hasn't reached that Workspace yet, so we stay in
-	// Pending and return early. The Rollout controller will trigger a new
-	// reconcile once it sets the annotation.
-	isAllowed := false
-	if workspace.Annotations != nil {
-		isAllowed = workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] == v1alpha1.AnnotationValueTrue
-	}
-
-	if !isAllowed {
+	if !isExecutionAllowedByRolloutController(workspace) {
 		logger.Info("Workspace execution is not allowed. Waiting for rollout controller to grant permission.", "workspace", workspace.Name)
 		if workspace.Status.Phase == "" {
 			r.updateStatus(ctx, workspace, v1alpha1.PhasePending, "AwaitingRollout", "Waiting for the Rollout controller to schedule this Workspace for execution", metav1.ConditionUnknown)
 		}
-		if exactRequeue > 0 {
-			return ctrl.Result{RequeueAfter: exactRequeue}, nil
+		if d.requeue > 0 {
+			return ctrl.Result{RequeueAfter: d.requeue}, nil
 		}
 		return ctrl.Result{}, nil
 	}
 
-	// Step 5: Create a PersistentVolumeClaim for this Workspace if one doesn't
-	// exist yet.
-	//
-	// Terraform's plan and apply are two separate operations that run as
-	// independent Kubernetes Jobs. The Plan Job writes a .tfplan binary to
-	// disk, and the Apply Job needs to read that exact file back. We create a
-	// PVC per Workspace and mount it into both Jobs so the plan file can be
-	// accessed between Jobs. The PVC is owned by the Workspace, so Kubernetes
-	// garbage collection will clean it up automatically when the Workspace is
-	// deleted.
-	pvcName := fmt.Sprintf("%s-data", workspace.Name)
-	if err := r.ensurePVC(ctx, workspace, pvcName); err != nil {
+	if err := r.ensurePVC(ctx, workspace, rc.pvcName); err != nil {
 		logger.Error(err, "Failed to ensure PVC exists")
 		return ctrl.Result{}, err
 	}
 
-	// Step 6: Run "terraform plan".
-	//
-	// If the Plan Job doesn't exist yet we create it. If it already exists we
-	// look at its status. A still running Job means we return early and wait
-	// for the next reconcile when the Job finishes. A failed Job means we mark
-	// the Workspace as Failed and release the execution lock (the annotation
-	// from Step 4) so the Rollout controller knows this Workspace is done and
-	// can move on. A succeeded Job means the plan file is ready on the PVC and
-	// we fall through to Step 7 to decide whether to apply it.
-	if planJobGetErr != nil {
-		if errors.IsNotFound(planJobGetErr) {
-			// One Job per Workspace runs at a time. Wait for any
-			// previous Job to finish before creating a new plan Job.
-			var ownedJobs batchv1.JobList
-			if err := r.List(ctx, &ownedJobs, client.InNamespace(workspace.Namespace)); err != nil {
-				return ctrl.Result{}, err
-			}
-			for _, j := range ownedJobs.Items {
-				// Skip the current run's Jobs and any Job that is not running.
-				if j.Name == planJobName || j.Name == applyJobName || j.Status.Active == 0 {
-					continue
-				}
-				for _, owner := range j.OwnerReferences {
-					if owner.UID == workspace.UID {
-						logger.Info("Waiting for previous Job to finish")
-						return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-					}
-				}
-			}
-
-			logger.Info("Creating a new Plan Job", "job", planJobName)
-			runID := ensureRunMetadata(workspace)
-			newJob, err := r.constructJobForWorkspace(ctx, workspace, planJobName, jobTypePlan, planFile, pvcName, runID, resolvedVars)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			if err := r.Create(ctx, newJob); err != nil {
-				return ctrl.Result{}, err
-			}
-			r.updateStatus(ctx, workspace, v1alpha1.PhasePlanning, "PlanJobCreated", "Terraform Plan job created", metav1.ConditionUnknown)
-			return ctrl.Result{}, nil
-		}
-		return ctrl.Result{}, planJobGetErr
+	res, planDone, err := r.reconcilePlanJob(ctx, workspace, rc)
+	if err != nil || !planDone {
+		return res, err
 	}
 
-	if planJob.Status.Failed > 0 {
-		logger.Info("Plan Job failed", "job", planJobName)
-
-		// Check whether the failure was due to policy validation. The plan job
-		// emits a MAGOS_RESULT line when kyverno-json evaluation runs. If we
-		// find violations in the pod logs, this is a policy failure (not a
-		// terraform error) and we surface it as ValidationFailed with the
-		// specific rule violations in the status.
-		phase := v1alpha1.PhaseFailed
-		reason := "PlanFailed"
-		message := "Terraform Plan execution failed"
-
-		if r.Clientset != nil {
-			violations, err := r.readPolicyViolations(ctx, workspace.Namespace, planJobName)
-			if err != nil {
-				logger.Error(err, "Failed to read policy violations from pod logs")
-			} else if len(violations) > 0 {
-				phase = v1alpha1.PhaseValidationFailed
-				reason = "PolicyViolation"
-				message = fmt.Sprintf("Plan violated %d policy rule(s)", len(violations))
-				workspace.Status.PolicyViolations = violations
-			}
-		}
-
-		if err := r.archiveRunLogs(ctx, workspace, &planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultFailed); err != nil {
-			logger.Error(err, "Failed to archive plan logs", "job", planJobName)
-		}
-		r.updateStatus(ctx, workspace, phase, reason, message, metav1.ConditionFalse)
-
-		// Release the execution lock so the Rollout controller knows this
-		// Workspace is done with its turn, even though it failed. Without this
-		// the Rollout would keep waiting for us and never advance to the next
-		// Workspace in the sequence.
-		//
-		// If this run was triggered by a manual reconcile request, consume that
-		// annotation too so the Project or Rollout controller does not
-		// immediately grant execution again and bypass Step 3's retry cooldown.
-		if workspace.Annotations != nil {
-			patch := client.MergeFrom(workspace.DeepCopy())
-			changed := false
-			if workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
-				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
-				changed = true
-			}
-			if workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
-				delete(workspace.Annotations, v1alpha1.WorkspaceReconcileRequestAnnotation)
-				changed = true
-			}
-			if changed {
-				if err := r.Patch(ctx, workspace, patch); err != nil {
-					logger.Error(err, "Failed to consume execution annotations via Patch on plan failure")
-					return ctrl.Result{}, err
-				}
-			}
-		}
-
-		return ctrl.Result{}, nil
-	} else if planJob.Status.Succeeded == 0 {
-		logger.Info("Plan Job is currently running", "job", planJobName)
-		r.updateStatus(ctx, workspace, v1alpha1.PhasePlanning, "Planning", "Terraform Plan execution is running", metav1.ConditionUnknown)
-		return ctrl.Result{}, nil
-	}
-
-	// Record plan job duration if both start and completion times are
-	// available.
-	if planJob.Status.StartTime != nil && planJob.Status.CompletionTime != nil {
-		duration := planJob.Status.CompletionTime.Time.Sub(planJob.Status.StartTime.Time).Seconds()
-		jobDurationSeconds.WithLabelValues(workspace.Namespace, workspace.Name, jobTypePlan).Observe(duration)
-	}
-
-	// Step 7: Run "terraform apply" (requires approval).
-	//
-	// The Plan succeeded so the .tfplan file is available on the PVC. Before we
-	// create the Apply Job we need to verify that someone actually approved it.
-	// There are two ways approval can happen: the Workspace has spec.autoApply
-	// set to true, which means every successful plan is applied automatically,
-	// or someone (a human or an external system) set the ApprovedAnnotation on
-	// the Workspace to "true" to explicitly approve this specific plan.
-	//
-	// If neither of those is the case we park the Workspace in the Planned
-	// phase and wait. Once approval comes in, the annotation change triggers a
-	// new reconcile and we pick up here again.
-	//
-	// When we do have approval we remove the annotation before creating the
-	// Job. This is important because annotations persist across reconciles. If
-	// we left it in place and the spec changed later (producing a new plan),
-	// that stale "approved" annotation would cause the new plan to be applied
-	// without anyone actually reviewing it.
-	if applyJobGetErr != nil {
-		if errors.IsNotFound(applyJobGetErr) {
-			// Apply job doesn't exist yet, check if we have approval to proceed
-			isApproved := workspace.Spec.AutoApply
-			if workspace.Annotations != nil && workspace.Annotations[v1alpha1.WorkspaceApprovedAnnotation] == v1alpha1.AnnotationValueTrue {
-				isApproved = true
-			}
-
-			if !isApproved {
-				logger.Info("Workspace has planned successfully, but is pending approval to apply", "workspace", workspace.Name)
-				if workspace.Status.Phase != v1alpha1.PhasePlanned {
-					if err := r.archiveRunLogs(ctx, workspace, &planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultSucceeded); err != nil {
-						logger.Error(err, "Failed to archive plan logs", "job", planJobName)
-					}
-				}
-				r.updateStatus(ctx, workspace, v1alpha1.PhasePlanned, "PlanSucceeded", "Terraform Plan succeeded. Waiting for manual approval to Apply.", metav1.ConditionTrue)
-				return ctrl.Result{}, nil
-			}
-
-			// Remove the approval annotation before creating the Job. See the
-			// comment above for why leaving it around would be dangerous.
-			if workspace.Annotations != nil && workspace.Annotations[v1alpha1.WorkspaceApprovedAnnotation] != "" {
-				patch := client.MergeFrom(workspace.DeepCopy())
-				delete(workspace.Annotations, v1alpha1.WorkspaceApprovedAnnotation)
-				if err := r.Patch(ctx, workspace, patch); err != nil {
-					logger.Error(err, "Failed to consume approval annotation via Patch")
-					return ctrl.Result{}, err
-				}
-			}
-
-			// Archive the completed plan logs before moving on to apply so
-			// both phases end up in the same reconcile run record.
-			if err := r.archiveRunLogs(ctx, workspace, &planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultSucceeded); err != nil {
-				logger.Error(err, "Failed to archive plan logs", "job", planJobName)
-			}
-
-			logger.Info("Creating a new Apply Job", "job", applyJobName)
-			runID := ensureRunMetadata(workspace)
-			newJob, err := r.constructJobForWorkspace(ctx, workspace, applyJobName, jobTypeApply, planFile, pvcName, runID, resolvedVars)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			if err := r.Create(ctx, newJob); err != nil {
-				return ctrl.Result{}, err
-			}
-			r.updateStatus(ctx, workspace, v1alpha1.PhaseApplying, "ApplyJobCreated", "Terraform Apply job created", metav1.ConditionUnknown)
-			return ctrl.Result{}, nil
-		}
-		return ctrl.Result{}, applyJobGetErr
-	}
-
-	if applyJob.Status.Failed > 0 {
-		logger.Info("Apply Job failed", "job", applyJobName)
-		if err := r.archiveRunLogs(ctx, workspace, &applyJob, v1alpha1.RunPhaseApply, v1alpha1.RunLogResultFailed); err != nil {
-			logger.Error(err, "Failed to archive apply logs", "job", applyJobName)
-		}
-		r.updateStatus(ctx, workspace, v1alpha1.PhaseFailed, "ApplyFailed", "Terraform Apply execution failed", metav1.ConditionFalse)
-
-		// Same as the plan failure path in Step 6: release the execution lock
-		// so the Rollout controller can continue with the next Workspace.
-		//
-		// If this run was triggered by a manual reconcile request, consume that
-		// annotation too so retries follow the sync interval backoff rather than
-		// re-triggering immediately.
-		if workspace.Annotations != nil {
-			patch := client.MergeFrom(workspace.DeepCopy())
-			changed := false
-			if workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
-				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
-				changed = true
-			}
-			if workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
-				delete(workspace.Annotations, v1alpha1.WorkspaceReconcileRequestAnnotation)
-				changed = true
-			}
-			if changed {
-				if err := r.Patch(ctx, workspace, patch); err != nil {
-					logger.Error(err, "Failed to consume execution annotations via Patch on failure")
-					return ctrl.Result{}, err
-				}
-			}
-		}
-
-		return ctrl.Result{}, nil
-	} else if applyJob.Status.Succeeded == 0 {
-		logger.Info("Apply Job is currently running", "job", applyJobName)
-		r.updateStatus(ctx, workspace, v1alpha1.PhaseApplying, "Applying", "Terraform Apply execution is running", metav1.ConditionUnknown)
-		return ctrl.Result{}, nil
-	}
-
-	// Step 8: The Apply succeeded. Record the result and release the execution
-	// lock.
-	//
-	// This is the final step in the Workspace lifecycle and the point where the
-	// detected-revision annotation is consumed. The annotation flows through
-	// three controllers. The RefWatcher writes it with the commit SHA when it
-	// discovers that a branch or tag moved. Step 3 sees the annotation, resets
-	// the Workspace to Pending, and intentionally preserves the annotation so
-	// the SHA survives the plan and apply run. Here in Step 8 we read the SHA
-	// from the annotation and record it as status.observedRevision, then delete
-	// the annotation so it does not trigger another reset. The Rollout
-	// controller's workspaceFullyApplied() also checks for the absence of this
-	// annotation, so deleting it signals that the Workspace has fully processed
-	// the new commit.
-	//
-	// If the RefWatcher did not trigger this cycle (e.g. periodic drift
-	// detection or a manual reconcile request), the annotation will not be
-	// present and we fall back to spec.source.targetRevision (the branch or tag
-	// name).
-	//
-	// After recording the revision we remove both the execution-allowed and
-	// detected-revision annotations to hand control back to the Rollout
-	// controller, completing this Workspace's turn in the rollout sequence. The
-	// next cycle will start when Step 3's reset evaluation fires after the sync
-	// interval, or when the RefWatcher detects another new commit.
-	//
-	// If this run was triggered by a manual reconcile request, we consume that
-	// annotation here as well. It is a one-shot trigger for exactly one fresh
-	// plan and apply run, not a durable desired-state flag.
-	logger.Info("Apply Job completed successfully", "job", applyJobName)
-	if err := r.archiveRunLogs(ctx, workspace, &applyJob, v1alpha1.RunPhaseApply, v1alpha1.RunLogResultSucceeded); err != nil {
-		logger.Error(err, "Failed to archive apply logs", "job", applyJobName)
-	}
-
-	// Record apply job duration if both start and completion times are
-	// available.
-	if applyJob.Status.StartTime != nil && applyJob.Status.CompletionTime != nil {
-		duration := applyJob.Status.CompletionTime.Time.Sub(applyJob.Status.StartTime.Time).Seconds()
-		jobDurationSeconds.WithLabelValues(workspace.Namespace, workspace.Name, jobTypeApply).Observe(duration)
-	}
-
-	// Record the observed revision before the status update so it is included
-	// in the same write. When the RefWatcher triggered this cycle the
-	// detected-revision annotation carries the full 40 character commit SHA.
-	// Otherwise we fall back to the branch or tag name from the spec.
-	if workspace.Annotations != nil {
-		if sha := workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation]; sha != "" {
-			workspace.Status.ObservedRevision = sha
-		} else {
-			workspace.Status.ObservedRevision = workspace.Spec.Source.TargetRevision
-		}
-	} else {
-		workspace.Status.ObservedRevision = workspace.Spec.Source.TargetRevision
-	}
-	r.updateStatus(ctx, workspace, v1alpha1.PhaseApplied, "ApplySucceeded", "Terraform Apply completed successfully", metav1.ConditionTrue)
-
-	// Remove the execution-allowed, detected-revision, and any manual
-	// reconcile-request annotations now that the cycle is complete. We use
-	// Patch rather than Update because the status update above may have bumped
-	// the resourceVersion, and a full Update would conflict. Deleting
-	// execution-allowed tells the Rollout controller that this Workspace is
-	// done with its turn. Deleting detected-revision tells both the Rollout
-	// controller (via workspaceFullyApplied) and Step 3 (via the phase guarded
-	// reset check) that the new commit has been fully processed. Deleting
-	// reconcile-request consumes a one-shot manual trigger so it does not
-	// immediately start another cycle.
-	{
-		patch := client.MergeFrom(workspace.DeepCopy())
-		changed := false
-		if workspace.Annotations != nil {
-			if workspace.Annotations[v1alpha1.WorkspaceExecutionAllowedAnnotation] != "" {
-				delete(workspace.Annotations, v1alpha1.WorkspaceExecutionAllowedAnnotation)
-				changed = true
-			}
-			if workspace.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation] != "" {
-				delete(workspace.Annotations, v1alpha1.WorkspaceDetectedRevisionAnnotation)
-				changed = true
-			}
-			if workspace.Annotations[v1alpha1.WorkspaceReconcileRequestAnnotation] != "" {
-				delete(workspace.Annotations, v1alpha1.WorkspaceReconcileRequestAnnotation)
-				changed = true
-			}
-		}
-		if changed {
-			if err := r.Patch(ctx, workspace, patch); err != nil {
-				logger.Error(err, "Failed to consume execution annotations via Patch")
-				return ctrl.Result{}, err
-			}
-		}
-	}
-
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, r.reconcileApplyJob(ctx, workspace, rc)
 }
 
-// ensurePVC checks whether the PVC for this Workspace already exists and
-// creates it if not. The PVC uses ReadWriteOnce access mode because only one
-// Job at a time needs to write to it (Plan writes, then Apply reads). We set
-// the Workspace as the owner so the PVC is automatically deleted when the
-// Workspace is removed.
-//
-// TODO: Have @fayusohenson verify the security model here.
-// TODO: Look into having shared PVC for provider caching
-func (r *WorkspaceReconciler) ensurePVC(ctx context.Context, ws *v1alpha1.Workspace, pvcName string) error {
-	pvc := &corev1.PersistentVolumeClaim{}
-	err := r.Get(ctx, types.NamespacedName{Name: pvcName, Namespace: ws.Namespace}, pvc)
-
-	if err != nil && errors.IsNotFound(err) {
-		log.FromContext(ctx).Info("Creating PVC for Workspace", "pvc", pvcName)
-		requestedPVCSize := r.resolveWorkspacePVCSize(ws)
-		requestedStorage, parseErr := resource.ParseQuantity(requestedPVCSize)
-		if parseErr != nil {
-			return fmt.Errorf("invalid workspace PVC size %q: %w", requestedPVCSize, parseErr)
-		}
-
-		newPVC := &corev1.PersistentVolumeClaim{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      pvcName,
-				Namespace: ws.Namespace,
-			},
-			Spec: corev1.PersistentVolumeClaimSpec{
-				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-				Resources: corev1.VolumeResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceStorage: requestedStorage,
-					},
-				},
-			},
-		}
-
-		// Set the Workspace as the owner of this PVC. When the Workspace is
-		// deleted, Kubernetes garbage collection will remove the PVC too.
-		if err := ctrl.SetControllerReference(ws, newPVC, r.Scheme); err != nil {
-			return err
-		}
-
-		return r.Create(ctx, newPVC)
-	}
-	return err
-}
-
-func (r *WorkspaceReconciler) resolveWorkspacePVCSize(ws *v1alpha1.Workspace) string {
-	if ws.Spec.PVCSize != "" {
-		return ws.Spec.PVCSize
-	}
-	if defaultPVCSize := os.Getenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT"); defaultPVCSize != "" {
-		return defaultPVCSize
-	}
-	return DefaultWorkspacePVCSize
-}
-
-// resolveEffectivePolicySelector determines the label selector string for
-// ValidatingPolicy resources. The Workspace-level validation block takes
-// precedence over the Project-level default. Returns an empty string when no
-// policy validation should be performed.
-func (r *WorkspaceReconciler) resolveEffectivePolicySelector(ctx context.Context, ws *v1alpha1.Workspace) string {
-	if ws.Spec.Validation != nil && ws.Spec.Validation.PolicySelector != nil {
-		sel, err := metav1.LabelSelectorAsSelector(ws.Spec.Validation.PolicySelector)
-		if err != nil {
-			log.FromContext(ctx).Error(err, "Invalid workspace validation.policySelector, skipping validation")
-			return ""
-		}
-		return sel.String()
-	}
-
-	// Fall back to the parent Project's default.
-	project := &v1alpha1.Project{}
-	if err := r.Get(ctx, types.NamespacedName{Name: ws.Spec.ProjectRef.Name, Namespace: ws.Namespace}, project); err != nil {
-		if !errors.IsNotFound(err) {
-			log.FromContext(ctx).Error(err, "Failed to get parent Project for policy selector")
-		}
-		return ""
-	}
-
-	if project.Spec.Validation != nil && project.Spec.Validation.PolicySelector != nil {
-		sel, err := metav1.LabelSelectorAsSelector(project.Spec.Validation.PolicySelector)
-		if err != nil {
-			log.FromContext(ctx).Error(err, "Invalid project validation.policySelector, skipping validation")
-			return ""
-		}
-		return sel.String()
-	}
-
-	return ""
-}
-
-// policyResult mirrors the structured output emitted by the plan job when
-// policy validation runs. The workspace controller parses this from pod logs.
-type policyResult struct {
-	Passed     bool                       `json:"passed"`
-	Violations []v1alpha1.PolicyViolation `json:"violations"`
-}
-
-// readPolicyViolations reads the pod logs for a completed plan job and extracts
-// the MAGOS_RESULT line emitted by the kyverno-json validation step.
-func (r *WorkspaceReconciler) readPolicyViolations(ctx context.Context, namespace, jobName string) ([]v1alpha1.PolicyViolation, error) {
-	// Find the pod for this job.
-	var podList corev1.PodList
-	if err := r.List(ctx, &podList,
-		client.InNamespace(namespace),
-		client.MatchingLabels{"job-name": jobName},
-	); err != nil {
-		return nil, fmt.Errorf("failed to list pods for job %s: %w", jobName, err)
-	}
-	if len(podList.Items) == 0 {
-		return nil, fmt.Errorf("no pods found for job %s", jobName)
-	}
-
-	pod := &podList.Items[0]
-	logStream, err := r.Clientset.CoreV1().Pods(namespace).GetLogs(pod.Name, &corev1.PodLogOptions{}).Stream(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to stream logs for pod %s: %w", pod.Name, err)
-	}
-	defer func() {
-		if err := logStream.Close(); err != nil {
-			log.FromContext(ctx).Error(err, "Failed to close pod log stream")
-		}
-	}()
-
-	scanner := bufio.NewScanner(logStream)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if resultJSON, ok := strings.CutPrefix(line, "MAGOS_RESULT:"); ok {
-			var result policyResult
-			if err := json.Unmarshal([]byte(resultJSON), &result); err != nil {
-				return nil, fmt.Errorf("failed to parse MAGOS_RESULT: %w", err)
+func (r *WorkspaceReconciler) trackActiveWorkspaces(ctx context.Context) {
+	var allWorkspaces v1alpha1.WorkspaceList
+	if err := r.List(ctx, &allWorkspaces); err == nil {
+		var active float64
+		for _, ws := range allWorkspaces.Items {
+			if ws.Status.Phase == v1alpha1.PhasePlanning || ws.Status.Phase == v1alpha1.PhaseApplying {
+				active++
 			}
-			return result.Violations, nil
 		}
-	}
-	if err := scanner.Err(); err != nil && err != io.EOF {
-		return nil, fmt.Errorf("error reading pod logs: %w", err)
-	}
-
-	return nil, nil
-}
-
-func (r *WorkspaceReconciler) getJobPod(ctx context.Context, namespace, jobName string) (*corev1.Pod, error) {
-	var podList corev1.PodList
-	if err := r.List(ctx, &podList,
-		client.InNamespace(namespace),
-		client.MatchingLabels{"job-name": jobName},
-	); err != nil {
-		return nil, fmt.Errorf("failed to list pods for job %s: %w", jobName, err)
-	}
-	if len(podList.Items) == 0 {
-		return nil, fmt.Errorf("no pods found for job %s", jobName)
-	}
-	return &podList.Items[0], nil
-}
-
-const maxLogBytes = 50 * 1024 * 1024 // 50 MiB
-
-func (r *WorkspaceReconciler) readPodLogs(ctx context.Context, namespace, podName string) ([]byte, error) {
-	logStream, err := r.Clientset.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{}).Stream(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to stream logs for pod %s: %w", podName, err)
-	}
-	defer func() {
-		if err := logStream.Close(); err != nil {
-			log.FromContext(ctx).Error(err, "Failed to close pod log stream")
-		}
-	}()
-
-	// Cap the read at maxLogBytes. LimitReader stops silently at the limit, so
-	// we read one byte beyond to detect truncation and append a clear marker.
-	data, err := io.ReadAll(io.LimitReader(logStream, maxLogBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read pod log stream for %s: %w", podName, err)
-	}
-	if len(data) > maxLogBytes {
-		data = append(data[:maxLogBytes], []byte("\n[log truncated: exceeded 50 MiB limit]")...)
-	}
-	return data, nil
-}
-
-func gzipLogContent(data []byte) ([]byte, error) {
-	var buf bytes.Buffer
-	zw := gzip.NewWriter(&buf)
-	if _, err := zw.Write(data); err != nil {
-		return nil, fmt.Errorf("gzip log content: %w", err)
-	}
-	if err := zw.Close(); err != nil {
-		return nil, fmt.Errorf("finalize gzip log content: %w", err)
-	}
-	return buf.Bytes(), nil
-}
-
-func terminalJobFinishedAt(job *batchv1.Job) *metav1.Time {
-	if job.Status.CompletionTime != nil {
-		return job.Status.CompletionTime
-	}
-	for _, cond := range job.Status.Conditions {
-		if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
-			t := cond.LastTransitionTime
-			return &t
-		}
-	}
-	return nil
-}
-
-// archiveRunLogs reads the pod logs for the given job, compresses them, writes
-// the blob to RustFS, and records run metadata through the API. The API owns
-// Postgres-backed run metadata, so the controller never writes the database directly.
-func (r *WorkspaceReconciler) archiveRunLogs(
-	ctx context.Context,
-	workspace *v1alpha1.Workspace,
-	job *batchv1.Job,
-	phase v1alpha1.RunPhase,
-	result v1alpha1.RunLogResult,
-) error {
-	if r.LogStore == nil || r.Clientset == nil || r.RunRecorder == nil {
-		return nil
-	}
-
-	// CurrentRunID is set when a plan and apply run starts and shared by both the
-	// plan and apply jobs. If it is absent the workspace has not started a run
-	// yet and there is nothing to archive.
-	runID := workspace.Status.CurrentRunID
-	if runID == "" && job.Labels != nil {
-		runID = job.Labels[runIDLabelKey]
-		workspace.Status.CurrentRunID = runID
-	}
-	if runID == "" {
-		return nil
-	}
-	trigger := ensureCurrentRunTrigger(workspace)
-
-	pod, err := r.getJobPod(ctx, workspace.Namespace, job.Name)
-	if err != nil {
-		return err
-	}
-	rawLogs, err := r.readPodLogs(ctx, workspace.Namespace, pod.Name)
-	if err != nil {
-		return err
-	}
-	compressed, err := gzipLogContent(rawLogs)
-	if err != nil {
-		return err
-	}
-
-	logKey, err := r.LogStore.PutRunPhaseLog(ctx, workspace.Namespace, workspace.Name, runID, phase, compressed)
-	if err != nil {
-		return err
-	}
-
-	phaseSummary := &v1alpha1.RunPhaseSummary{
-		JobName:      job.Name,
-		PodName:      pod.Name,
-		StartedAt:    job.Status.StartTime,
-		FinishedAt:   terminalJobFinishedAt(job),
-		Result:       result,
-		LogKey:       logKey,
-		LogSizeBytes: int64(len(compressed)),
-	}
-
-	run := v1alpha1.Run{
-		ID:               runID,
-		Trigger:          trigger,
-		TargetRevision:   workspace.Spec.Source.TargetRevision,
-		ObservedRevision: currentRunObservedRevision(workspace),
-	}
-	switch phase {
-	case v1alpha1.RunPhasePlan:
-		run.Plan = phaseSummary
-		run.StartedAt = phaseSummary.StartedAt
-		if result == v1alpha1.RunLogResultFailed {
-			run.FinishedAt = phaseSummary.FinishedAt
-		}
-	case v1alpha1.RunPhaseApply:
-		run.Apply = phaseSummary
-		run.FinishedAt = phaseSummary.FinishedAt
-	}
-
-	return r.RunRecorder.RecordRunPhase(ctx, workspace.Namespace, workspace.Name, runID, phase, run)
-}
-
-// constructJobForWorkspace builds a Kubernetes Job spec for either a "plan" or
-// "apply" operation. The Job runs the magos-job container image which knows how
-// to clone a Git repo, install the right Terraform version, and execute the
-// requested operation.
-//
-// We pass all configuration to the container through environment variables.
-// Plain values (repo URL, revision, terraform version, etc.) are set as literal
-// env vars. Sensitive values (Git credentials) are injected via secretKeyRef so
-// that Kubernetes resolves them at Pod startup from the referenced Secret, and
-// we never have to copy secret data into the Job spec.
-//
-// The Job mounts the Workspace's PVC at /workspace-data. The plan pod
-// clones into /workspace-data/runs/<runID>/source; the apply pod reuses
-// that tree and removes the run dir on exit.
-//
-// We set backoffLimit to 0 so Kubernetes does not automatically retry a failed
-// Job. Terraform failures (bad HCL, provider errors, state locks) are unlikely
-// to resolve on a blind retry, and Step 3 in reconcileWorkspace already handles
-// retries after a cooldown period.
-//
-// The Job is owned by the Workspace via SetControllerReference, so Kubernetes
-// garbage collection will delete it when the Workspace is removed.
-func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *v1alpha1.Workspace, jobName, jobType, planFile, pvcName, runID string, resolvedVars []variableset.ResolvedVariable) (*batchv1.Job, error) {
-	// The below map holds configuration that every Job needs: where to clone
-	// from, which Terraform version to use, and whether this is a "plan" or
-	// "apply" run.
-	envVars := []corev1.EnvVar{
-		{Name: "REPO_URL", Value: ws.Spec.Source.RepoURL},
-		{Name: "TF_VERSION", Value: ws.Spec.Terraform.Version},
-		{Name: "PROJECT_REF", Value: ws.Spec.ProjectRef.Name},
-		{Name: "MAGOS_JOB_TYPE", Value: jobType},
-		{Name: "MAGOS_PLAN_FILE", Value: planFile},
-		// MAGOS_RUN_ID picks the per-run subdirectory on the PVC.
-		{Name: "MAGOS_RUN_ID", Value: runID},
-	}
-
-	// Only the plan pod clones the repo. The apply pod reuses the
-	// working tree the plan pod produced.
-	if jobType == jobTypePlan {
-		envVars = append(envVars, corev1.EnvVar{Name: "TARGET_REVISION", Value: ws.Spec.Source.TargetRevision})
-	}
-
-	// Optional paths that narrow which Terraform directory to run in and which
-	// .tfvars file to use. Only set when the Workspace spec provides them.
-	if ws.Spec.Source.Path != "" {
-		envVars = append(envVars, corev1.EnvVar{Name: "TF_PATH", Value: ws.Spec.Source.Path})
-	}
-	if ws.Spec.Terraform.TfvarsPath != "" {
-		envVars = append(envVars, corev1.EnvVar{Name: "TF_VAR_FILE", Value: ws.Spec.Terraform.TfvarsPath})
-	}
-
-	// Append the resolved VariableSet entries as TF_VAR_* env vars. Inline
-	// values land verbatim, secretKeyRef and configMapKeyRef are forwarded
-	// as valueFrom entries so the kubelet resolves them at pod startup and
-	// the secret bytes never pass through this controller process. Terraform
-	// reads TF_VAR_<name> with higher precedence than any value in a .tfvars
-	// file, which is intentional: this is how VariableSets layer over the
-	// in-repo tfvars file from spec.terraform.tfvarsPath.
-	envVars = append(envVars, variableEnvVars(resolvedVars)...)
-	if logLevel := ws.Annotations[v1alpha1.WorkspaceTFLogLevelAnnotation]; logLevel != "" {
-		envVars = append(envVars, corev1.EnvVar{Name: "MAGOS_TF_LOG_LEVEL", Value: logLevel})
-	}
-	if os.Getenv("NO_COLOR") != "" {
-		envVars = append(envVars, corev1.EnvVar{Name: "NO_COLOR", Value: "1"})
-	}
-
-	// For plan jobs, resolve and pass the policy selector so the job can list
-	// matching ValidatingPolicy resources and evaluate them against the plan.
-	if jobType == jobTypePlan {
-		if policySelector := r.resolveEffectivePolicySelector(ctx, ws); policySelector != "" {
-			envVars = append(envVars, corev1.EnvVar{Name: "MAGOS_POLICY_SELECTOR", Value: policySelector})
-		}
-	}
-
-	// Look up Git credentials for this repo URL. If a matching Secret exists in
-	// the namespace we inject its values via secretKeyRef. This means the
-	// actual secret data never appears in the Job spec; Kubernetes resolves it
-	// at Pod startup.
-	authSecret, err := r.getRepoCredentials(ctx, ws.Namespace, ws.Spec.Source.RepoURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve repository credentials: %w", err)
-	}
-
-	if authSecret != nil {
-		// SSH authentication
-		if _, ok := authSecret.Data[SecretKeySSHPrivateKey]; ok {
-			envVars = append(envVars,
-				corev1.EnvVar{
-					Name: "GIT_SSH_PRIVATE_KEY",
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{
-							LocalObjectReference: corev1.LocalObjectReference{Name: authSecret.Name},
-							Key:                  SecretKeySSHPrivateKey,
-						},
-					},
-				},
-			)
-		} else if _, ok := authSecret.Data[SecretKeyUsername]; ok {
-			// HTTPS authentication
-			envVars = append(envVars,
-				corev1.EnvVar{
-					Name: "GIT_USERNAME",
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{
-							LocalObjectReference: corev1.LocalObjectReference{Name: authSecret.Name},
-							Key:                  SecretKeyUsername,
-						},
-					},
-				},
-				corev1.EnvVar{
-					Name: "GIT_PASSWORD",
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{
-							LocalObjectReference: corev1.LocalObjectReference{Name: authSecret.Name},
-							Key:                  SecretKeyPassword,
-						},
-					},
-				},
-			)
-		}
-	}
-
-	var backoffLimit int32 = 0
-
-	// Resolve the Job timeout. Per-phase TimeoutSeconds takes precedence,
-	// otherwise fall back to the global default.
-	timeout := DefaultJobTimeoutSeconds
-	switch jobType {
-	case jobTypePlan:
-		if ws.Spec.Plan != nil && ws.Spec.Plan.TimeoutSeconds != nil {
-			timeout = *ws.Spec.Plan.TimeoutSeconds
-		}
-	case jobTypeApply:
-		if ws.Spec.Apply != nil && ws.Spec.Apply.TimeoutSeconds != nil {
-			timeout = *ws.Spec.Apply.TimeoutSeconds
-		}
-	}
-
-	// Merge shared annotations with per-phase overrides (phase wins on
-	// conflict).
-	var podAnnotations map[string]string
-	if len(ws.Spec.Annotations) > 0 {
-		podAnnotations = make(map[string]string, len(ws.Spec.Annotations))
-		maps.Copy(podAnnotations, ws.Spec.Annotations)
-	}
-	var overrides map[string]string
-	switch jobType {
-	case jobTypePlan:
-		if ws.Spec.Plan != nil {
-			overrides = ws.Spec.Plan.Annotations
-		}
-	case jobTypeApply:
-		if ws.Spec.Apply != nil {
-			overrides = ws.Spec.Apply.Annotations
-		}
-	}
-	if len(overrides) > 0 {
-		if podAnnotations == nil {
-			podAnnotations = make(map[string]string, len(overrides))
-		}
-		maps.Copy(podAnnotations, overrides)
-	}
-
-	job := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      jobName,
-			Namespace: ws.Namespace,
-			Labels: map[string]string{
-				"magosproject.io/workspace": ws.Name,
-				"magosproject.io/job-type":  jobType,
-				runIDLabelKey:               runID,
-			},
-		},
-		Spec: batchv1.JobSpec{
-			BackoffLimit:          &backoffLimit,
-			ActiveDeadlineSeconds: &timeout,
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: podAnnotations,
-					Labels: map[string]string{
-						"magosproject.io/workspace": ws.Name,
-						"magosproject.io/job-type":  jobType,
-						runIDLabelKey:               runID,
-					},
-				},
-				Spec: corev1.PodSpec{
-					RestartPolicy:      corev1.RestartPolicyNever,
-					ServiceAccountName: ws.Spec.ServiceAccountName,
-					Volumes: []corev1.Volume{
-						{
-							Name: "workspace-data",
-							VolumeSource: corev1.VolumeSource{
-								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-									ClaimName: pvcName,
-								},
-							},
-						},
-					},
-					Containers: []corev1.Container{
-						{
-							Name:            "job",
-							Image:           r.JobImage,
-							ImagePullPolicy: corev1.PullIfNotPresent,
-							Env:             envVars,
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "workspace-data",
-									MountPath: "/workspace-data",
-								},
-							},
-							SecurityContext: &corev1.SecurityContext{
-								RunAsNonRoot:             new(true),
-								AllowPrivilegeEscalation: new(false),
-								Capabilities: &corev1.Capabilities{
-									Drop: []corev1.Capability{"ALL"},
-								},
-							},
-						},
-					},
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: new(true),
-						RunAsUser:    new(int64(10001)),
-						RunAsGroup:   new(int64(10001)),
-						FSGroup:      new(int64(10001)),
-					},
-				},
-			},
-		},
-	}
-
-	// Set the Workspace as the owner of this Job so Kubernetes garbage
-	// collection deletes it when the Workspace is removed.
-	if err := ctrl.SetControllerReference(ws, job, r.Scheme); err != nil {
-		return nil, err
-	}
-
-	return job, nil
-}
-
-// updateStatus writes the phase, reason, message, and Ready condition to the
-// Workspace status. workspace is the object the reconcile loop has
-// been working with; latest is a fresh re-fetch of the same resource used as
-// the write target to avoid conflict errors from stale resourceVersions.
-// After a successful write, workspace is updated in-place from latest so that
-// any subsequent logic in the same reconcile sees the current state.
-func (r *WorkspaceReconciler) updateStatus(ctx context.Context, workspace *v1alpha1.Workspace, phase v1alpha1.Phase, reason, message string, status metav1.ConditionStatus) {
-	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		// Fetch the latest version to avoid conflict errors
-		latest := &v1alpha1.Workspace{}
-		if err := r.Get(ctx, client.ObjectKeyFromObject(workspace), latest); err != nil {
-			return err
-		}
-
-		needsUpdate := false
-
-		if latest.Status.Phase != phase || latest.Status.Reason != reason || latest.Status.Message != message {
-			if latest.Status.Phase != phase {
-				phaseTransitionsTotal.WithLabelValues(workspace.Namespace, workspace.Name, string(phase)).Inc()
-			}
-			latest.Status.Phase = phase
-			latest.Status.Reason = reason
-			latest.Status.Message = message
-			needsUpdate = true
-		}
-
-		// Preserve observed revision if it was set
-		if workspace.Status.ObservedRevision != "" && latest.Status.ObservedRevision != workspace.Status.ObservedRevision {
-			latest.Status.ObservedRevision = workspace.Status.ObservedRevision
-			needsUpdate = true
-		}
-
-		// Preserve the variables fingerprint stamped earlier in the
-		// reconcile. The reset path writes this just before the Pending
-		// status update so that a failed plan does not loop on
-		// VariablesChanged; carrying it through the optimistic-concurrency
-		// retry here keeps the same guarantee under contention.
-		if workspace.Status.VariablesHash != "" && latest.Status.VariablesHash != workspace.Status.VariablesHash {
-			latest.Status.VariablesHash = workspace.Status.VariablesHash
-			needsUpdate = true
-		}
-
-		// Carry the run ID and trigger forward when a new plan and apply run has
-		// started in the in-memory copy. Both fields are written before the
-		// first status update of a run, so they must survive the
-		// optimistic-concurrency retry just as phase and message do.
-		if workspace.Status.CurrentRunID != "" && latest.Status.CurrentRunID != workspace.Status.CurrentRunID {
-			latest.Status.CurrentRunID = workspace.Status.CurrentRunID
-			needsUpdate = true
-		}
-
-		if workspace.Status.CurrentRunTrigger != "" && latest.Status.CurrentRunTrigger != workspace.Status.CurrentRunTrigger {
-			latest.Status.CurrentRunTrigger = workspace.Status.CurrentRunTrigger
-			needsUpdate = true
-		}
-
-		if workspace.Status.LastRunStartedAt != nil && !workspace.Status.LastRunStartedAt.Equal(latest.Status.LastRunStartedAt) {
-			latest.Status.LastRunStartedAt = workspace.Status.LastRunStartedAt
-			needsUpdate = true
-		}
-
-		// Policy violations belong to the plan run that produced them. On
-		// Pending or Planning a new job is starting, so we clear latest to
-		// avoid showing stale failures next to a running job. Otherwise,
-		// workspace.Status.PolicyViolations is only non-nil when
-		// readPolicyViolations just populated it with failures from the plan
-		// job that just finished, so we copy those into latest so they get
-		// saved to the Kubernetes API and show up in kubectl describe and the
-		// UI.
-		if phase == v1alpha1.PhasePending || phase == v1alpha1.PhasePlanning {
-			if len(latest.Status.PolicyViolations) > 0 {
-				latest.Status.PolicyViolations = nil
-				needsUpdate = true
-			}
-		} else if workspace.Status.PolicyViolations != nil {
-			latest.Status.PolicyViolations = workspace.Status.PolicyViolations
-			needsUpdate = true
-		}
-
-		now := metav1.Now()
-		condition := metav1.Condition{
-			Type:               v1alpha1.ConditionTypeReady,
-			Status:             status,
-			Reason:             reason,
-			Message:            message,
-			LastTransitionTime: now,
-		}
-
-		if meta.SetStatusCondition(&latest.Status.Conditions, condition) {
-			needsUpdate = true
-		}
-
-		if !needsUpdate {
-			return nil
-		}
-
-		latest.Status.LastReconcileTime = &now
-
-		if err := r.Status().Update(ctx, latest); err != nil {
-			return err
-		}
-
-		// Update the original object so the caller has the latest state
-		workspace.Status = latest.Status
-		workspace.ResourceVersion = latest.ResourceVersion
-		return nil
-	})
-	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to update workspace status")
-	}
-}
-
-// updateNextReconcileTime writes the expected next reconciliation time into the
-// Workspace status so that the UI can display when the next sync will happen.
-func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, workspace *v1alpha1.Workspace, next metav1.Time, interval time.Duration) {
-	// Use a fresh context so this best-effort update isn't constrained by the
-	// reconcile context's deadline.
-	updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		latest := &v1alpha1.Workspace{}
-		if err := r.Get(updateCtx, client.ObjectKeyFromObject(workspace), latest); err != nil {
-			return err
-		}
-
-		// We persist two related but different values together in status:
-		// - nextReconcileTime: the exact next scheduled wake-up time
-		// - observedReconcileInterval: the cadence that produced that time
-		//
-		// We need both. Without the stored interval, a later reconcile cannot
-		// tell whether an existing future nextReconcileTime was computed from
-		// the current interval or from an older one, so changing
-		// magosproject.io/reconcile-interval would not take effect immediately.
-		latest.Status.NextReconcileTime = &next
-		latest.Status.ObservedReconcileInterval = interval.String()
-		if err := r.Status().Update(updateCtx, latest); err != nil {
-			return err
-		}
-
-		workspace.Status = latest.Status
-		workspace.ResourceVersion = latest.ResourceVersion
-		return nil
-	})
-	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to update next reconcile time")
+		activeCount.Set(active)
 	}
 }
 
@@ -1831,19 +340,14 @@ func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Workspace{}).
-		Owns(&batchv1.Job{}).                  // Watch for changes to Jobs owned by the Workspace
-		Owns(&corev1.PersistentVolumeClaim{}). // Watch PVCs
+		Owns(&batchv1.Job{}).
+		Owns(&corev1.PersistentVolumeClaim{}).
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findWorkspacesForSecret),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Watches(
-			// VariableSets are not owned by a Workspace, but a change in
-			// their spec or status (the latter happens after the
-			// variableset controller observes a rotated Secret) needs to
-			// re-resolve every consumer's variables hash. The mapper
-			// performs the namespace-local fanout.
 			&v1alpha1.VariableSet{},
 			handler.EnqueueRequestsFromMapFunc(r.findWorkspacesForVariableSet),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
