@@ -1784,6 +1784,12 @@ func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, works
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if defaultPVCSize := os.Getenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT"); defaultPVCSize != "" {
+		if _, err := resource.ParseQuantity(defaultPVCSize); err != nil {
+			return fmt.Errorf("invalid MAGOS_WORKSPACE_PVC_SIZE_DEFAULT %q: %w", defaultPVCSize, err)
+		}
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Workspace{}).
 		Owns(&batchv1.Job{}).                  // Watch for changes to Jobs owned by the Workspace

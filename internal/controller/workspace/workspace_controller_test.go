@@ -42,6 +42,7 @@ func TestResolveWorkspacePVCSizeUsesEnvDefault(t *testing.T) {
 }
 
 func TestResolveWorkspacePVCSizeFallsBackToBuiltInDefault(t *testing.T) {
+	t.Setenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT", "")
 	reconciler := WorkspaceReconciler{}
 
 	assert.Equal(t, DefaultWorkspacePVCSize, reconciler.resolveWorkspacePVCSize(&v1alpha1.Workspace{}))
