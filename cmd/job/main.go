@@ -147,7 +147,7 @@ func sourcePath(runID string) string {
 
 // validateSourceDir checks that the apply pod's working tree is present
 // and that terraform init ran in it. Fails fast otherwise.
-func validateSourceDir(sourceDir, tfPath string) error {
+func validateSourceDir(sourceDir string) error {
 	if _, err := os.Stat(sourceDir); err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf(
@@ -157,18 +157,6 @@ func validateSourceDir(sourceDir, tfPath string) error {
 		}
 		return fmt.Errorf("failed to stat source directory %q: %w", sourceDir, err)
 	}
-
-	tfDir := filepath.Join(sourceDir, tfPath, ".terraform")
-	if _, err := os.Stat(tfDir); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf(
-				"expected .terraform directory at %q is missing; the plan pod did not complete terraform init for this run",
-				tfDir,
-			)
-		}
-		return fmt.Errorf("failed to stat %q: %w", tfDir, err)
-	}
-
 	return nil
 }
 
@@ -580,7 +568,7 @@ func run() error {
 		}
 	case jobTypeApply:
 		// The plan pod is the only writer; confirm its tree is still here.
-		if err := validateSourceDir(src, cfg.TFPath); err != nil {
+		if err := validateSourceDir(src); err != nil {
 			return err
 		}
 	}

@@ -3,7 +3,8 @@ FROM node:20-alpine AS build-stage
 WORKDIR /app
 COPY package.json package-lock.json ./
 
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --prefer-offline
 
 COPY . .
 
