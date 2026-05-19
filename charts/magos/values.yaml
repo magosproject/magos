@@ -190,7 +190,8 @@ logs:
   storage:
     # Select how Magos reaches the S3-compatible log backend.
     # - embedded: deploy the bundled RustFS instance and wire it automatically.
-    # - external: skip RustFS and wire the API/controllers to your own S3 endpoint.
+    # - external: use your own S3-compatible backend and provide its endpoint
+    #   plus a Secret with access key and secret key.
     mode: embedded
     image:
       repository: rustfs/rustfs
@@ -216,20 +217,20 @@ logs:
         cpu: 100m
         memory: 128Mi
     external:
+      # Required when mode=external.
       endpoint: ""
+      # Secret containing the S3 credentials for the external backend.
+      # Required when mode=external.
       existingSecret: ""
       accessKeyKey: accessKey
       secretKeyKey: secretKey
 
 postgres:
-  # First-party PostgreSQL instance used for run metadata and future
-  # operational metadata. RustFS remains the storage backend for log blobs.
-  # mode can be used to explicitly choose the database wiring strategy:
+  # Select how Magos reaches the PostgreSQL database used for run metadata.
   # - embedded: deploy the bundled PostgreSQL instance and wire it automatically.
-  # - external: skip the bundled PostgreSQL instance and wire the API to your own database.
-  # Leave empty to keep the legacy `enabled`-based behaviour.
-  mode: ""
-  enabled: true
+  # - external: use your own PostgreSQL instance and provide its connection
+  #   details plus a Secret with the password.
+  mode: embedded
   image:
     repository: postgres
     tag: "16-alpine"
@@ -250,10 +251,13 @@ postgres:
     size: 10Gi
     # storageClass: "" # Leave empty to use the cluster default.
   external:
+    # Required when mode=external.
     host: ""
     port: 5432
     database: magos
     username: magos
+    # Secret containing the password for the external PostgreSQL user.
+    # Required when mode=external.
     existingSecret: ""
     passwordKey: password
     sslMode: disable

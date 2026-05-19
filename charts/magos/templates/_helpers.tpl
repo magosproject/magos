@@ -147,33 +147,16 @@ Resolve the selected storage/database wiring modes.
 {{- end }}
 
 {{- define "magos.postgresMode" -}}
-{{- $mode := default "" .Values.postgres.mode -}}
-{{- if eq $mode "" -}}
-{{- if .Values.postgres.enabled -}}
-embedded
-{{- else if or .Values.postgres.external.host .Values.postgres.external.existingSecret -}}
-external
-{{- else -}}
-disabled
-{{- end -}}
-{{- else -}}
+{{- $mode := default "embedded" .Values.postgres.mode -}}
 {{- if and (ne $mode "embedded") (ne $mode "external") -}}
 {{- fail (printf "postgres.mode must be either embedded or external, got %q" $mode) -}}
 {{- end -}}
 {{- $mode -}}
-{{- end -}}
-{{- end }}
-
-{{- define "magos.postgresEnvEnabled" -}}
-{{- $mode := include "magos.postgresMode" . -}}
-{{- if or (eq $mode "embedded") (eq $mode "external") -}}true{{- end -}}
 {{- end }}
 
 {{/*
-Environment variables for the run-summary database. The API can also be
-pointed at an external database by setting postgres.mode=external (or, for the
-legacy flow, disabling postgres.enabled) and configuring postgres.external or
-providing MAGOS_DATABASE_URL / MAGOS_POSTGRES_* via api.env.
+Environment variables for the run-summary database. These are wired either from
+the bundled PostgreSQL deployment or from an external PostgreSQL instance.
 */}}
 {{- define "magos.postgresEnv" -}}
 {{- if eq (include "magos.postgresMode" .) "external" }}
