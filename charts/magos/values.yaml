@@ -181,6 +181,16 @@ job:
   # Magos UI. Set to false to produce plain-text output (sets NO_COLOR=1 on
   # the workspace controller, which forwards it to every job pod).
   colorOutput: true
+  # Resources applied to Terraform plan/apply job pods launched by the
+  # workspace controller. Keep requests and limits set so these pods do not run
+  # as BestEffort and become the first eviction target during node pressure.
+  resources:
+    requests:
+      cpu: 125m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
 
 workspace:
   # defaultPVCSize is used when a Workspace does not set spec.pvcSize.

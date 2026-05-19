@@ -332,10 +332,13 @@ func (r *WorkspaceReconciler) trackActiveWorkspaces(ctx context.Context) {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if defaultPVCSize := os.Getenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT"); defaultPVCSize != "" {
+	if defaultPVCSize := os.Getenv(envWorkspacePVCSizeDefault); defaultPVCSize != "" {
 		if _, err := resource.ParseQuantity(defaultPVCSize); err != nil {
-			return fmt.Errorf("invalid MAGOS_WORKSPACE_PVC_SIZE_DEFAULT %q: %w", defaultPVCSize, err)
+			return fmt.Errorf("invalid %s %q: %w", envWorkspacePVCSizeDefault, defaultPVCSize, err)
 		}
+	}
+	if _, err := r.resolveWorkspaceJobResources(); err != nil {
+		return err
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
