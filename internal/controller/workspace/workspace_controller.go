@@ -1611,7 +1611,20 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 									MountPath: "/workspace-data",
 								},
 							},
+							SecurityContext: &corev1.SecurityContext{
+								RunAsNonRoot:             new(true),
+								AllowPrivilegeEscalation: new(false),
+								Capabilities: &corev1.Capabilities{
+									Drop: []corev1.Capability{"ALL"},
+								},
+							},
 						},
+					},
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot: new(true),
+						RunAsUser:    new(int64(10001)),
+						RunAsGroup:   new(int64(10001)),
+						FSGroup:      new(int64(10001)),
 					},
 				},
 			},
