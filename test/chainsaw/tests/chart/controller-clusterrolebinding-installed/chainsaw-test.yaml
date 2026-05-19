@@ -28,7 +28,7 @@ spec:
           EOF
           )"
           if [ "$actual" != "$expected" ]; then
-            echo "unexpected ClusterRoleBinding subjects"
+            echo "unexpected subjects on ClusterRoleBinding/magos"
             echo "expected:"
             echo "$expected"
             echo "actual:"
