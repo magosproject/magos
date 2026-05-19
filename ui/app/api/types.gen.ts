@@ -1945,6 +1945,13 @@ export interface components {
              */
             autoApply?: boolean;
             plan?: components["schemas"]["v1alpha1.JobOverrides"];
+            /**
+             * @description PVCSize sets the requested storage size for the Workspace PVC used by
+             *     plan/apply Jobs to share Terraform state artifacts and provider cache.
+             *     When omitted, the controller default is used.
+             *     +optional
+             */
+            pvcSize?: string;
             projectRef?: components["schemas"]["v1alpha1.ProjectReference"];
             /**
              * @description ServiceAccountName is the ServiceAccount that plan and apply Job pods
