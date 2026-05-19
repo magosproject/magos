@@ -9,21 +9,21 @@ WORKDIR /build
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata make
 
-# Copy root module (needed for replace directive in api/go.mod)
+# Copy module manifests first so dependency downloads survive source-only edits.
 COPY go.mod go.sum ./
-COPY types/ types/
-COPY internal/logstore/ internal/logstore/
-
-# Copy go mod files and download dependencies
 COPY api/go.mod api/go.sum api/
-RUN cd api && go mod download && go mod verify
+RUN --mount=type=cache,target=/go/pkg/mod \
+    cd api && go mod download && go mod verify
 
 # Copy source code
+COPY types/ types/
+COPY internal/logstore/ internal/logstore/
 COPY api/ api/
 
 # Build the application with optimizations into a dedicated output path.
-RUN mkdir -p /out && cd api && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
-    -a \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    mkdir -p /out && cd api && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
     -installsuffix cgo \
     -ldflags="-w -s" \
     -o /out/api cmd/api/main.go

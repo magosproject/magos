@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+.buildx-cache
+.buildx-cache-tmp
+bin
+tmp
+charts
+samples
+test
+ui
+Dockerfile.cross
