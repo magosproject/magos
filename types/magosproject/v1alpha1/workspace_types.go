@@ -170,6 +170,12 @@ type WorkspaceSpec struct {
 	// +kubebuilder:default=magos-job
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+
+	// PVCSize sets the requested storage size for the Workspace PVC used by
+	// plan/apply Jobs to share Terraform state artifacts and provider cache.
+	// When omitted, the controller default is used.
+	// +optional
+	PVCSize string `json:"pvcSize,omitempty"`
 }
 
 // WorkspaceStatus defines the observed state of Workspace.

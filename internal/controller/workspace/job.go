@@ -42,6 +42,10 @@ const (
 	// indefinitely if a Job hangs (e.g. terraform blocks on a provider call).
 	DefaultJobTimeoutSeconds int64 = 86400 // 24 hours
 
+	// DefaultWorkspacePVCSize is the storage request used for Workspace PVCs
+	// when neither the Workspace spec nor controller config provides a value.
+	DefaultWorkspacePVCSize = "1Gi"
+
 	// jobTypePlan and jobTypeApply are the two values the workspace controller
 	// uses when launching a Kubernetes Job. The value is written into the
 	// MAGOS_JOB_TYPE environment variable so the job knows whether to run
@@ -79,6 +83,11 @@ func (r *WorkspaceReconciler) ensurePVC(ctx context.Context, ws *v1alpha1.Worksp
 
 	if err != nil && errors.IsNotFound(err) {
 		log.FromContext(ctx).Info("Creating PVC for Workspace", "pvc", pvcName)
+		requestedPVCSize := r.resolveWorkspacePVCSize(ws)
+		requestedStorage, parseErr := resource.ParseQuantity(requestedPVCSize)
+		if parseErr != nil {
+			return fmt.Errorf("invalid workspace PVC size %q: %w", requestedPVCSize, parseErr)
+		}
 
 		newPVC := &corev1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{
@@ -89,7 +98,7 @@ func (r *WorkspaceReconciler) ensurePVC(ctx context.Context, ws *v1alpha1.Worksp
 				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{
-						corev1.ResourceStorage: resource.MustParse("1Gi"),
+						corev1.ResourceStorage: requestedStorage,
 					},
 				},
 			},
@@ -104,6 +113,16 @@ func (r *WorkspaceReconciler) ensurePVC(ctx context.Context, ws *v1alpha1.Worksp
 		return r.Create(ctx, newPVC)
 	}
 	return err
+}
+
+func (r *WorkspaceReconciler) resolveWorkspacePVCSize(ws *v1alpha1.Workspace) string {
+	if ws.Spec.PVCSize != "" {
+		return ws.Spec.PVCSize
+	}
+	if defaultPVCSize := os.Getenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT"); defaultPVCSize != "" {
+		return defaultPVCSize
+	}
+	return DefaultWorkspacePVCSize
 }
 
 // resolveEffectivePolicySelector determines the label selector string for
@@ -152,9 +171,9 @@ func (r *WorkspaceReconciler) resolveEffectivePolicySelector(ctx context.Context
 // that Kubernetes resolves them at Pod startup from the referenced Secret, and
 // we never have to copy secret data into the Job spec.
 //
-// The Job mounts the Workspace's shared PVC at /workspace-data. The Plan Job
-// writes the .tfplan file there, and the Apply Job reads it back from the same
-// path.
+// The Job mounts the Workspace's PVC at /workspace-data. The plan pod clones
+// into /workspace-data/runs/<runID>/source; the apply pod reuses that tree and
+// removes the run dir on exit.
 //
 // We set backoffLimit to 0 so Kubernetes does not automatically retry a failed
 // Job. Terraform failures (bad HCL, provider errors, state locks) are unlikely
@@ -171,14 +190,19 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 
 	envVars := []corev1.EnvVar{
 		// Core configuration every Job needs: where to clone from, which
-		// revision to check out, which Terraform version to use, and whether
-		// this is a plan or apply run.
+		// Terraform version to use, and whether this is a plan or apply run.
 		{Name: "REPO_URL", Value: ws.Spec.Source.RepoURL},
-		{Name: "TARGET_REVISION", Value: ws.Spec.Source.TargetRevision},
 		{Name: "TF_VERSION", Value: ws.Spec.Terraform.Version},
 		{Name: "PROJECT_REF", Value: ws.Spec.ProjectRef.Name},
 		{Name: "MAGOS_JOB_TYPE", Value: jobType},
 		{Name: "MAGOS_PLAN_FILE", Value: rc.planFile},
+		{Name: "MAGOS_RUN_ID", Value: runID},
+	}
+
+	// Only the plan pod clones the repo. The apply pod reuses the working tree
+	// the plan pod produced.
+	if jobType == jobTypePlan {
+		envVars = append(envVars, corev1.EnvVar{Name: "TARGET_REVISION", Value: ws.Spec.Source.TargetRevision})
 	}
 
 	// Optional paths that narrow which Terraform directory to run in and which
@@ -347,7 +371,20 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 									MountPath: "/workspace-data",
 								},
 							},
+							SecurityContext: &corev1.SecurityContext{
+								RunAsNonRoot:             new(true),
+								AllowPrivilegeEscalation: new(false),
+								Capabilities: &corev1.Capabilities{
+									Drop: []corev1.Capability{"ALL"},
+								},
+							},
 						},
+					},
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot: new(true),
+						RunAsUser:    new(int64(10001)),
+						RunAsGroup:   new(int64(10001)),
+						FSGroup:      new(int64(10001)),
 					},
 				},
 			},

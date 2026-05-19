@@ -18,6 +18,8 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/magosproject/magos/internal/controller/variableset"
@@ -26,6 +28,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -62,6 +65,16 @@ type WorkspaceReconciler struct {
 	RunRecorder RunRecorder
 }
 
+// normalizeRepoURL trims whitespace, a trailing slash, and a single .git
+// suffix so URLs that differ only in style match as the same repository.
+func normalizeRepoURL(u string) string {
+	u = strings.TrimSpace(u)
+	u = strings.TrimSuffix(u, "/")
+	u = strings.TrimSuffix(u, ".git")
+	u = strings.TrimSuffix(u, "/")
+	return u
+}
+
 // getRepoCredentials finds the Git credential Secret for a given repository
 // URL. Magos uses a convention where credential Secrets are labeled with
 // magosproject.io/secret-type=repository and contain a "repoURL" data key that
@@ -72,7 +85,6 @@ type WorkspaceReconciler struct {
 func (r *WorkspaceReconciler) getRepoCredentials(ctx context.Context, namespace, targetRepoURL string) (*corev1.Secret, error) {
 	var secretList corev1.SecretList
 
-	// List secrets in the namespace with the specific label
 	err := r.List(ctx, &secretList,
 		client.InNamespace(namespace),
 		client.MatchingLabels{RepoSecretLabelKey: RepoSecretLabelValue},
@@ -81,10 +93,10 @@ func (r *WorkspaceReconciler) getRepoCredentials(ctx context.Context, namespace,
 		return nil, err
 	}
 
-	// Find the secret that matches the requested RepoURL
+	target := normalizeRepoURL(targetRepoURL)
 	for i := range secretList.Items {
 		secret := &secretList.Items[i]
-		if string(secret.Data[SecretKeyRepoURL]) == targetRepoURL {
+		if normalizeRepoURL(string(secret.Data[SecretKeyRepoURL])) == target {
 			return secret, nil
 		}
 	}
@@ -94,14 +106,6 @@ func (r *WorkspaceReconciler) getRepoCredentials(ctx context.Context, namespace,
 
 // findWorkspacesForSecret maps Secret watch events to Workspace reconcile
 // requests.
-//
-// We need this because repository credential Secrets are not owned by any
-// Workspace. Without this mapper, updates to a Secret, such as SSH private key
-// rotation, would not automatically trigger a reconcile of the Workspaces that
-// use it. By mapping Secrets to the Workspaces referencing the same repoURL, we
-// ensure that any change in credentials properly propagates, allowing the
-// controller to react (e.g., by re-running jobs that may have failed due to Git
-// auth issues).
 func (r *WorkspaceReconciler) findWorkspacesForSecret(ctx context.Context, o client.Object) []reconcile.Request {
 	secret, ok := o.(*corev1.Secret)
 	if !ok {
@@ -123,12 +127,10 @@ func (r *WorkspaceReconciler) findWorkspacesForSecret(ctx context.Context, o cli
 		return nil
 	}
 
-	// For each workspace in the same namespace, if its Spec.Source.RepoURL
-	// matches the repoURL from the secret, enqueue a reconcile request for that
-	// workspace.
-	var requests []reconcile.Request
+	target := normalizeRepoURL(string(repoURL))
+	requests := make([]reconcile.Request, 0, len(workspaces.Items))
 	for _, ws := range workspaces.Items {
-		if ws.Spec.Source.RepoURL == string(repoURL) {
+		if normalizeRepoURL(ws.Spec.Source.RepoURL) == target {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      ws.Name,
@@ -167,10 +169,6 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	// Ensure a finalizer is present so Kubernetes delays actual deletion until
-	// we explicitly remove it. This guarantees the controller gets a chance to
-	// run handleDeletion before the object disappears, even if someone deletes
-	// the Workspace manually via kubectl.
 	if controllerutil.AddFinalizer(workspace, v1alpha1.WorkspaceFinalizerName) {
 		if err := r.Update(ctx, workspace); err != nil {
 			return ctrl.Result{}, err
@@ -186,8 +184,6 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if finished {
 			return ctrl.Result{}, nil
 		}
-		// Finalizer was removed but the object hasn't been garbage-collected
-		// yet. Requeue briefly so we don't spin on every event in the meantime.
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
@@ -200,33 +196,19 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	reconcileTotal.WithLabelValues(req.Namespace, req.Name, "success").Inc()
 
-	// Always requeue on the periodic schedule so we periodically re-plan even
-	// when nothing in the cluster changes. This is how we detect
-	// infrastructure drift that happened outside of Magos.
 	nextReconcileTime, reconcileInterval, _ := computeNextReconcileTime(workspace, workspace.Status.NextReconcileTime)
 	r.updateNextReconcileTime(ctx, workspace, nextReconcileTime, reconcileInterval)
-	// Calculate RequeueAfter after status writes. controller-runtime starts the
-	// timer only after Reconcile returns, so doing this earlier would add status
-	// update latency to every scheduled cycle.
 	res = withScheduledRequeue(res, nextReconcileTime.Time)
 
 	return res, nil
 }
 
 // handleDeletion removes the finalizer from a Workspace that is being deleted.
-// Since all Jobs and PVCs are owned by the Workspace (via OwnerReferences),
-// Kubernetes garbage collection automatically deletes them once the Workspace
-// itself is removed. All we need to do here is remove our finalizer so that
-// Kubernetes can proceed with the actual deletion.
 func (r *WorkspaceReconciler) handleDeletion(ctx context.Context, workspace *v1alpha1.Workspace) (bool, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Handling workspace deletion")
 
 	r.updateStatus(ctx, workspace, v1alpha1.PhaseDeleting, "Deleting", "Workspace is being deleted", metav1.ConditionFalse)
-
-	// Since Jobs and PVCs are owned by the Workspace (via OwnerReferences),
-	// Kubernetes garbage collection will automatically clean them up. We don't
-	// need to manually delete them.
 
 	if controllerutil.ContainsFinalizer(workspace, v1alpha1.WorkspaceFinalizerName) {
 		logger.Info("Removing finalizer")
@@ -239,8 +221,7 @@ func (r *WorkspaceReconciler) handleDeletion(ctx context.Context, workspace *v1a
 }
 
 // runContext holds the derived names and current job state for a single
-// reconcile iteration. It is built once in reconcileWorkspace and passed to
-// all step functions so nothing is re-derived or re-fetched independently.
+// reconcile iteration.
 type runContext struct {
 	planJobName   string
 	applyJobName  string
@@ -252,9 +233,6 @@ type runContext struct {
 	variablesHash string
 }
 
-// newRunContext derives all stable names from the Workspace spec and fetches
-// the current Plan and Apply Jobs. A NotFound error on either Job is normal
-// and simply means the Job does not exist yet for this spec version.
 func (r *WorkspaceReconciler) newRunContext(ctx context.Context, workspace *v1alpha1.Workspace) (runContext, error) {
 	specHash := r.getSpecHash(workspace)
 	rc := runContext{
@@ -275,9 +253,6 @@ func (r *WorkspaceReconciler) newRunContext(ctx context.Context, workspace *v1al
 	return rc, nil
 }
 
-// getJobOrNil returns the Job with the given name, or nil if it does not exist yet.
-// NotFound is treated as a normal state: Jobs are created on demand and may not
-// exist yet for the current spec version.
 func (r *WorkspaceReconciler) getJobOrNil(ctx context.Context, name, namespace string) (*batchv1.Job, error) {
 	var job batchv1.Job
 	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &job); err != nil {
@@ -289,42 +264,18 @@ func (r *WorkspaceReconciler) getJobOrNil(ctx context.Context, name, namespace s
 	return &job, nil
 }
 
-// reconcileWorkspace is the main reconciliation loop for a single Workspace. It
-// is called by Reconcile after the object is fetched and finalizer is ensured.
-//
-// The function is structured as a linear sequence of steps:
-//
-//  1. Build deterministic Job names from a hash of the Workspace spec.
-//  2. Clean up Jobs left over from a previous spec version.
-//  3. Decide whether to start a fresh plan/apply cycle (spec change, new revision,
-//     manual request, or scheduled reconciliation).
-//  4. Check whether the Rollout controller has granted execution permission.
-//  5. Ensure the shared PVC exists.
-//  6. Run "terraform plan".
-//  7. Run "terraform apply" (requires approval).
-//  8. Record the apply result and release the execution lock.
 func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace *v1alpha1.Workspace) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Workspace", "name", workspace.Name, "namespace", workspace.Namespace)
 
 	defer r.trackActiveWorkspaces(ctx)
 
-	// Steps 1+2: build stable Job names from a hash of the Workspace spec and
-	// clean up any Jobs left over from a previous spec version. See getSpecHash
-	// and cleanupOrphanedJobs for the full reasoning behind each.
 	rc, err := r.newRunContext(ctx, workspace)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	r.cleanupOrphanedJobs(ctx, workspace, rc)
 
-	// Step 0: Resolve VariableSets attached to this Workspace.
-	//
-	// The effective set is the ordered concatenation of the parent Project's
-	// VariableSetRef and the Workspace's own VariableSetRef. We fail fast when
-	// a required reference is missing so we don't create a Plan Job that will
-	// break at terraform time. The resolved list is stored in rc so it flows
-	// through to constructJobForWorkspace without an extra parameter.
 	resolvedVars, unresolved, err := r.resolveWorkspaceVariables(ctx, workspace)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -337,32 +288,11 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	rc.resolvedVars = resolvedVars
 	rc.variablesHash = variableset.Fingerprint(resolvedVars)
 
-	// Step 3: Decide whether we need to start a fresh Plan/Apply cycle.
-	//
-	// This logic must run before Step 4. Step 4 evaluates the Rollout execution
-	// lock annotation (magosproject.io/execution-allowed). The Rollout
-	// controller adds that annotation to allow a Workspace to execute, and
-	// removes it again once the Workspace finishes.
-	//
-	// If we checked the execution lock first, a completed Workspace could
-	// appear "not allowed" and we would never reach this reset path. That would
-	// leave the Workspace stuck in a terminal(?) phase with no way to clean up
-	// old Jobs or start a new cycle.
 	d := r.checkCycleNeeded(workspace, rc)
 	if d.start {
 		return ctrl.Result{}, r.startFreshCycle(ctx, workspace, rc, d.reason, d.message)
 	}
 
-	// Step 4: Check whether the Rollout controller has granted us permission to
-	// execute.
-	//
-	// A Rollout groups multiple Workspaces and controls the order they run in
-	// (e.g. "dev must succeed before prod starts"). It does this by setting the
-	// execution-allowed annotation on each Workspace when it is that
-	// Workspace's turn. If the annotation is absent or not "true", it means the
-	// Rollout controller hasn't reached that Workspace yet, so we stay in
-	// Pending and return early. The Rollout controller will trigger a new
-	// reconcile once it sets the annotation.
 	if !isExecutionAllowedByRolloutController(workspace) {
 		logger.Info("Workspace execution is not allowed. Waiting for rollout controller to grant permission.", "workspace", workspace.Name)
 		if workspace.Status.Phase == "" {
@@ -374,36 +304,19 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		return ctrl.Result{}, nil
 	}
 
-	// Step 5: Create a PersistentVolumeClaim for this Workspace if one doesn't
-	// exist yet.
-	//
-	// Terraform's plan and apply are two separate operations that run as
-	// independent Kubernetes Jobs. The Plan Job writes a .tfplan binary to
-	// disk, and the Apply Job needs to read that exact file back. We create a
-	// PVC per Workspace and mount it into both Jobs so the plan file can be
-	// accessed between Jobs. The PVC is owned by the Workspace, so Kubernetes
-	// garbage collection will clean it up automatically when the Workspace is
-	// deleted. The creation of the PVC happens only once in the lifetime of a
-	// workspace via ensurePVC.
 	if err := r.ensurePVC(ctx, workspace, rc.pvcName); err != nil {
 		logger.Error(err, "Failed to ensure PVC exists")
 		return ctrl.Result{}, err
 	}
 
-	// Step 6: Run "terraform plan".
-	planDone, err := r.reconcilePlanJob(ctx, workspace, rc)
+	res, planDone, err := r.reconcilePlanJob(ctx, workspace, rc)
 	if err != nil || !planDone {
-		return ctrl.Result{}, err
+		return res, err
 	}
 
-	// Steps 7+8: Run "terraform apply" (requires approval) and handle completion.
-	// TODO: implement approval feature
 	return ctrl.Result{}, r.reconcileApplyJob(ctx, workspace, rc)
 }
 
-// trackActiveWorkspaces updates the Prometheus gauge for the number of
-// Workspaces currently in the Planning or Applying phase. Called as a deferred
-// function at the end of every reconcileWorkspace call.
 func (r *WorkspaceReconciler) trackActiveWorkspaces(ctx context.Context) {
 	var allWorkspaces v1alpha1.WorkspaceList
 	if err := r.List(ctx, &allWorkspaces); err == nil {
@@ -419,10 +332,16 @@ func (r *WorkspaceReconciler) trackActiveWorkspaces(ctx context.Context) {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if defaultPVCSize := os.Getenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT"); defaultPVCSize != "" {
+		if _, err := resource.ParseQuantity(defaultPVCSize); err != nil {
+			return fmt.Errorf("invalid MAGOS_WORKSPACE_PVC_SIZE_DEFAULT %q: %w", defaultPVCSize, err)
+		}
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Workspace{}).
-		Owns(&batchv1.Job{}).                  // Watch for changes to Jobs owned by the Workspace
-		Owns(&corev1.PersistentVolumeClaim{}). // Watch PVCs
+		Owns(&batchv1.Job{}).
+		Owns(&corev1.PersistentVolumeClaim{}).
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findWorkspacesForSecret),
