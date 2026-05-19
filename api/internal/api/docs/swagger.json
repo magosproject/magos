@@ -1011,6 +1011,10 @@
                     "projectRef": {
                         "$ref": "#/components/schemas/v1alpha1.ProjectReference"
                     },
+                    "pvcSize": {
+                        "description": "PVCSize sets the requested storage size for the Workspace PVC used by\nplan/apply Jobs to share Terraform state artifacts and provider cache.\nWhen omitted, the controller default is used.\n+optional",
+                        "type": "string"
+                    },
                     "serviceAccountName": {
                         "description": "ServiceAccountName is the ServiceAccount that plan and apply Job pods\nrun under. The ServiceAccount must exist in the same namespace as the\nWorkspace. Defaults to magos-job, which the Helm chart creates with\nget;list;watch on validatingpolicies.policies.kyverno.io so the job can\nfetch ValidatingPolicies at runtime. Override this to run pods under a\ndifferent identity, for example to bind a GKE Workload Identity or AWS\nIRSA annotation; the replacement must carry the same RBAC.\n+kubebuilder:default=magos-job\n+optional",
                         "type": "string"

@@ -115,6 +115,12 @@ spec:
                 required:
                 - name
                 type: object
+              pvcSize:
+                description: |-
+                  PVCSize sets the requested storage size for the Workspace PVC used by
+                  plan/apply Jobs to share Terraform state artifacts and provider cache.
+                  When omitted, the controller default is used.
+                type: string
               serviceAccountName:
                 default: magos-job
                 description: |-
@@ -125,12 +131,6 @@ spec:
                   fetch ValidatingPolicies at runtime. Override this to run pods under a
                   different identity, for example to bind a GKE Workload Identity or AWS
                   IRSA annotation; the replacement must carry the same RBAC.
-                type: string
-              pvcSize:
-                description: |-
-                  PVCSize sets the requested storage size for the Workspace PVC used by
-                  plan/apply Jobs to share Terraform state artifacts and provider cache.
-                  When omitted, the controller default is used.
                 type: string
               source:
                 description: Source defines the Git repository configuration
