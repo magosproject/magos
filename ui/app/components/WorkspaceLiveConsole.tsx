@@ -32,6 +32,7 @@ export default function WorkspaceLiveConsole({
   const viewportRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<string[]>([]);
   const revealTimerRef = useRef<number | null>(null);
+  const clearOnFirstApplyLineRef = useRef(false);
   const isActive = phase === "Planning" || phase === "Planned" || phase === "Applying";
   const streamKey = currentRunID ?? "";
 
@@ -124,12 +125,12 @@ export default function WorkspaceLiveConsole({
       const payload = JSON.parse(event.data) as RunLogStreamEvent;
       switch (payload.type) {
         case EVENT.PhaseStart:
-          // Clear the console when the apply phase begins. For the plan phase
-          // (the first event on a fresh connection) there is nothing to clear.
+          // Keep the latest plan output visible while apply is starting, then
+          // swap to apply output only when the first apply log line arrives.
           if (payload.phase === "apply") {
-            pending.splice(0);
-            stopRevealTimer();
-            setContentState({ key: streamKey, value: "" });
+            clearOnFirstApplyLineRef.current = true;
+          } else {
+            clearOnFirstApplyLineRef.current = false;
           }
           setCurrentStreamPhase(payload.phase ?? null);
           setPodName(null);
@@ -138,6 +139,12 @@ export default function WorkspaceLiveConsole({
           if (payload.podName) setPodName(payload.podName);
           break;
         case EVENT.Line:
+          if (payload.phase === "apply" && clearOnFirstApplyLineRef.current) {
+            pending.splice(0);
+            stopRevealTimer();
+            setContentState({ key: streamKey, value: "" });
+            clearOnFirstApplyLineRef.current = false;
+          }
           pending.push(payload.line ?? "");
           if (revealTimerRef.current == null) {
             revealTimerRef.current = window.setInterval(flushPendingLines, 60);
@@ -164,6 +171,7 @@ export default function WorkspaceLiveConsole({
       setPodName(null);
       setStreamDone(false);
       setCurrentStreamPhase(null);
+      clearOnFirstApplyLineRef.current = false;
       while (pending.length > 0) {
         flushPendingLines();
       }
