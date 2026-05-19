@@ -145,47 +145,6 @@ func sourcePath(runID string) string {
 	return filepath.Join(runDir(runID), "source")
 }
 
-// clearSourceDir removes the working tree at path. No-op if it is absent.
-func clearSourceDir(path string) error {
-	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("failed to clear source dir %q: %w", path, err)
-	}
-	return nil
-}
-
-// pruneOldRunDirs removes every per-run directory on the PVC except the
-// one for currentRunID. The plan pod calls this at startup to clean up
-// orphans left by previous failed or interrupted runs.
-func pruneOldRunDirs(currentRunID string) error {
-	return pruneRunDirsIn(runsBase, currentRunID)
-}
-
-// pruneRunDirsIn removes every subdirectory in baseDir except the one
-// named currentRunID. Files in baseDir are left alone. A failure on one
-// entry is logged and skipped so a single bad entry does not block the
-// run. pruneOldRunDirs uses this with runsBase; tests pass a tempdir.
-func pruneRunDirsIn(baseDir, currentRunID string) error {
-	entries, err := os.ReadDir(baseDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to list run dirs in %q: %w", baseDir, err)
-	}
-	for _, e := range entries {
-		if !e.IsDir() || e.Name() == currentRunID {
-			continue
-		}
-		path := filepath.Join(baseDir, e.Name())
-		if err := os.RemoveAll(path); err != nil {
-			log.Printf("Warning: failed to prune stale run dir %s: %v", path, err)
-			continue
-		}
-		log.Printf("Pruned stale run dir %s", path)
-	}
-	return nil
-}
-
 // validateSourceDir checks that the apply pod's working tree is present
 // and that terraform init ran in it. Fails fast otherwise.
 func validateSourceDir(sourceDir, tfPath string) error {
@@ -217,8 +176,7 @@ func validateSourceDir(sourceDir, tfPath string) error {
 // dest and checks out the exact revision the controller asked for. The shallow
 // clone keeps pod startup fast and avoids pulling years of history the job is
 // never going to read. Only the plan pod calls this; the apply pod reuses the
-// working tree the plan pod produced. dest is expected to be empty or missing;
-// callers that may have a stale tree on disk should call clearSourceDir first.
+// working tree the plan pod produced. dest is expected to be empty or missing.
 func cloneRepository(ctx context.Context, cfg *Config, dest string) error {
 	auth, err := getAuthMethod(cfg)
 	if err != nil {
@@ -608,16 +566,14 @@ func run() error {
 
 	switch cfg.JobType {
 	case jobTypePlan:
-		// Best-effort cleanup of orphan run dirs.
-		if err := pruneOldRunDirs(cfg.RunID); err != nil {
-			log.Printf("Warning: failed to prune stale run dirs: %v", err)
+		// Start from a clean slate. The previous run's apply pod removes
+		// its own run dir on exit, but a wipe of runsBase covers the case
+		// where that defer never ran (pod killed, OOM, eviction).
+		if err := os.RemoveAll(runsBase); err != nil {
+			return fmt.Errorf("failed to clear runs dir: %w", err)
 		}
 		if err := os.MkdirAll(runDir(cfg.RunID), 0o755); err != nil {
 			return fmt.Errorf("failed to create run dir: %w", err)
-		}
-		// go-git refuses to clone into a non-empty directory.
-		if err := clearSourceDir(src); err != nil {
-			return err
 		}
 		if err := cloneRepository(ctx, cfg, src); err != nil {
 			return err
