@@ -18,7 +18,7 @@ spec:
             name: magos
     - script:
         content: |
-          actual="$(kubectl get clusterrolebinding magos -o jsonpath='{range .subjects[*]}{.kind}:{.namespace}:{.name}{"\n"}{end}' | sort)"
+          actual="$(kubectl get clusterrolebinding magos -o jsonpath='{range .subjects[*]}{.kind}:{.namespace}:{.name}{" "}{end}' | tr ' ' '\n' | sed '/^$/d' | sort)"
           expected="$(cat <<'EOF' | sort
           ServiceAccount:magos-system:magos-workspace
           ServiceAccount:magos-system:magos-project
