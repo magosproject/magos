@@ -182,6 +182,10 @@ job:
   # the workspace controller, which forwards it to every job pod).
   colorOutput: true
 
+workspace:
+  # defaultPVCSize is used when a Workspace does not set spec.pvcSize.
+  defaultPVCSize: 1Gi
+
 logs:
   storage:
     image:

@@ -65,6 +65,10 @@ const (
 	// indefinitely if a Job hangs (e.g. terraform blocks on a provider call).
 	DefaultJobTimeoutSeconds int64 = 86400 // 24 hours
 
+	// DefaultWorkspacePVCSize is the storage request used for Workspace PVCs
+	// when neither the Workspace spec nor controller config provides a value.
+	DefaultWorkspacePVCSize = "1Gi"
+
 	// jobTypePlan and jobTypeApply are the two values the workspace controller
 	// uses when launching a Kubernetes Job. The value is written into the
 	// MAGOS_JOB_TYPE environment variable so the job knows whether to run
@@ -1148,6 +1152,11 @@ func (r *WorkspaceReconciler) ensurePVC(ctx context.Context, ws *v1alpha1.Worksp
 
 	if err != nil && errors.IsNotFound(err) {
 		log.FromContext(ctx).Info("Creating PVC for Workspace", "pvc", pvcName)
+		requestedPVCSize := r.resolveWorkspacePVCSize(ws)
+		requestedStorage, parseErr := resource.ParseQuantity(requestedPVCSize)
+		if parseErr != nil {
+			return fmt.Errorf("invalid workspace PVC size %q: %w", requestedPVCSize, parseErr)
+		}
 
 		newPVC := &corev1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1158,7 +1167,7 @@ func (r *WorkspaceReconciler) ensurePVC(ctx context.Context, ws *v1alpha1.Worksp
 				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{
-						corev1.ResourceStorage: resource.MustParse("1Gi"),
+						corev1.ResourceStorage: requestedStorage,
 					},
 				},
 			},
@@ -1173,6 +1182,16 @@ func (r *WorkspaceReconciler) ensurePVC(ctx context.Context, ws *v1alpha1.Worksp
 		return r.Create(ctx, newPVC)
 	}
 	return err
+}
+
+func (r *WorkspaceReconciler) resolveWorkspacePVCSize(ws *v1alpha1.Workspace) string {
+	if ws.Spec.PVCSize != "" {
+		return ws.Spec.PVCSize
+	}
+	if defaultPVCSize := os.Getenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT"); defaultPVCSize != "" {
+		return defaultPVCSize
+	}
+	return DefaultWorkspacePVCSize
 }
 
 // resolveEffectivePolicySelector determines the label selector string for
@@ -1791,6 +1810,12 @@ func (r *WorkspaceReconciler) updateNextReconcileTime(ctx context.Context, works
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if defaultPVCSize := os.Getenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT"); defaultPVCSize != "" {
+		if _, err := resource.ParseQuantity(defaultPVCSize); err != nil {
+			return fmt.Errorf("invalid MAGOS_WORKSPACE_PVC_SIZE_DEFAULT %q: %w", defaultPVCSize, err)
+		}
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Workspace{}).
 		Owns(&batchv1.Job{}).                  // Watch for changes to Jobs owned by the Workspace
