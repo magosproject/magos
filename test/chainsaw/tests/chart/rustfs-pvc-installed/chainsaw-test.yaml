@@ -1,0 +1,20 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: rustfs-pvc-installed
+spec:
+  description: Asserts the RustFS PersistentVolumeClaim exists and is bound.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: magos-rustfs
+            namespace: magos-system
+          spec:
+            accessModes:
+            - ReadWriteOnce
+          status:
+            phase: Bound

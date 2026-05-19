@@ -1,0 +1,25 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: workspace-controller-env-installed
+spec:
+  description: Asserts the workspace controller container exposes the job image and PVC size env.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: magos-workspace
+            namespace: magos-system
+          spec:
+            template:
+              spec:
+                containers:
+                - name: manager
+                  (env[?name == 'MAGOS_JOB_IMAGE']):
+                  - name: MAGOS_JOB_IMAGE
+                  (env[?name == 'MAGOS_WORKSPACE_PVC_SIZE_DEFAULT']):
+                  - name: MAGOS_WORKSPACE_PVC_SIZE_DEFAULT
+                    value: 1Gi

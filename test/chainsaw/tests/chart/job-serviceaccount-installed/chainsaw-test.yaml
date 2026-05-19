@@ -1,0 +1,15 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: job-serviceaccount-installed
+spec:
+  description: Asserts the magos-job ServiceAccount exists in magos-system.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: magos-job
+            namespace: magos-system

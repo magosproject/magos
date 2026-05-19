@@ -1,0 +1,26 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: leader-election-rbac-installed
+spec:
+  description: Asserts the namespaced leader-election Role and RoleBinding exist.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            name: magos-leader-election
+            namespace: magos-system
+    - assert:
+        resource:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: magos-leader-election
+            namespace: magos-system
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: magos-leader-election

@@ -1,0 +1,38 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: controller-clusterrolebinding-installed
+spec:
+  description: Asserts the controller ClusterRoleBinding binds every controller SA.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: magos
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: magos
+    - script:
+        content: |
+          set -euo pipefail
+          actual="$(kubectl get clusterrolebinding magos -o go-template='{{range .subjects}}{{.kind}}:{{.namespace}}:{{.name}}{{"\n"}}{{end}}' | sort)"
+          expected="$(cat <<'EOF' | sort
+          ServiceAccount:magos-system:magos-workspace
+          ServiceAccount:magos-system:magos-project
+          ServiceAccount:magos-system:magos-rollout
+          ServiceAccount:magos-system:magos-variableset
+          ServiceAccount:magos-system:magos-refwatcher
+          EOF
+          )"
+          if [ "$actual" != "$expected" ]; then
+            echo "ClusterRoleBinding/magos has unexpected subjects"
+            echo "expected:"
+            echo "$expected"
+            echo "actual:"
+            echo "$actual"
+            exit 1
+          fi

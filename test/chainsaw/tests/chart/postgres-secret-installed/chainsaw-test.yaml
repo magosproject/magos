@@ -1,0 +1,19 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: postgres-secret-installed
+spec:
+  description: Asserts the Postgres Secret renders with username and database keys.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: magos-postgres
+            namespace: magos-system
+          type: Opaque
+          data:
+            username: bWFnb3M=
+            database: bWFnb3M=

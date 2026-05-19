@@ -1,0 +1,36 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: postgres-services-installed
+spec:
+  description: Asserts the headless and ClusterIP Postgres Services both exist.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: magos-postgres-headless
+            namespace: magos-system
+          spec:
+            clusterIP: None
+            ports:
+            - name: postgres
+              port: 5432
+              targetPort: postgres
+              protocol: TCP
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: magos-postgres
+            namespace: magos-system
+          spec:
+            type: ClusterIP
+            ports:
+            - name: postgres
+              port: 5432
+              targetPort: postgres
+              protocol: TCP

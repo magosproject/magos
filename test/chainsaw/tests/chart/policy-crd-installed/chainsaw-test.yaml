@@ -1,0 +1,35 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: policy-crd-installed
+spec:
+  description: Asserts the Kyverno ValidatingPolicy CRD is installed and servable.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: apiextensions.k8s.io/v1
+          kind: CustomResourceDefinition
+          metadata:
+            name: validatingpolicies.policies.kyverno.io
+    - apply:
+        resource:
+          apiVersion: policies.kyverno.io/v1
+          kind: ValidatingPolicy
+          metadata:
+            name: policy-crd-probe
+          spec:
+            evaluation:
+              mode: JSON
+            matchConditions:
+            - name: is-terraform-plan
+              expression: 'has(object.planned_values) && has(object.terraform_version)'
+            validations:
+            - message: 'probe policy: always passes'
+              expression: 'true'
+    - assert:
+        resource:
+          apiVersion: policies.kyverno.io/v1
+          kind: ValidatingPolicy
+          metadata:
+            name: policy-crd-probe
