@@ -145,10 +145,16 @@ func sourcePath(runID string) string {
 	return filepath.Join(runDir(runID), "source")
 }
 
-// validateSourceDir checks that the apply pod's working tree is present
-// and that terraform init ran in it. Fails fast otherwise.
+// validateSourceDir checks that the apply pod's working tree is present.
+//
+// The apply flow still runs terraform init before terraform apply, so the
+// shared .terraform directory from the plan pod is an optimization, not a hard
+// precondition. We only fail fast when the source tree itself is missing,
+// because that means the plan pod never prepared a reusable working tree for
+// this run.
 func validateSourceDir(sourceDir, tfPath string) error {
-	if _, err := os.Stat(sourceDir); err != nil {
+	info, err := os.Stat(sourceDir)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf(
 				"source directory %q is missing; the plan pod did not prepare a working tree for this run",
@@ -157,16 +163,8 @@ func validateSourceDir(sourceDir, tfPath string) error {
 		}
 		return fmt.Errorf("failed to stat source directory %q: %w", sourceDir, err)
 	}
-
-	tfDir := filepath.Join(sourceDir, tfPath, ".terraform")
-	if _, err := os.Stat(tfDir); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf(
-				"expected .terraform directory at %q is missing; the plan pod did not complete terraform init for this run",
-				tfDir,
-			)
-		}
-		return fmt.Errorf("failed to stat %q: %w", tfDir, err)
+	if !info.IsDir() {
+		return fmt.Errorf("source path %q exists but is not a directory", sourceDir)
 	}
 
 	return nil
