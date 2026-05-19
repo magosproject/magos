@@ -94,12 +94,11 @@ const (
 // WorkspaceReconciler reconciles a Workspace object
 type WorkspaceReconciler struct {
 	client.Client
-	Scheme                  *runtime.Scheme
-	JobImage                string
-	DefaultWorkspacePVCSize string
-	Clientset               kubernetes.Interface // for reading pod logs
-	LogStore                logstore.Store
-	RunRecorder             RunRecorder
+	Scheme      *runtime.Scheme
+	JobImage    string
+	Clientset   kubernetes.Interface // for reading pod logs
+	LogStore    logstore.Store
+	RunRecorder RunRecorder
 }
 
 // getRepoCredentials finds the Git credential Secret for a given repository
@@ -1170,8 +1169,8 @@ func (r *WorkspaceReconciler) resolveWorkspacePVCSize(ws *v1alpha1.Workspace) st
 	if ws.Spec.PVCSize != "" {
 		return ws.Spec.PVCSize
 	}
-	if r.DefaultWorkspacePVCSize != "" {
-		return r.DefaultWorkspacePVCSize
+	if defaultPVCSize := os.Getenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT"); defaultPVCSize != "" {
+		return defaultPVCSize
 	}
 	return DefaultWorkspacePVCSize
 }

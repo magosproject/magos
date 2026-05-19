@@ -23,9 +23,8 @@ import (
 )
 
 func TestResolveWorkspacePVCSizeUsesWorkspaceSpec(t *testing.T) {
-	reconciler := WorkspaceReconciler{
-		DefaultWorkspacePVCSize: "2Gi",
-	}
+	t.Setenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT", "2Gi")
+	reconciler := WorkspaceReconciler{}
 	workspace := &v1alpha1.Workspace{
 		Spec: v1alpha1.WorkspaceSpec{
 			PVCSize: "7Gi",
@@ -35,10 +34,9 @@ func TestResolveWorkspacePVCSizeUsesWorkspaceSpec(t *testing.T) {
 	assert.Equal(t, "7Gi", reconciler.resolveWorkspacePVCSize(workspace))
 }
 
-func TestResolveWorkspacePVCSizeUsesControllerDefault(t *testing.T) {
-	reconciler := WorkspaceReconciler{
-		DefaultWorkspacePVCSize: "3Gi",
-	}
+func TestResolveWorkspacePVCSizeUsesEnvDefault(t *testing.T) {
+	t.Setenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT", "3Gi")
+	reconciler := WorkspaceReconciler{}
 
 	assert.Equal(t, "3Gi", reconciler.resolveWorkspacePVCSize(&v1alpha1.Workspace{}))
 }

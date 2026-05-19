@@ -31,7 +31,6 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -230,14 +229,6 @@ func main() {
 			setupLog.Error(fmt.Errorf("MAGOS_JOB_IMAGE must be set"), "missing required environment variable")
 			os.Exit(1)
 		}
-		defaultWorkspacePVCSize := os.Getenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT")
-		if defaultWorkspacePVCSize == "" {
-			defaultWorkspacePVCSize = workspacecontroller.DefaultWorkspacePVCSize
-		}
-		if _, err := resource.ParseQuantity(defaultWorkspacePVCSize); err != nil {
-			setupLog.Error(err, "invalid default workspace PVC size", "MAGOS_WORKSPACE_PVC_SIZE_DEFAULT", defaultWorkspacePVCSize)
-			os.Exit(1)
-		}
 		clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
 		if err != nil {
 			setupLog.Error(err, "unable to create kubernetes clientset")
@@ -255,13 +246,12 @@ func main() {
 			os.Exit(1)
 		}
 		if err := (&workspacecontroller.WorkspaceReconciler{
-			Client:                  mgr.GetClient(),
-			Scheme:                  mgr.GetScheme(),
-			JobImage:                jobImage,
-			DefaultWorkspacePVCSize: defaultWorkspacePVCSize,
-			Clientset:               clientset,
-			LogStore:                runLogStore,
-			RunRecorder:             runRecorder,
+			Client:      mgr.GetClient(),
+			Scheme:      mgr.GetScheme(),
+			JobImage:    jobImage,
+			Clientset:   clientset,
+			LogStore:    runLogStore,
+			RunRecorder: runRecorder,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Workspace")
 			os.Exit(1)
