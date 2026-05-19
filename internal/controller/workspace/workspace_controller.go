@@ -1588,7 +1588,6 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 							SecurityContext: &corev1.SecurityContext{
 								RunAsNonRoot:             new(true),
 								AllowPrivilegeEscalation: new(false),
-								ReadOnlyRootFilesystem:   new(true),
 								Capabilities: &corev1.Capabilities{
 									Drop: []corev1.Capability{"ALL"},
 								},
