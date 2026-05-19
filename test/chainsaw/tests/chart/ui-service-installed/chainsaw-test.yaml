@@ -1,0 +1,22 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: ui-service-installed
+spec:
+  description: Asserts the UI Service exposes the http port over ClusterIP.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: magos-ui
+            namespace: magos-system
+          spec:
+            type: ClusterIP
+            ports:
+            - name: http
+              port: 80
+              targetPort: http
+              protocol: TCP

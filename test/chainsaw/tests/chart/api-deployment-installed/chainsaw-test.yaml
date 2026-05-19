@@ -1,0 +1,28 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: api-deployment-installed
+spec:
+  description: Asserts the API Deployment is available and uses its own ServiceAccount.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: magos-api
+            namespace: magos-system
+    - assert:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: magos-api
+            namespace: magos-system
+          spec:
+            template:
+              spec:
+                serviceAccountName: magos-api
+          status:
+            availableReplicas: 1

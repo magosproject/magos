@@ -1,0 +1,22 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: job-clusterrolebinding-installed
+spec:
+  description: Asserts the magos-job ClusterRoleBinding ties the SA to the ClusterRole.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: magos-job
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: magos-job
+          subjects:
+          - kind: ServiceAccount
+            name: magos-job
+            namespace: magos-system

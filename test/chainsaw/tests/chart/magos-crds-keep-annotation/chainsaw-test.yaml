@@ -1,0 +1,40 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: magos-crds-keep-annotation
+spec:
+  description: Asserts the magosproject.io CRDs carry helm.sh/resource-policy=keep.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: apiextensions.k8s.io/v1
+          kind: CustomResourceDefinition
+          metadata:
+            name: workspaces.magosproject.io
+            annotations:
+              helm.sh/resource-policy: keep
+    - assert:
+        resource:
+          apiVersion: apiextensions.k8s.io/v1
+          kind: CustomResourceDefinition
+          metadata:
+            name: projects.magosproject.io
+            annotations:
+              helm.sh/resource-policy: keep
+    - assert:
+        resource:
+          apiVersion: apiextensions.k8s.io/v1
+          kind: CustomResourceDefinition
+          metadata:
+            name: rollouts.magosproject.io
+            annotations:
+              helm.sh/resource-policy: keep
+    - assert:
+        resource:
+          apiVersion: apiextensions.k8s.io/v1
+          kind: CustomResourceDefinition
+          metadata:
+            name: variablesets.magosproject.io
+            annotations:
+              helm.sh/resource-policy: keep

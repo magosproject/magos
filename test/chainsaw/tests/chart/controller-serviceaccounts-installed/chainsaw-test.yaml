@@ -1,0 +1,43 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: controller-serviceaccounts-installed
+spec:
+  description: Asserts the five per-controller ServiceAccounts exist.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: magos-workspace
+            namespace: magos-system
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: magos-project
+            namespace: magos-system
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: magos-rollout
+            namespace: magos-system
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: magos-variableset
+            namespace: magos-system
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: magos-refwatcher
+            namespace: magos-system

@@ -1,0 +1,41 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: api-rbac-installed
+spec:
+  description: Asserts the API ClusterRole and ClusterRoleBinding grant read+patch on magos CRs.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: magos-api
+          rules:
+          - apiGroups:
+            - magosproject.io
+            resources:
+            - workspaces
+            - projects
+            - rollouts
+            - variablesets
+            verbs:
+            - get
+            - list
+            - watch
+            - patch
+    - assert:
+        resource:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: magos-api
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: magos-api
+          subjects:
+          - kind: ServiceAccount
+            name: magos-api
+            namespace: magos-system

@@ -1,0 +1,23 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: job-clusterrole-installed
+spec:
+  description: Asserts the magos-job ClusterRole grants read on ValidatingPolicies.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: magos-job
+          rules:
+          - apiGroups:
+            - policies.kyverno.io
+            resources:
+            - validatingpolicies
+            verbs:
+            - get
+            - list
+            - watch

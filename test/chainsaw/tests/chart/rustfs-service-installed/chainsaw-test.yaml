@@ -1,0 +1,26 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: rustfs-service-installed
+spec:
+  description: Asserts the RustFS Service exposes the s3 and console ports.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: magos-rustfs
+            namespace: magos-system
+          spec:
+            type: ClusterIP
+            ports:
+            - name: s3
+              port: 9000
+              targetPort: s3
+              protocol: TCP
+            - name: console
+              port: 9001
+              targetPort: console
+              protocol: TCP

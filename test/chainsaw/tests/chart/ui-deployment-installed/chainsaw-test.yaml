@@ -1,0 +1,27 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: ui-deployment-installed
+spec:
+  description: Asserts the UI Deployment is available and wired to the API Service.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: magos-ui
+            namespace: magos-system
+          spec:
+            template:
+              spec:
+                containers:
+                - name: ui
+                  env:
+                  - name: MAGOS_API_HOST
+                    value: magos-api
+                  - name: MAGOS_API_PORT
+                    value: "80"
+          status:
+            availableReplicas: 1

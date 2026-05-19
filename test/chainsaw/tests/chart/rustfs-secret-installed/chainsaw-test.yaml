@@ -1,0 +1,16 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: rustfs-secret-installed
+spec:
+  description: Asserts the RustFS Secret exists as an Opaque secret.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: magos-rustfs
+            namespace: magos-system
+          type: Opaque

@@ -1,0 +1,17 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: rustfs-deployment-installed
+spec:
+  description: Asserts the RustFS log storage Deployment is available.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: magos-rustfs
+            namespace: magos-system
+          status:
+            availableReplicas: 1

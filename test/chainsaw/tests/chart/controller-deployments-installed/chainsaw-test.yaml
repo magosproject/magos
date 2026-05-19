@@ -1,0 +1,53 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: controller-deployments-installed
+spec:
+  description: Asserts each of the five controller Deployments is available.
+  steps:
+  - try:
+    - assert:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: magos-workspace
+            namespace: magos-system
+          status:
+            availableReplicas: 1
+    - assert:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: magos-project
+            namespace: magos-system
+          status:
+            availableReplicas: 1
+    - assert:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: magos-rollout
+            namespace: magos-system
+          status:
+            availableReplicas: 1
+    - assert:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: magos-variableset
+            namespace: magos-system
+          status:
+            availableReplicas: 1
+    - assert:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: magos-refwatcher
+            namespace: magos-system
+          status:
+            availableReplicas: 1
