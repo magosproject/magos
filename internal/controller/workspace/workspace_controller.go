@@ -101,6 +101,16 @@ type WorkspaceReconciler struct {
 	RunRecorder RunRecorder
 }
 
+// normalizeRepoURL trims whitespace, a trailing slash, and a single .git
+// suffix so URLs that differ only in style match as the same repository.
+func normalizeRepoURL(u string) string {
+	u = strings.TrimSpace(u)
+	u = strings.TrimSuffix(u, "/")
+	u = strings.TrimSuffix(u, ".git")
+	u = strings.TrimSuffix(u, "/")
+	return u
+}
+
 // getRepoCredentials finds the Git credential Secret for a given repository
 // URL. Magos uses a convention where credential Secrets are labeled with
 // magosproject.io/secret-type=repository and contain a "repoURL" data key that
@@ -120,10 +130,12 @@ func (r *WorkspaceReconciler) getRepoCredentials(ctx context.Context, namespace,
 		return nil, err
 	}
 
+	target := normalizeRepoURL(targetRepoURL)
+
 	// Find the secret that matches the requested RepoURL
 	for i := range secretList.Items {
 		secret := &secretList.Items[i]
-		if string(secret.Data[SecretKeyRepoURL]) == targetRepoURL {
+		if normalizeRepoURL(string(secret.Data[SecretKeyRepoURL])) == target {
 			return secret, nil
 		}
 	}
@@ -165,9 +177,10 @@ func (r *WorkspaceReconciler) findWorkspacesForSecret(ctx context.Context, o cli
 	// For each workspace in the same namespace, if its Spec.Source.RepoURL
 	// matches the repoURL from the secret, enqueue a reconcile request for that
 	// workspace.
+	target := normalizeRepoURL(string(repoURL))
 	var requests []reconcile.Request
 	for _, ws := range workspaces.Items {
-		if ws.Spec.Source.RepoURL == string(repoURL) {
+		if normalizeRepoURL(ws.Spec.Source.RepoURL) == target {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      ws.Name,
