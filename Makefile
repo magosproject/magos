@@ -1,12 +1,11 @@
-# Image URL to use all building/pushing image targets
+# Image URL to use all building/pushing image targets.
+# Repository paths must match charts/magos/values.yaml so `helm upgrade` with
+# `imagePullPolicy=Never` finds the locally loaded images.
 TAG ?= local
-IMG ?= controller:$(TAG)
-JOB_IMG ?= magos-job:$(TAG)
-UI_IMG ?= ui:$(TAG)
-API_IMG ?= magos-api:$(TAG)
-RUSTFS_S3_PORT ?= 9000
-POSTGRES_PORT ?= 15432
-LOCAL_VALUES ?= hack/local-values.yaml
+IMG ?= ghcr.io/magosproject/magos/controller:$(TAG)
+JOB_IMG ?= ghcr.io/magosproject/magos/job:$(TAG)
+UI_IMG ?= ghcr.io/magosproject/magos/ui:$(TAG)
+API_IMG ?= ghcr.io/magosproject/magos/api:$(TAG)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -61,22 +60,21 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out
+test: manifests generate fmt vet ## Run tests.
+	go test ./... -coverprofile cover.out
 
 # KIND_CLUSTER is the single Kind cluster name used by every flow that
-# touches a local cluster: `make kind-cluster`, `make install`,
-# `make kind-load`, and `make run`.
+# touches a local cluster: `make kind-cluster`, `make kind-load`, and `make dev`.
 KIND_CLUSTER ?= magos-test
 
 .PHONY: kind-cluster
-kind-cluster: kind ## Create the Kind cluster named $(KIND_CLUSTER) with RustFS/PostgreSQL port mappings (hack/kind-config.yaml) if it does not exist.
+kind-cluster: kind ## Create the Kind cluster named $(KIND_CLUSTER) if it does not exist.
 	@case "$$($(KIND) get clusters)" in \
 		*"$(KIND_CLUSTER)"*) \
 			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
 		*) \
 			echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
-			$(KIND) create cluster --name $(KIND_CLUSTER) --config hack/kind-config.yaml ;; \
+			$(KIND) create cluster --name $(KIND_CLUSTER) ;; \
 	esac
 
 .PHONY: kind-cluster-delete
@@ -99,50 +97,11 @@ lint: golangci-lint ## Run golangci-lint linter
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	$(GOLANGCI_LINT) run --fix
 
-.PHONY: lint-config
-lint-config: golangci-lint ## Verify golangci-lint linter configuration
-	$(GOLANGCI_LINT) config verify
-
 .PHONY: deps
 deps:
 	go mod tidy
 	cd api && go mod tidy
 	cd ui && npm install
-
-# TODO: currently all logs go to 1 stdout stream, consider using a tmux set-up or other solution?
-.PHONY: run
-run: deps manifests generate fmt vet install-local-chart ## Run all components in parallel.
-	@$(KUBECTL) wait deployment/magos-rustfs --for=condition=available --timeout=60s
-	@$(KUBECTL) rollout status statefulset/magos-postgres --timeout=90s
-	@trap 'kill 0' EXIT; \
-	export MAGOS_LOGS_S3_ENDPOINT="http://127.0.0.1:$(RUSTFS_S3_PORT)"; \
-	export MAGOS_LOGS_S3_ACCESS_KEY_ID="$$($(KUBECTL) get secret magos-dev-rustfs -o jsonpath='{.data.accessKey}' | base64 -d)"; \
-	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$$($(KUBECTL) get secret magos-dev-rustfs -o jsonpath='{.data.secretKey}' | base64 -d)"; \
-	export MAGOS_LOGS_API_URL="http://127.0.0.1:8080"; \
-	export MAGOS_POSTGRES_HOST="127.0.0.1"; \
-	export MAGOS_POSTGRES_PORT="$(POSTGRES_PORT)"; \
-	export MAGOS_POSTGRES_DATABASE="magos"; \
-	export MAGOS_POSTGRES_USER="magos"; \
-	export MAGOS_POSTGRES_PASSWORD="$$($(KUBECTL) get secret magos-dev-postgres -o jsonpath='{.data.password}' | base64 -d)"; \
-	export MAGOS_POSTGRES_SSLMODE="disable"; \
-	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
-	$(MAKE) -s run-api & \
-	$(MAKE) -s run-ui & \
-	wait
-
-.PHONY: run-controller
-ARGS ?= --enable-workspace-controller --enable-project-controller --enable-variableset-controller --enable-rollout-controller --enable-refwatcher-controller
-run-controller: manifests generate fmt vet ## Run a controller from your host.
-	MAGOS_JOB_IMAGE=magos-job:local go run ./cmd/main.go $(ARGS)
-
-.PHONY: run-api
-run-api: ## Run the API server from your host.
-	cd ./api/cmd && go run ./api/main.go
-
-.PHONY: run-ui
-run-ui: ## Run the react UI from your host, requires to have npm installed.
-	cd ./ui && npm run dev
-
 
 ##@ Code Generation
 ##
@@ -226,31 +185,35 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 
 ##@ Deployment
 
-ifndef ignore-not-found
-  ignore-not-found = false
-endif
+.PHONY: dev
+dev: generate ## Generate, build all images, load into kind, install/upgrade the chart.
+	@$(KIND) get clusters | grep -qx $(KIND_CLUSTER) || { \
+	    echo "ERROR: kind cluster '$(KIND_CLUSTER)' not found. Run 'make kind-cluster' first."; \
+	    exit 1; \
+	}
+	$(MAKE) docker-build
+	$(MAKE) kind-load
+	$(KUBECTL) get namespace magos-system >/dev/null 2>&1 || $(KUBECTL) create namespace magos-system
+	$(HELM) upgrade --install magos charts/magos/ \
+	    --namespace magos-system \
+	    --set image.tag=local --set image.pullPolicy=Never \
+	    --set jobImage.tag=local --set jobImage.pullPolicy=Never \
+	    --set ui.image.tag=local --set ui.image.pullPolicy=Never \
+	    --set api.image.tag=local --set api.image.pullPolicy=Never \
+	    --wait --timeout=5m
 
-.PHONY: install
-install: manifests install-local-chart ## Install local development dependencies and CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUBECTL) apply -f charts/magos/resources/crds/
-
-.PHONY: install-local-chart
-install-local-chart: ## Install the local development chart render.
-	$(KUBECTL) create ns magos-system
-	$(KUBECTL) apply -f hack/dev-postgres-secret.yaml
-	$(KUBECTL) apply -f hack/dev-rustfs-secret.yaml
-	$(HELM) template magos charts/magos/ --namespace default --values $(LOCAL_VALUES) | $(KUBECTL) apply -f -
-
-.PHONY: uninstall-validatingpolicy-crd
-uninstall-validatingpolicy-crd: ## Remove the Kyverno ValidatingPolicy CRD (skips when Kyverno is installed, as it owns the CRD).
-	@$(KUBECTL) get pods --all-namespaces -l app.kubernetes.io/part-of=kyverno --no-headers 2>/dev/null | grep -q . && \
-		echo "Kyverno is running, skipping CRD removal to avoid breaking it" || \
-		$(HELM) template magos charts/magos/ --set policy.kyverno.installCRD=true \
-		  --show-only templates/kyverno/validatingpolicy-crd.yaml | $(KUBECTL) delete --ignore-not-found -f -
+.PHONY: port-forward
+port-forward: ## Port-forward the UI to localhost:8080 and the API to localhost:8081. Blocks until Ctrl-C.
+	@echo "UI:  http://localhost:8080"
+	@echo "API: http://localhost:8081"
+	@trap 'kill 0' EXIT; \
+	$(KUBECTL) -n magos-system port-forward svc/magos-ui 8080:80 & \
+	$(KUBECTL) -n magos-system port-forward svc/magos-api 8081:80 & \
+	wait
 
 .PHONY: uninstall
-uninstall: uninstall-validatingpolicy-crd ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f charts/magos/resources/crds/
+uninstall: ## Uninstall the Magos helm release. CRDs are retained (chart sets crds.keep=true).
+	$(HELM) uninstall magos --namespace magos-system
 
 ##@ Dependencies
 
@@ -263,9 +226,7 @@ $(LOCALBIN):
 KUBECTL ?= kubectl
 HELM ?= helm
 KIND ?= $(LOCALBIN)/kind
-KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
-ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 CHAINSAW ?= $(LOCALBIN)/chainsaw
 SWAG ?= $(LOCALBIN)/swag
@@ -273,12 +234,7 @@ CLIENT_GEN ?= $(LOCALBIN)/client-gen
 LISTER_GEN ?= $(LOCALBIN)/lister-gen
 INFORMER_GEN ?= $(LOCALBIN)/informer-gen
 ## Tool Versions
-KUSTOMIZE_VERSION ?= v5.7.1
 CONTROLLER_TOOLS_VERSION ?= v0.19.0
-#ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
-ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
-#ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
-ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v2.4.0
 KIND_VERSION ?= v0.31.0
 CHAINSAW_VERSION ?= 93b1e3d8620313bb08dc314981bc972af7dd356a
@@ -288,28 +244,10 @@ CHAINSAW_VERSION ?= 93b1e3d8620313bb08dc314981bc972af7dd356a
 SWAG_VERSION ?= v2.0.0-rc5
 CODE_GENERATOR_VERSION ?= v0.35.3
 
-.PHONY: kustomize
-kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
-$(KUSTOMIZE): $(LOCALBIN)
-	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
-
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
 $(CONTROLLER_GEN): $(LOCALBIN)
 	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
-
-.PHONY: setup-envtest
-setup-envtest: envtest ## Download the binaries required for ENVTEST in the local bin directory.
-	@echo "Setting up envtest binaries for Kubernetes version $(ENVTEST_K8S_VERSION)..."
-	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path || { \
-		echo "Error: Failed to set up envtest binaries for version $(ENVTEST_K8S_VERSION)."; \
-		exit 1; \
-	}
-
-.PHONY: envtest
-envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
-$(ENVTEST): $(LOCALBIN)
-	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
@@ -348,7 +286,7 @@ $(INFORMER_GEN): $(LOCALBIN)
 
 .PHONY: chart-docs
 chart-docs: ## Generate charts/magos/README.md from values.yaml @param annotations.
-	npm install -g @bitnami/readme-generator-for-helm
+	@command -v readme-generator >/dev/null || npm install -g @bitnami/readme-generator-for-helm
 	bash hack/helm-docs/helm-docs.sh
 
 
