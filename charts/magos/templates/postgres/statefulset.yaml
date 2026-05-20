@@ -1,0 +1,107 @@
+{{- include "magos.validate" . -}}
+{{- if eq (include "magos.postgresMode" .) "embedded" }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "magos.postgresName" . }}
+  labels:
+    {{- include "magos.labels" . | nindent 4 }}
+    {{- include "magos.postgres.labels" . | nindent 4 }}
+  {{- include "magos.annotations" (dict "root" . "annotations" dict) | nindent 2 }}
+spec:
+  serviceName: {{ include "magos.postgresHeadlessName" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "magos.selectorLabels" . | nindent 6 }}
+      {{- include "magos.postgres.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "magos.labels" . | nindent 8 }}
+        {{- include "magos.postgres.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.postgres.embedded.podSecurityContext | nindent 8 }}
+      containers:
+      - name: postgres
+        image: "{{ .Values.postgres.embedded.image.repository }}:{{ .Values.postgres.embedded.image.tag }}"
+        imagePullPolicy: {{ .Values.postgres.embedded.image.pullPolicy }}
+        ports:
+        - name: postgres
+          containerPort: {{ .Values.postgres.embedded.service.port }}
+          protocol: TCP
+        env:
+        - name: POSTGRES_DB
+          value: {{ .Values.postgres.embedded.auth.database | quote }}
+        - name: POSTGRES_USER
+          value: {{ .Values.postgres.embedded.auth.username | quote }}
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "magos.postgresSecretName" . }}
+              key: {{ include "magos.postgresPasswordKey" . }}
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        securityContext:
+          {{- toYaml .Values.postgres.embedded.containerSecurityContext | nindent 10 }}
+        resources:
+          {{- toYaml .Values.postgres.embedded.resources | nindent 10 }}
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+      {{- with .Values.postgres.embedded.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgres.embedded.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgres.embedded.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if not .Values.postgres.embedded.persistence.enabled }}
+      volumes:
+      - name: data
+        emptyDir: {}
+      {{- end }}
+  {{- if .Values.postgres.embedded.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      labels:
+        {{- include "magos.selectorLabels" . | nindent 8 }}
+        {{- include "magos.postgres.labels" . | nindent 8 }}
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      {{- with .Values.postgres.embedded.persistence.storageClass }}
+      storageClassName: {{ . | quote }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.postgres.embedded.persistence.size }}
+  {{- end }}
+{{- end }}

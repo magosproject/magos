@@ -13,6 +13,7 @@ RUN npm run build
 FROM nginx:alpine
 
 COPY nginx.conf.template /etc/nginx/templates/nginx.conf.template
+COPY nginx.tls.conf.template /etc/nginx/templates/nginx.tls.conf.template
 COPY --from=build-stage /app/build/client /usr/share/nginx/html
 
 ENV MAGOS_API_HOST=localhost
@@ -22,4 +23,6 @@ EXPOSE 8080
 
 USER nginx
 
-CMD ["sh", "-c", "envsubst '${MAGOS_API_HOST} ${MAGOS_API_PORT}' < /etc/nginx/templates/nginx.conf.template > /tmp/nginx.conf && nginx -c /tmp/nginx.conf -g 'daemon off;'"]
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+CMD ["/docker-entrypoint.sh"]

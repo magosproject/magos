@@ -16,36 +16,99 @@ specific language governing permissions and limitations under the License.
 package workspace
 
 import (
+	"context"
 	"testing"
 
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"github.com/stretchr/testify/assert"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestResolveWorkspacePVCSizeUsesWorkspaceSpec(t *testing.T) {
-	t.Setenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT", "2Gi")
-	reconciler := WorkspaceReconciler{}
+	reconciler := WorkspaceReconciler{defaultPVCSize: "2Gi"}
 	workspace := &v1alpha1.Workspace{
-		Spec: v1alpha1.WorkspaceSpec{
-			PVCSize: "7Gi",
-		},
+		Spec: v1alpha1.WorkspaceSpec{PVCSize: "7Gi"},
 	}
 
 	assert.Equal(t, "7Gi", reconciler.resolveWorkspacePVCSize(workspace))
 }
 
-func TestResolveWorkspacePVCSizeUsesEnvDefault(t *testing.T) {
-	t.Setenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT", "3Gi")
-	reconciler := WorkspaceReconciler{}
+func TestResolveWorkspacePVCSizeUsesControllerDefault(t *testing.T) {
+	reconciler := WorkspaceReconciler{defaultPVCSize: "3Gi"}
 
 	assert.Equal(t, "3Gi", reconciler.resolveWorkspacePVCSize(&v1alpha1.Workspace{}))
 }
 
 func TestResolveWorkspacePVCSizeFallsBackToBuiltInDefault(t *testing.T) {
-	t.Setenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT", "")
 	reconciler := WorkspaceReconciler{}
 
 	assert.Equal(t, DefaultWorkspacePVCSize, reconciler.resolveWorkspacePVCSize(&v1alpha1.Workspace{}))
+}
+
+func TestConstructJobForWorkspaceSetsContainerResources(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := batchv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+
+	jobResources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("300m"),
+			corev1.ResourceMemory: resource.MustParse("384Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("750m"),
+			corev1.ResourceMemory: resource.MustParse("768Mi"),
+		},
+	}
+
+	reconciler := WorkspaceReconciler{
+		Client:       fake.NewClientBuilder().WithScheme(scheme).Build(),
+		Scheme:       scheme,
+		JobImage:     "ghcr.io/magosproject/magos/job:test",
+		jobResources: jobResources,
+	}
+
+	workspace := &v1alpha1.Workspace{}
+	workspace.Name = "demo"
+	workspace.Namespace = "default"
+	workspace.Spec.Source.RepoURL = "https://github.com/magosproject/demo"
+	workspace.Spec.Source.TargetRevision = "main"
+	workspace.Spec.Terraform.Version = "1.9.0"
+	workspace.Spec.ProjectRef.Name = "platform"
+
+	job, err := reconciler.constructJobForWorkspace(
+		context.Background(),
+		workspace,
+		runContext{
+			planJobName:  "demo-plan-1234abcd",
+			applyJobName: "demo-apply-1234abcd",
+			planFile:     "/workspace-data/run-1234abcd.tfplan",
+			pvcName:      "demo-data",
+		},
+		jobTypePlan,
+		"20260519T120000-deadbeef",
+	)
+	if err != nil {
+		t.Fatalf("constructJobForWorkspace() error = %v", err)
+	}
+
+	if len(job.Spec.Template.Spec.Containers) != 1 {
+		t.Fatalf("expected 1 container, got %d", len(job.Spec.Template.Spec.Containers))
+	}
+
+	got := job.Spec.Template.Spec.Containers[0].Resources
+	assert.Equal(t, jobResources, got)
 }
 
 func TestNormalizeRepoURLStripsGitSuffix(t *testing.T) {

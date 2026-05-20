@@ -116,14 +116,14 @@ run: deps manifests generate fmt vet install-local-chart ## Run all components i
 	@$(KUBECTL) rollout status statefulset/magos-postgres --timeout=90s
 	@trap 'kill 0' EXIT; \
 	export MAGOS_LOGS_S3_ENDPOINT="http://127.0.0.1:$(RUSTFS_S3_PORT)"; \
-	export MAGOS_LOGS_S3_ACCESS_KEY_ID="$$($(KUBECTL) get secret magos-rustfs -o jsonpath='{.data.accessKey}' | base64 -d)"; \
-	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$$($(KUBECTL) get secret magos-rustfs -o jsonpath='{.data.secretKey}' | base64 -d)"; \
+	export MAGOS_LOGS_S3_ACCESS_KEY_ID="$$($(KUBECTL) get secret magos-dev-rustfs -o jsonpath='{.data.accessKey}' | base64 -d)"; \
+	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$$($(KUBECTL) get secret magos-dev-rustfs -o jsonpath='{.data.secretKey}' | base64 -d)"; \
 	export MAGOS_LOGS_API_URL="http://127.0.0.1:8080"; \
 	export MAGOS_POSTGRES_HOST="127.0.0.1"; \
 	export MAGOS_POSTGRES_PORT="$(POSTGRES_PORT)"; \
 	export MAGOS_POSTGRES_DATABASE="magos"; \
 	export MAGOS_POSTGRES_USER="magos"; \
-	export MAGOS_POSTGRES_PASSWORD="$$($(KUBECTL) get secret magos-postgres -o jsonpath='{.data.password}' | base64 -d)"; \
+	export MAGOS_POSTGRES_PASSWORD="$$($(KUBECTL) get secret magos-dev-postgres -o jsonpath='{.data.password}' | base64 -d)"; \
 	export MAGOS_POSTGRES_SSLMODE="disable"; \
 	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
 	$(MAKE) -s run-api & \
@@ -151,7 +151,7 @@ run-ui: ## Run the react UI from your host, requires to have npm installed.
 ##                 Go handlers ──► OpenAPI spec           (swag)
 ##                 OpenAPI spec ──► TypeScript types       (openapi-typescript)
 .PHONY: generate
-generate: generate-controller generate-api-client generate-swagger generate-ui-types ## Run full code generation pipeline (deepcopy, clients, OpenAPI, TS types).
+generate: generate-controller generate-api-client generate-swagger generate-ui-types chart-docs ## Run full code generation pipeline (deepcopy, clients, OpenAPI, TS types, chart README).
 
 .PHONY: generate-controller
 generate-controller: controller-gen ## Generate deepcopy, conversion and defaulter functions.
@@ -236,6 +236,8 @@ install: manifests install-local-chart ## Install local development dependencies
 
 .PHONY: install-local-chart
 install-local-chart: ## Install the local development chart render.
+	$(KUBECTL) apply -f hack/dev-postgres-secret.yaml
+	$(KUBECTL) apply -f hack/dev-rustfs-secret.yaml
 	$(HELM) template magos charts/magos/ --namespace default --values $(LOCAL_VALUES) | $(KUBECTL) apply -f -
 
 .PHONY: uninstall-validatingpolicy-crd
@@ -243,7 +245,7 @@ uninstall-validatingpolicy-crd: ## Remove the Kyverno ValidatingPolicy CRD (skip
 	@$(KUBECTL) get pods --all-namespaces -l app.kubernetes.io/part-of=kyverno --no-headers 2>/dev/null | grep -q . && \
 		echo "Kyverno is running, skipping CRD removal to avoid breaking it" || \
 		$(HELM) template magos charts/magos/ --set policy.kyverno.installCRD=true \
-		  --show-only templates/kyverno-validatingpolicy-crd.yaml | $(KUBECTL) delete --ignore-not-found -f -
+		  --show-only templates/kyverno/validatingpolicy-crd.yaml | $(KUBECTL) delete --ignore-not-found -f -
 
 .PHONY: uninstall
 uninstall: uninstall-validatingpolicy-crd ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -269,7 +271,6 @@ SWAG ?= $(LOCALBIN)/swag
 CLIENT_GEN ?= $(LOCALBIN)/client-gen
 LISTER_GEN ?= $(LOCALBIN)/lister-gen
 INFORMER_GEN ?= $(LOCALBIN)/informer-gen
-
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.7.1
 CONTROLLER_TOOLS_VERSION ?= v0.19.0
@@ -343,6 +344,11 @@ $(LISTER_GEN): $(LOCALBIN)
 informer-gen: $(INFORMER_GEN) ## Download informer-gen locally if necessary.
 $(INFORMER_GEN): $(LOCALBIN)
 	$(call go-install-tool,$(INFORMER_GEN),k8s.io/code-generator/cmd/informer-gen,$(CODE_GENERATOR_VERSION))
+
+.PHONY: chart-docs
+chart-docs: ## Generate charts/magos/README.md from values.yaml @param annotations.
+	npm install -g @bitnami/readme-generator-for-helm
+	bash hack/helm-docs/helm-docs.sh
 
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist

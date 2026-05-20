@@ -1,3 +1,4 @@
+{{- include "magos.validate" . -}}
 {{- if .Values.crds.install -}}
 {{- range $path, $_ := .Files.Glob "resources/crds/*.yaml" }}
 {{- $manifest := $.Files.Get $path | fromYaml }}
