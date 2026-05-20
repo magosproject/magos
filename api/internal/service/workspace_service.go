@@ -325,16 +325,16 @@ func (s *workspaceService) StreamCurrentRunLogs(ctx context.Context, namespace, 
 		}
 
 		for _, phase := range []apiv1alpha1.RunPhase{apiv1alpha1.RunPhasePlan, apiv1alpha1.RunPhaseApply} {
-			if !sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: RunLogStreamEventTypePhaseStart, RunID: runID, Phase: phase}) {
-				return
-			}
-
 			pod, err := s.waitForRunPod(ctx, namespace, name, runID, phase)
 			if errors.Is(err, errRunEnded) {
 				break
 			}
 			if err != nil {
 				sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: RunLogStreamEventTypeError, RunID: runID, Phase: phase, Message: err.Error()})
+				return
+			}
+
+			if !sendRunLogEvent(ctx, ch, RunLogStreamEvent{Type: RunLogStreamEventTypePhaseStart, RunID: runID, Phase: phase}) {
 				return
 			}
 
@@ -388,7 +388,7 @@ func sendRunLogEvent(ctx context.Context, ch chan<- RunLogStreamEvent, event Run
 }
 
 func (s *workspaceService) waitForRunPod(ctx context.Context, namespace, workspaceName, runID string, phase apiv1alpha1.RunPhase) (*corev1.Pod, error) {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {

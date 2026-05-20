@@ -3,6 +3,7 @@ import AnsiToHtml from "ansi-to-html";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiUrl } from "../api/base";
 import type { Phase, Run, RunLogStreamEvent, RunLogStreamEventType } from "../api/types";
+import { PHASE } from "../utils/phases";
 
 const EVENT = {
   PhaseStart: "phase_start",
@@ -11,6 +12,8 @@ const EVENT = {
   Error: "error",
   EOF: "eof",
 } as const satisfies Record<string, RunLogStreamEventType>;
+
+const ACTIVE_CONSOLE_PHASES = new Set<Phase>([PHASE.Planning, PHASE.Planned, PHASE.Applying]);
 
 interface Props {
   namespace: string;
@@ -32,7 +35,7 @@ export default function WorkspaceLiveConsole({
   const viewportRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<string[]>([]);
   const revealTimerRef = useRef<number | null>(null);
-  const isActive = phase === "Planning" || phase === "Planned" || phase === "Applying";
+  const isActive = phase !== undefined && ACTIVE_CONSOLE_PHASES.has(phase);
   const streamKey = currentRunID ?? "";
 
   const [contentState, setContentState] = useState<{ key: string; value: string | null }>({
@@ -40,11 +43,6 @@ export default function WorkspaceLiveConsole({
     value: null,
   });
   const content = contentState.value;
-
-  const setContent = useCallback(
-    (value: string | null) => setContentState({ key: streamKey, value }),
-    [streamKey]
-  );
 
   const stopRevealTimer = useCallback(() => {
     if (revealTimerRef.current != null) {
@@ -69,6 +67,9 @@ export default function WorkspaceLiveConsole({
 
     const controller = new AbortController();
 
+    // A new run ID can appear while the workspace is still Pending or
+    // Reconciling. Keep showing the previous archived log until planning/apply
+    // actually starts, then let the live stream take over for the new run.
     fetch(
       apiUrl(`/apis/magosproject.io/v1alpha1/workspaces/${namespace}/${workspaceName}/runs?limit=1`),
       { signal: controller.signal, cache: "no-store" }
@@ -80,13 +81,13 @@ export default function WorkspaceLiveConsole({
       .then(async (payload) => {
         const latest = payload.items?.[0];
         if (!latest?.runID) {
-          setContent("");
+          setContentState((current) => ({ key: current.key, value: "" }));
           setStatus("No logs recorded yet");
           return;
         }
         const logPhase = latest.apply ? "apply" : latest.plan ? "plan" : null;
         if (!logPhase) {
-          setContent("");
+          setContentState((current) => ({ key: current.key, value: "" }));
           setStatus("No logs recorded yet");
           return;
         }
@@ -98,17 +99,17 @@ export default function WorkspaceLiveConsole({
         );
         if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
         const text = await response.text();
-        setContent(text);
+        setContentState((current) => ({ key: current.key, value: text }));
         setStatus(`Showing latest completed ${logPhase} log`);
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
-        setContent("");
+        setContentState((current) => ({ key: current.key, value: "" }));
         setStatus(err instanceof Error ? err.message : "Failed to load latest logs");
       });
 
     return () => controller.abort();
-  }, [isActive, namespace, workspaceName, streamKey, setContent]);
+  }, [isActive, namespace, workspaceName]);
 
   useEffect(() => {
     if (!isActive) return;
