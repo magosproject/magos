@@ -19,6 +19,7 @@ import { apiUrl } from "../api/base";
 import type { Phase, Run, RunListResponse, RunPhaseSummary } from "../api/types";
 import { formatDateTime } from "../utils/formatDateTime";
 import { flashColorVar } from "../utils/colors";
+import { PHASE } from "../utils/phases";
 import SectionTable from "./SectionTable";
 
 const pageSize = 20;
@@ -291,9 +292,15 @@ export default function WorkspaceRunHistory({
     const previousRunID = previousRunIDRef.current;
 
     const cycleJustCompleted =
-      (previousPhase === "Applying" && phase !== "Applying" && (phase === "Applied" || phase === "Failed")) ||
-      (previousPhase === "Planning" && phase !== "Planning" && phase === "Failed") ||
-      (previousRunID !== undefined && previousRunID !== currentRunID && previousPhase === "Applying");
+      (previousPhase === PHASE.Applying &&
+        phase !== PHASE.Applying &&
+        (phase === PHASE.Applied || phase === PHASE.Failed)) ||
+      (previousPhase === PHASE.Planning &&
+        phase !== PHASE.Planning &&
+        (phase === PHASE.Failed || phase === PHASE.ValidationFailed)) ||
+      (previousRunID !== undefined &&
+        previousRunID !== currentRunID &&
+        previousPhase === PHASE.Applying);
 
     if (cycleJustCompleted) {
       const timer = window.setTimeout(() => void refreshToLatest(), 1250);
