@@ -236,6 +236,7 @@ install: manifests install-local-chart ## Install local development dependencies
 
 .PHONY: install-local-chart
 install-local-chart: ## Install the local development chart render.
+	$(KUBECTL) create ns magos-system
 	$(KUBECTL) apply -f hack/dev-postgres-secret.yaml
 	$(KUBECTL) apply -f hack/dev-rustfs-secret.yaml
 	$(HELM) template magos charts/magos/ --namespace default --values $(LOCAL_VALUES) | $(KUBECTL) apply -f -
