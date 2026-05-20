@@ -25,31 +25,25 @@ The Magos operator manages the lifecycle of your infrastructure directly from Ku
 
 ### Local Development
 
-Create a local Kind cluster with the ports mapped Magos uses for local development via [`hack/kind-config.yaml`](https://github.com/magosproject/magos/blob/main/hack/kind-config.yaml):
+Create a local Kind cluster:
 
 ```bash
 make kind-cluster
 ```
 
-Install the CRDs into the cluster:
+Build all images, load them into the cluster, and install the chart:
 
 ```bash
-make install
+make dev
 ```
 
-Build the Magos job image and load it into the cluster:
+Expose the UI and API to your browser:
 
 ```bash
-make docker-build && make kind-load
+make port-forward
 ```
 
-Build and locally run the operator:
-
-```bash
-make run
-```
-
-Apply the sample resources:
+In another terminal, apply the sample resources:
 
 ```bash
 kubectl apply -f samples/
@@ -64,7 +58,14 @@ kubectl get jobs
 kubectl get rollouts
 ```
 
-Visit the Magos UI at `http://localhost:5713` to see your Workspaces in action!
+Visit the Magos UI at `http://localhost:8080` to see your Workspaces in action.
+
+Tear down:
+
+```bash
+make uninstall
+make kind-cluster-delete
+```
 
 ## Contributing
 
