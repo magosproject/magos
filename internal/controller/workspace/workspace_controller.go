@@ -18,7 +18,6 @@ package workspace
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -28,7 +27,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -63,6 +61,9 @@ type WorkspaceReconciler struct {
 	Clientset   kubernetes.Interface // for reading pod logs
 	LogStore    logstore.Store
 	RunRecorder RunRecorder
+
+	jobResources   corev1.ResourceRequirements
+	defaultPVCSize string
 }
 
 // normalizeRepoURL trims whitespace, a trailing slash, and a single .git
@@ -332,15 +333,6 @@ func (r *WorkspaceReconciler) trackActiveWorkspaces(ctx context.Context) {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if defaultPVCSize := os.Getenv(envWorkspacePVCSizeDefault); defaultPVCSize != "" {
-		if _, err := resource.ParseQuantity(defaultPVCSize); err != nil {
-			return fmt.Errorf("invalid %s %q: %w", envWorkspacePVCSizeDefault, defaultPVCSize, err)
-		}
-	}
-	if _, err := r.resolveWorkspaceJobResources(); err != nil {
-		return err
-	}
-
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Workspace{}).
 		Owns(&batchv1.Job{}).

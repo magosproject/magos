@@ -46,14 +46,6 @@ const (
 	// when neither the Workspace spec nor controller config provides a value.
 	DefaultWorkspacePVCSize = "1Gi"
 
-	// DefaultWorkspaceJobCPURequest and related constants are the default
-	// resource requirements applied to Terraform plan/apply Jobs when the
-	// controller is not explicitly configured via environment variables.
-	DefaultWorkspaceJobCPURequest    = "125m"
-	DefaultWorkspaceJobMemoryRequest = "128Mi"
-	DefaultWorkspaceJobCPULimit      = "250m"
-	DefaultWorkspaceJobMemoryLimit   = "256Mi"
-
 	// jobTypePlan and jobTypeApply are the two values the workspace controller
 	// uses when launching a Kubernetes Job. The value is written into the
 	// MAGOS_JOB_TYPE environment variable so the job knows whether to run
@@ -64,12 +56,6 @@ const (
 	// runIDLabelKey is the label key used on Jobs and Pods to carry the current
 	// run ID, allowing log archival to associate pod logs with the correct run.
 	runIDLabelKey = "magosproject.io/run-id"
-
-	envWorkspacePVCSizeDefault   = "MAGOS_WORKSPACE_PVC_SIZE_DEFAULT"
-	envWorkspaceJobCPURequest    = "MAGOS_WORKSPACE_JOB_CPU_REQUEST"
-	envWorkspaceJobMemoryRequest = "MAGOS_WORKSPACE_JOB_MEMORY_REQUEST"
-	envWorkspaceJobCPULimit      = "MAGOS_WORKSPACE_JOB_CPU_LIMIT"
-	envWorkspaceJobMemoryLimit   = "MAGOS_WORKSPACE_JOB_MEMORY_LIMIT"
 )
 
 // getSpecHash produces a short, deterministic hash of the Workspace spec. This
@@ -133,69 +119,10 @@ func (r *WorkspaceReconciler) resolveWorkspacePVCSize(ws *v1alpha1.Workspace) st
 	if ws.Spec.PVCSize != "" {
 		return ws.Spec.PVCSize
 	}
-	if defaultPVCSize := os.Getenv(envWorkspacePVCSizeDefault); defaultPVCSize != "" {
-		return defaultPVCSize
+	if r.defaultPVCSize != "" {
+		return r.defaultPVCSize
 	}
 	return DefaultWorkspacePVCSize
-}
-
-func (r *WorkspaceReconciler) resolveWorkspaceJobResources() (corev1.ResourceRequirements, error) {
-	cpuRequest, err := parseResourceQuantityFromEnv(
-		envWorkspaceJobCPURequest,
-		DefaultWorkspaceJobCPURequest,
-	)
-	if err != nil {
-		return corev1.ResourceRequirements{}, err
-	}
-
-	memoryRequest, err := parseResourceQuantityFromEnv(
-		envWorkspaceJobMemoryRequest,
-		DefaultWorkspaceJobMemoryRequest,
-	)
-	if err != nil {
-		return corev1.ResourceRequirements{}, err
-	}
-
-	cpuLimit, err := parseResourceQuantityFromEnv(
-		envWorkspaceJobCPULimit,
-		DefaultWorkspaceJobCPULimit,
-	)
-	if err != nil {
-		return corev1.ResourceRequirements{}, err
-	}
-
-	memoryLimit, err := parseResourceQuantityFromEnv(
-		envWorkspaceJobMemoryLimit,
-		DefaultWorkspaceJobMemoryLimit,
-	)
-	if err != nil {
-		return corev1.ResourceRequirements{}, err
-	}
-
-	return corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    cpuRequest,
-			corev1.ResourceMemory: memoryRequest,
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    cpuLimit,
-			corev1.ResourceMemory: memoryLimit,
-		},
-	}, nil
-}
-
-func parseResourceQuantityFromEnv(name, fallback string) (resource.Quantity, error) {
-	value := os.Getenv(name)
-	if value == "" {
-		value = fallback
-	}
-
-	quantity, err := resource.ParseQuantity(value)
-	if err != nil {
-		return resource.Quantity{}, fmt.Errorf("invalid %s %q: %w", name, value, err)
-	}
-
-	return quantity, nil
 }
 
 // resolveEffectivePolicySelector determines the label selector string for
@@ -259,11 +186,6 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 	jobName := rc.planJobName
 	if jobType == jobTypeApply {
 		jobName = rc.applyJobName
-	}
-
-	jobResources, err := r.resolveWorkspaceJobResources()
-	if err != nil {
-		return nil, err
 	}
 
 	envVars := []corev1.EnvVar{
@@ -443,7 +365,7 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 							Image:           r.JobImage,
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Env:             envVars,
-							Resources:       jobResources,
+							Resources:       r.jobResources,
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "workspace-data",

@@ -245,14 +245,19 @@ func main() {
 			setupLog.Error(err, "unable to create run log recorder")
 			os.Exit(1)
 		}
-		if err := (&workspacecontroller.WorkspaceReconciler{
-			Client:      mgr.GetClient(),
-			Scheme:      mgr.GetScheme(),
-			JobImage:    jobImage,
-			Clientset:   clientset,
-			LogStore:    runLogStore,
-			RunRecorder: runRecorder,
-		}).SetupWithManager(mgr); err != nil {
+		workspaceReconciler, err := workspacecontroller.New(
+			mgr.GetClient(),
+			mgr.GetScheme(),
+			jobImage,
+			clientset,
+			runLogStore,
+			runRecorder,
+		)
+		if err != nil {
+			setupLog.Error(err, "unable to construct Workspace controller")
+			os.Exit(1)
+		}
+		if err := workspaceReconciler.SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Workspace")
 			os.Exit(1)
 		}
