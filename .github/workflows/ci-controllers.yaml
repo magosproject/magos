@@ -1,14 +1,10 @@
-name: CI - Controller
+name: ci-controllers
 
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "ui/**"
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "ui/**"
   workflow_dispatch:
 
 concurrency:

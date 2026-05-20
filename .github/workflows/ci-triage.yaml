@@ -1,10 +1,10 @@
-name: "Triage PRs"
+name: triage-prs
 
 on:
   pull_request_target:
 
 jobs:
-  triage:
+  label:
     permissions:
       contents: read
       pull-requests: write

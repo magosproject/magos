@@ -39,13 +39,25 @@ type Server struct {
 }
 
 // NewServer creates a new API server with the given Kubernetes client.
-func NewServer(logger *slog.Logger, vc versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runs service.RunStore) *Server {
+func NewServer(logger *slog.Logger, vc versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runStore service.RunStore) (*Server, error) {
 	factory := externalversions.NewSharedInformerFactory(vc, 5*time.Minute)
 
-	projectSvc := service.NewProjectService(logger, factory)
-	workspaceSvc := service.NewWorkspaceService(logger, factory, vc, kube, logs, runs)
-	rolloutSvc := service.NewRolloutService(logger, factory)
-	variableSetSvc := service.NewVariableSetService(logger, factory)
+	projectSvc, err := service.NewProjectService(logger, factory)
+	if err != nil {
+		return nil, fmt.Errorf("create project service: %w", err)
+	}
+	workspaceSvc, err := service.NewWorkspaceService(logger, factory, vc, kube, logs, runStore)
+	if err != nil {
+		return nil, fmt.Errorf("create workspace service: %w", err)
+	}
+	rolloutSvc, err := service.NewRolloutService(logger, factory)
+	if err != nil {
+		return nil, fmt.Errorf("create rollout service: %w", err)
+	}
+	variableSetSvc, err := service.NewVariableSetService(logger, factory)
+	if err != nil {
+		return nil, fmt.Errorf("create variableset service: %w", err)
+	}
 
 	factory.Start(context.Background().Done())
 
@@ -55,7 +67,7 @@ func NewServer(logger *slog.Logger, vc versioned.Interface, kube kubernetes.Inte
 		workspaceHandler:   handlers.NewWorkspaceHandler(logger, workspaceSvc),
 		rolloutHandler:     handlers.NewRolloutHandler(logger, rolloutSvc),
 		variableSetHandler: handlers.NewVariableSetHandler(logger, variableSetSvc),
-	}
+	}, nil
 }
 
 // NewServerWithDefaults creates a new server using in-cluster or kubeconfig-based client.
@@ -91,12 +103,12 @@ func NewServerWithDefaults(logger *slog.Logger) (*Server, error) {
 	}
 
 	runStoreConfig := runs.LoadConfigFromEnv()
-	runs, err := runs.NewStore(context.Background(), runStoreConfig)
+	runStore, err := runs.NewStore(context.Background(), runStoreConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create run store: %w", err)
 	}
 
-	return NewServer(logger, vc, kube, logs, runs), nil
+	return NewServer(logger, vc, kube, logs, runStore)
 }
 
 // Router returns the HTTP handler with all routes configured.

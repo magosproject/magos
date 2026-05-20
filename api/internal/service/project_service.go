@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
@@ -33,7 +34,7 @@ type projectService struct {
 }
 
 // NewProjectService returns a new ProjectService.
-func NewProjectService(logger *slog.Logger, factory externalversions.SharedInformerFactory) ProjectService {
+func NewProjectService(logger *slog.Logger, factory externalversions.SharedInformerFactory) (ProjectService, error) {
 	projectInformer := factory.Magosproject().V1alpha1().Projects()
 
 	svc := &projectService{
@@ -43,7 +44,7 @@ func NewProjectService(logger *slog.Logger, factory externalversions.SharedInfor
 		events:   NewBroadcaster[ProjectEvent](),
 	}
 
-	projectInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err := projectInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			svc.events.Send(ProjectEvent{Type: watch.Added, Object: obj.(*apiv1alpha1.Project)})
 		},
@@ -64,9 +65,11 @@ func NewProjectService(logger *slog.Logger, factory externalversions.SharedInfor
 			}
 			svc.events.Send(ProjectEvent{Type: watch.Deleted, Object: project})
 		},
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("register project event handler: %w", err)
+	}
 
-	return svc
+	return svc, nil
 }
 
 // HasSynced reports whether the informer cache has completed its initial sync.
