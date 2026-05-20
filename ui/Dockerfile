@@ -22,4 +22,6 @@ EXPOSE 8080
 
 USER nginx
 
-CMD ["sh", "-c", "envsubst '${MAGOS_API_HOST} ${MAGOS_API_PORT}' < /etc/nginx/templates/nginx.conf.template > /tmp/nginx.conf && nginx -c /tmp/nginx.conf -g 'daemon off;'"]
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+CMD ["/docker-entrypoint.sh"]

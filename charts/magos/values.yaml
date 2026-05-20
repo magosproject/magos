@@ -1,160 +1,170 @@
+## @section Image Parameters
+
 image:
+  ## @param image.repository Image repository for the Magos controller
   repository: ghcr.io/magosproject/magos/controller
-  pullPolicy: IfNotPresent
+  ## @param image.tag Overrides the image tag. The default tag is the value of `.Chart.AppVersion`
   tag: ""
+  ## @param image.pullPolicy Image pull policy
+  pullPolicy: IfNotPresent
+  ## @param image.pullSecrets List of image pull secret names
+  pullSecrets: []
+
+## @section Job Image Parameters
 
 jobImage:
+  ## @param jobImage.repository Image repository for the Magos job runner
   repository: ghcr.io/magosproject/magos/job
-  pullPolicy: IfNotPresent
+  ## @param jobImage.tag Overrides the job image tag. The default tag is the value of `.Chart.AppVersion`
   tag: ""
+  ## @param jobImage.pullPolicy Job image pull policy
+  pullPolicy: IfNotPresent
 
-imagePullSecrets: []
+## @param nameOverride Overrides the chart name used in resource names
 nameOverride: ""
+## @param fullnameOverride Fully overrides the release-prefixed resource name
 fullnameOverride: ""
 
-rbac:
-  create: true
+## @section Global Parameters
+## @descriptionStart
+## These values apply to all components as defaults. Per-component values take
+## precedence when set. All pod scheduling fields (nodeSelector, tolerations,
+## affinity, priorityClassName) fall back to the global value when the
+## component-level field is empty.
+## @descriptionEnd
+
+global:
+  ## @param global.labels Labels to add to all resources
+  labels: {}
+  ## @param global.annotations Annotations to add to all resources
+  annotations: {}
+  ## @param global.podLabels Labels to add to all pods
+  podLabels: {}
+  ## @param global.podAnnotations Annotations to add to all pods
+  podAnnotations: {}
+  ## @param global.env Environment variables to add to all Magos pods
+  env: []
+  ## @param global.envFrom Environment variables sourced from ConfigMaps or Secrets for all Magos pods
+  envFrom: []
+  ## @param global.nodeSelector Default node selector for all Magos pods
+  nodeSelector: {}
+  ## @param global.tolerations Default tolerations for all Magos pods
+  tolerations: []
+  ## @param global.affinity Default affinity rules for all Magos pods
+  affinity: {}
+  ## @skip global.priorityClassName
+  # priorityClassName:
+  ## @skip global.securityContext
+  securityContext: {}
+  ## @skip global.containerSecurityContext
+  containerSecurityContext: {}
+
+## @section CRDs
 
 crds:
+  ## @param crds.install Install and upgrade CRDs as part of the Helm release
   install: true
-  # Annotate CRDs with `helm.sh/resource-policy: keep` so `helm uninstall`
-  # does not delete them (and every CR of that kind).
+  ## @param crds.keep Retain CRDs when the release is uninstalled
   keep: true
 
-podDefaults:
-  annotations: {}
-  labels: {}
-  securityContext:
-    runAsNonRoot: true
-    seccompProfile:
-      type: RuntimeDefault
-  containerSecurityContext:
-    allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: true
-    capabilities:
-      drop:
-      - ALL
-  resources:
-    limits:
-      cpu: 250m
-      memory: 128Mi
-    requests:
-      cpu: 100m
-      memory: 128Mi
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-  env: []
+## @section RBAC
 
-healthProbe:
-  port: 8081
-  livenessPath: /healthz
-  readinessPath: /readyz
+rbac:
+  ## @param rbac.installClusterRoles Install ClusterRole resources
+  installClusterRoles: true
+  ## @param rbac.installClusterRoleBindings Install ClusterRoleBinding resources
+  installClusterRoleBindings: true
 
-metricsService:
-  enabled: false
-  port: 8080
-  type: ClusterIP
-  secure: false
+## @section Leader Election
 
 leaderElection:
+  ## @param leaderElection.enabled Enable leader election for the controller manager
   enabled: true
 
-# Controller enabled flags are only intended for the host-run local development
-# setup in hack/local-values.yaml. Normal chart installs should leave all
-# controllers enabled.
-controllers:
-  workspace:
-    enabled: true
-    replicaCount: 1
-    serviceAccount:
-      create: true
-      automount: true
-      annotations: {}
-      name: ""
-    resources:
-      limits:
-        cpu: 250m
-        memory: 128Mi
-      requests:
-        cpu: 100m
-        memory: 128Mi
-  project:
-    enabled: true
-    replicaCount: 1
-    serviceAccount:
-      create: true
-      automount: true
-      annotations: {}
-      name: ""
-    resources:
-      limits:
-        cpu: 250m
-        memory: 128Mi
-      requests:
-        cpu: 100m
-        memory: 128Mi
-  rollout:
-    enabled: true
-    replicaCount: 1
-    serviceAccount:
-      create: true
-      automount: true
-      annotations: {}
-      name: ""
-    resources:
-      limits:
-        cpu: 250m
-        memory: 128Mi
-      requests:
-        cpu: 100m
-        memory: 128Mi
-  variableset:
-    enabled: true
-    replicaCount: 1
-    serviceAccount:
-      create: true
-      automount: true
-      annotations: {}
-      name: ""
-    resources:
-      limits:
-        cpu: 250m
-        memory: 128Mi
-      requests:
-        cpu: 100m
-        memory: 128Mi
-  refwatcher:
-    enabled: true
-    replicaCount: 1
-    defaultPollInterval: 30s
-    workerCount: 20
-    workQueueSize: 200
-    serviceAccount:
-      create: true
-      automount: true
-      annotations: {}
-      name: ""
-    resources:
-      limits:
-        cpu: 250m
-        memory: 128Mi
-      requests:
-        cpu: 100m
-        memory: 128Mi
+## @section Health Probe
 
-# This enabled flag is only intended for the host-run local development setup in
-# hack/local-values.yaml. Normal chart installs should leave the UI enabled.
+healthProbe:
+  ## @param healthProbe.port Port on which the health probe endpoints are served
+  port: 8081
+  ## @param healthProbe.livenessPath HTTP path for the liveness probe
+  livenessPath: /healthz
+  ## @param healthProbe.readinessPath HTTP path for the readiness probe
+  readinessPath: /readyz
+
+## @section Metrics Service
+
+metricsService:
+  ## @param metricsService.enabled Expose a metrics Service for scraping
+  enabled: false
+  ## @param metricsService.port Port on which the metrics Service listens
+  port: 8080
+  ## @param metricsService.type Kubernetes Service type for the metrics endpoint
+  type: ClusterIP
+  ## @param metricsService.secure Serve metrics over HTTPS
+  secure: false
+
+## @section UI Parameters
+
 ui:
+  ## @param ui.enabled Deploy the Magos web UI
   enabled: true
-  replicaCount: 1
+  ## @param ui.replicas Number of UI pod replicas
+  replicas: 1
+  ## @param ui.host Hostname used to construct the UI base URL (used in NOTES and ingress)
+  host: localhost
+  ## @skip ui.image
   image:
     repository: ghcr.io/magosproject/magos/ui
-    pullPolicy: IfNotPresent
     tag: ""
+    pullPolicy: IfNotPresent
+  ## @skip ui.service
   service:
     type: ClusterIP
     port: 80
+    annotations: {}
+  ## @skip ui.ingress
+  ingress:
+    enabled: false
+    annotations: {}
+    ingressClassName:
+    pathType: ImplementationSpecific
+    tls:
+      enabled: true
+      selfSignedCert: true
+      secretName: magos-ui-ingress-cert
+  ## @skip ui.tls
+  tls:
+    enabled: false
+    selfSignedCert: true
+    secretName: magos-ui-cert
+    terminatedUpstream: false
+  ## @skip ui.podDisruptionBudget
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+    maxUnavailable: ""
+  ## @param ui.topologySpreadConstraints Topology spread constraints for the UI pods
+  topologySpreadConstraints: []
+  ## @param ui.labels Extra labels for the UI Deployment
+  labels: {}
+  ## @param ui.annotations Extra annotations for the UI Deployment
+  annotations: {}
+  ## @param ui.podLabels Extra labels for UI pods
+  podLabels: {}
+  ## @param ui.podAnnotations Extra annotations for UI pods
+  podAnnotations: {}
+  ## @skip ui.serviceAccount
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    labels: {}
+    name: ""
+  ## @param ui.env Additional environment variables for the UI container
+  env: []
+  ## @param ui.envFrom Additional environment variable sources for the UI container
+  envFrom: []
+  ## @skip ui.resources
   resources:
     limits:
       cpu: 100m
@@ -162,28 +172,315 @@ ui:
     requests:
       cpu: 50m
       memory: 64Mi
+  ## @param ui.nodeSelector Node selector for UI pods
+  nodeSelector: {}
+  ## @param ui.tolerations Tolerations for UI pods
+  tolerations: []
+  ## @param ui.affinity Affinity rules for UI pods
+  affinity: {}
+  ## @skip ui.priorityClassName
+  # priorityClassName:
+  ## @skip ui.securityContext
+  securityContext: {}
+  ## @skip ui.containerSecurityContext
+  containerSecurityContext: {}
+  ## @skip ui.probes
+  probes:
+    enabled: true
 
-jobServiceAccount:
-  # When true, create a ServiceAccount in the release namespace plus a
-  # ClusterRole and ClusterRoleBinding that grant it read access to
-  # policies.kyverno.io ValidatingPolicy resources. Workspaces in the release
-  # namespace can then set spec.serviceAccountName to this name and policy
-  # validation will work out of the box. Workspaces in other namespaces need to
-  # bring their own ServiceAccount or replicate this setup.
-  create: true
-  name: magos-job
+## @section API Parameters
+
+api:
+  ## @param api.enabled Deploy the Magos API server
+  enabled: true
+  ## @param api.replicas Number of API pod replicas
+  replicas: 1
+  ## @skip api.image
+  image:
+    repository: ghcr.io/magosproject/magos/api
+    tag: ""
+    pullPolicy: IfNotPresent
+  ## @skip api.service
+  service:
+    type: ClusterIP
+    port: 80
+    annotations: {}
+  ## @skip api.podDisruptionBudget
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+    maxUnavailable: ""
+  ## @param api.topologySpreadConstraints Topology spread constraints for the API pods
+  topologySpreadConstraints: []
+  ## @param api.labels Extra labels for the API Deployment
+  labels: {}
+  ## @param api.annotations Extra annotations for the API Deployment
   annotations: {}
-  automount: true
+  ## @param api.podLabels Extra labels for API pods
+  podLabels: {}
+  ## @param api.podAnnotations Extra annotations for API pods
+  podAnnotations: {}
+  ## @skip api.serviceAccount
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    labels: {}
+    name: ""
+  ## @param api.env Additional environment variables for the API container
+  env: []
+  ## @param api.envFrom Additional environment variable sources for the API container
+  envFrom: []
+  ## @skip api.resources
+  resources:
+    limits:
+      cpu: 250m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  ## @param api.nodeSelector Node selector for API pods
+  nodeSelector: {}
+  ## @param api.tolerations Tolerations for API pods
+  tolerations: []
+  ## @param api.affinity Affinity rules for API pods
+  affinity: {}
+  ## @skip api.priorityClassName
+  # priorityClassName:
+  ## @skip api.securityContext
+  securityContext: {}
+  ## @skip api.containerSecurityContext
+  containerSecurityContext: {}
+  ## @skip api.probes
+  probes:
+    enabled: true
+  ## @skip api.cabundle
+  cabundle:
+    configMapName: ""
+    secretName: ""
+
+## @section Controllers Parameters
+## @descriptionStart
+## Magos ships five controllers: workspace, project, rollout, variableset, and
+## refwatcher. All five share the same configuration shape (enabled, replicas,
+## labels, annotations, podLabels, podAnnotations, serviceAccount, env, envFrom,
+## resources, nodeSelector, tolerations, affinity, priorityClassName,
+## securityContext, containerSecurityContext, probes, cabundle).
+##
+## The refwatcher controller has three additional fields:
+## - defaultPollInterval: how often to poll remote Git refs (default 30s)
+## - workerCount: number of concurrent polling workers (default 20)
+## - workQueueSize: size of the work queue (default 200)
+##
+## Only controllers.workspace is annotated in full below. The other four
+## controllers follow an identical shape and are skipped.
+## @descriptionEnd
+
+controllers:
+  workspace:
+    ## @param controllers.workspace.enabled Deploy the workspace controller
+    enabled: true
+    ## @param controllers.workspace.replicas Number of workspace controller replicas
+    replicas: 1
+    ## @param controllers.workspace.labels Extra labels for the workspace controller Deployment
+    labels: {}
+    ## @param controllers.workspace.annotations Extra annotations for the workspace controller Deployment
+    annotations: {}
+    ## @param controllers.workspace.podLabels Extra labels for workspace controller pods
+    podLabels: {}
+    ## @param controllers.workspace.podAnnotations Extra annotations for workspace controller pods
+    podAnnotations: {}
+    ## @skip controllers.workspace.serviceAccount
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      labels: {}
+      name: ""
+    ## @param controllers.workspace.env Additional environment variables for the workspace controller container
+    env: []
+    ## @param controllers.workspace.envFrom Additional environment variable sources for the workspace controller container
+    envFrom: []
+    ## @skip controllers.workspace.resources
+    resources:
+      limits:
+        cpu: 250m
+        memory: 128Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    ## @param controllers.workspace.nodeSelector Node selector for workspace controller pods
+    nodeSelector: {}
+    ## @param controllers.workspace.tolerations Tolerations for workspace controller pods
+    tolerations: []
+    ## @param controllers.workspace.affinity Affinity rules for workspace controller pods
+    affinity: {}
+    ## @skip controllers.workspace.priorityClassName
+    # priorityClassName:
+    ## @skip controllers.workspace.securityContext
+    securityContext: {}
+    ## @skip controllers.workspace.containerSecurityContext
+    containerSecurityContext: {}
+    ## @skip controllers.workspace.probes
+    probes:
+      enabled: true
+    ## @skip controllers.workspace.cabundle
+    cabundle:
+      configMapName: ""
+      secretName: ""
+  ## @skip controllers.project
+  project:
+    enabled: true
+    replicas: 1
+    labels: {}
+    annotations: {}
+    podLabels: {}
+    podAnnotations: {}
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      labels: {}
+      name: ""
+    env: []
+    envFrom: []
+    resources:
+      limits:
+        cpu: 250m
+        memory: 128Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    # priorityClassName:
+    securityContext: {}
+    containerSecurityContext: {}
+    probes:
+      enabled: true
+    cabundle:
+      configMapName: ""
+      secretName: ""
+  ## @skip controllers.rollout
+  rollout:
+    enabled: true
+    replicas: 1
+    labels: {}
+    annotations: {}
+    podLabels: {}
+    podAnnotations: {}
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      labels: {}
+      name: ""
+    env: []
+    envFrom: []
+    resources:
+      limits:
+        cpu: 250m
+        memory: 128Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    # priorityClassName:
+    securityContext: {}
+    containerSecurityContext: {}
+    probes:
+      enabled: true
+    cabundle:
+      configMapName: ""
+      secretName: ""
+  ## @skip controllers.variableset
+  variableset:
+    enabled: true
+    replicas: 1
+    labels: {}
+    annotations: {}
+    podLabels: {}
+    podAnnotations: {}
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      labels: {}
+      name: ""
+    env: []
+    envFrom: []
+    resources:
+      limits:
+        cpu: 250m
+        memory: 128Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    # priorityClassName:
+    securityContext: {}
+    containerSecurityContext: {}
+    probes:
+      enabled: true
+    cabundle:
+      configMapName: ""
+      secretName: ""
+  ## @skip controllers.refwatcher
+  refwatcher:
+    enabled: true
+    replicas: 1
+    defaultPollInterval: 30s
+    workerCount: 20
+    workQueueSize: 200
+    labels: {}
+    annotations: {}
+    podLabels: {}
+    podAnnotations: {}
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      labels: {}
+      name: ""
+    env: []
+    envFrom: []
+    resources:
+      limits:
+        cpu: 250m
+        memory: 128Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    # priorityClassName:
+    securityContext: {}
+    containerSecurityContext: {}
+    probes:
+      enabled: true
+    cabundle:
+      configMapName: ""
+      secretName: ""
+
+## @section Job Parameters
 
 job:
-  # colorOutput controls whether Terraform output includes ANSI colour codes.
-  # When true (default) plan and apply output is rendered with colour in the
-  # Magos UI. Set to false to produce plain-text output (sets NO_COLOR=1 on
-  # the workspace controller, which forwards it to every job pod).
+  ## @skip job.serviceAccount
+  serviceAccount:
+    create: true
+    name: magos-job
+    automount: true
+    annotations: {}
+    labels: {}
+  ## @param job.colorOutput Enable color output in job pod logs
   colorOutput: true
-  # Resources applied to Terraform plan/apply job pods launched by the
-  # workspace controller. Keep requests and limits set so these pods do not run
-  # as BestEffort and become the first eviction target during node pressure.
+  ## @skip job.resources
   resources:
     requests:
       cpu: 125m
@@ -192,136 +489,189 @@ job:
       cpu: 250m
       memory: 256Mi
 
+## @section Workspace Parameters
+
 workspace:
-  # defaultPVCSize is used when a Workspace does not set spec.pvcSize.
+  ## @param workspace.defaultPVCSize Default PersistentVolumeClaim size for workspace data volumes
   defaultPVCSize: 1Gi
+
+## @section Postgres Parameters
+## @descriptionStart
+## Set `postgres.mode` to `embedded` (default) to deploy a PostgreSQL
+## StatefulSet managed by this chart, or to `external` to point at a
+## pre-existing PostgreSQL instance.
+##
+## When using embedded mode, the chart auto-generates a random password on
+## first install and preserves it across upgrades. For production workloads,
+## set `postgres.embedded.auth.secret.name` to a Secret you manage.
+## @descriptionEnd
+
+postgres:
+  ## @param postgres.mode Postgres deployment mode. Either `embedded` (chart-managed) or `external`
+  mode: embedded
+  embedded:
+    ## @skip postgres.embedded.image
+    image:
+      repository: postgres
+      tag: "16-alpine"
+      pullPolicy: IfNotPresent
+    ## @skip postgres.embedded.auth
+    auth:
+      database: magos
+      username: magos
+      secret:
+        # When secret.name is empty, the chart renders a Secret named
+        # "<release>-postgres" with a random password on first install and
+        # preserves it across upgrades. For production set secret.name to a
+        # Secret you manage yourself.
+        name: ""
+        passwordKey: password
+    ## @skip postgres.embedded.service
+    service:
+      type: ClusterIP
+      port: 5432
+      # nodePort:
+    ## @param postgres.embedded.sslMode SSL mode passed to Postgres clients (disable, require, verify-full, etc.)
+    sslMode: disable
+    ## @skip postgres.embedded.persistence
+    persistence:
+      enabled: true
+      size: 10Gi
+      # storageClass:
+    ## @skip postgres.embedded.resources
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    ## @skip postgres.embedded.podSecurityContext
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 70
+      runAsGroup: 70
+      fsGroup: 70
+      seccompProfile:
+        type: RuntimeDefault
+    ## @skip postgres.embedded.containerSecurityContext
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: false
+      capabilities:
+        drop: [ALL]
+    ## @param postgres.embedded.nodeSelector Node selector for the embedded Postgres pod
+    nodeSelector: {}
+    ## @param postgres.embedded.tolerations Tolerations for the embedded Postgres pod
+    tolerations: []
+    ## @param postgres.embedded.affinity Affinity rules for the embedded Postgres pod
+    affinity: {}
+    ## @skip postgres.embedded.priorityClassName
+    # priorityClassName:
+  external:
+    ## @param postgres.external.host Hostname or IP address of the external Postgres server
+    host: ""
+    ## @param postgres.external.port Port of the external Postgres server
+    port: 5432
+    ## @param postgres.external.database Database name on the external Postgres server
+    database: magos
+    ## @param postgres.external.username Username for connecting to the external Postgres server
+    username: magos
+    ## @skip postgres.external.secret
+    secret:
+      name: ""
+      passwordKey: password
+    ## @param postgres.external.sslMode SSL mode for external Postgres connections
+    sslMode: disable
+
+## @section Logs Storage Parameters
+## @descriptionStart
+## Set `logs.storage.mode` to `embedded` (default) to deploy RustFS (an
+## S3-compatible object store) managed by this chart, or to `external` to
+## point at an existing S3-compatible endpoint (AWS S3, GCS, MinIO, etc.).
+##
+## When using embedded mode, the chart auto-generates random access and secret
+## keys on first install and preserves them across upgrades. For production
+## workloads, set `logs.storage.embedded.secret.name` to a Secret you manage.
+## @descriptionEnd
 
 logs:
   storage:
-    # Select how Magos reaches the S3-compatible log backend.
-    # - embedded: deploy the bundled RustFS instance and wire it automatically.
-    # - external: use your own S3-compatible backend and provide its endpoint
-    #   plus a Secret with access key and secret key.
+    ## @param logs.storage.mode Log storage deployment mode. Either `embedded` (chart-managed RustFS) or `external`
     mode: embedded
-    image:
-      repository: rustfs/rustfs
-      tag: latest
-      pullPolicy: IfNotPresent
-    auth:
-      accessKey: "" # Leave empty to generate and preserve a release-scoped key.
-      secretKey: "" # Leave empty to generate and preserve a release-scoped key.
-    service:
-      type: ClusterIP
-      port: 9000
-      consolePort: 9001
-      # nodePort: "" # Only used when type is NodePort.
-      # consoleNodePort: "" # Only used when type is NodePort.
-    persistence:
-      size: 10Gi
-      # storageClass: "" # Leave empty to use the cluster default.
-    resources:
-      limits:
-        cpu: 250m
-        memory: 256Mi
-      requests:
-        cpu: 100m
-        memory: 128Mi
+    embedded:
+      ## @skip logs.storage.embedded.image
+      image:
+        repository: rustfs/rustfs
+        tag: latest
+        pullPolicy: IfNotPresent
+      ## @skip logs.storage.embedded.secret
+      secret:
+        # When secret.name is empty, the chart renders a Secret named
+        # "<release>-rustfs" with random access and secret keys on first
+        # install and preserves them across upgrades. For production set
+        # secret.name to a Secret you manage yourself.
+        name: ""
+        accessKeyKey: accessKey
+        secretKeyKey: secretKey
+      ## @skip logs.storage.embedded.service
+      service:
+        type: ClusterIP
+        port: 9000
+        consolePort: 9001
+        # nodePort:
+        # consoleNodePort:
+      ## @skip logs.storage.embedded.persistence
+      persistence:
+        size: 10Gi
+        # storageClass:
+      ## @skip logs.storage.embedded.resources
+      resources:
+        limits:
+          cpu: 250m
+          memory: 256Mi
+        requests:
+          cpu: 100m
+          memory: 128Mi
+      ## @skip logs.storage.embedded.podSecurityContext
+      podSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      ## @skip logs.storage.embedded.containerSecurityContext
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: false
+        capabilities:
+          drop: [ALL]
+      ## @param logs.storage.embedded.nodeSelector Node selector for the embedded RustFS pod
+      nodeSelector: {}
+      ## @param logs.storage.embedded.tolerations Tolerations for the embedded RustFS pod
+      tolerations: []
+      ## @param logs.storage.embedded.affinity Affinity rules for the embedded RustFS pod
+      affinity: {}
+      ## @skip logs.storage.embedded.priorityClassName
+      # priorityClassName:
     external:
-      # Required when mode=external.
+      ## @param logs.storage.external.endpoint S3-compatible endpoint URL for external log storage
       endpoint: ""
-      # Secret containing the S3 credentials for the external backend.
-      # Required when mode=external.
-      existingSecret: ""
-      accessKeyKey: accessKey
-      secretKeyKey: secretKey
+      ## @skip logs.storage.external.secret
+      secret:
+        name: ""
+        accessKeyKey: accessKey
+        secretKeyKey: secretKey
 
-postgres:
-  # Select how Magos reaches the PostgreSQL database used for run metadata.
-  # - embedded: deploy the bundled PostgreSQL instance and wire it automatically.
-  # - external: use your own PostgreSQL instance and provide its connection
-  #   details plus a Secret with the password.
-  mode: embedded
-  image:
-    repository: postgres
-    tag: "16-alpine"
-    pullPolicy: IfNotPresent
-  auth:
-    database: magos
-    username: magos
-    # password: "" # Leave empty to generate and preserve a release-scoped password.
-    existingSecret: ""
-    passwordKey: password
-  service:
-    type: ClusterIP
-    port: 5432
-    # nodePort: "" # Only used when type is NodePort.
-  sslMode: disable
-  persistence:
-    enabled: true
-    size: 10Gi
-    # storageClass: "" # Leave empty to use the cluster default.
-  external:
-    # Required when mode=external.
-    host: ""
-    port: 5432
-    database: magos
-    username: magos
-    # Secret containing the password for the external PostgreSQL user.
-    # Required when mode=external.
-    existingSecret: ""
-    passwordKey: password
-    sslMode: disable
-  podSecurityContext:
-    runAsNonRoot: true
-    runAsUser: 70
-    runAsGroup: 70
-    fsGroup: 70
-    seccompProfile:
-      type: RuntimeDefault
-  containerSecurityContext:
-    allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: false
-    capabilities:
-      drop:
-      - ALL
-  resources:
-    limits:
-      cpu: 500m
-      memory: 512Mi
-    requests:
-      cpu: 100m
-      memory: 256Mi
+## @section Policy Parameters
 
 policy:
   kyverno:
-    # Install the policies.kyverno.io ValidatingPolicy CRD. The magos job reads
-    # this CRD at plan time to evaluate policies against the terraform plan. Set
-    # to false when the ValidatingPolicy CRD is already installed in the cluster
-    # (for example through the upstream chart) so the CRD has a single owner.
+    ## @param policy.kyverno.installCRD Install the Kyverno ValidatingPolicy CRD required for policy evaluation in plan jobs
     installCRD: true
 
-# This enabled flag is only intended for the host-run local development setup in
-# hack/local-values.yaml. Normal chart installs should leave the API enabled.
-api:
-  enabled: true
-  replicaCount: 1
-  image:
-    repository: ghcr.io/magosproject/magos/api
-    pullPolicy: IfNotPresent
-    tag: ""
-  service:
-    type: ClusterIP
-    port: 80
-  serviceAccount:
-    create: true
-    automount: true
-    annotations: {}
-    name: ""
-  env: []
-  resources:
-    limits:
-      cpu: 250m
-      memory: 128Mi
-    requests:
-      cpu: 100m
-      memory: 128Mi
+## @section Extra Objects
+
+## @param extraObjects List of extra Kubernetes manifests to deploy alongside the chart. Each entry can be a string (templated) or an object
+extraObjects: []

@@ -31,6 +31,31 @@ Create chart name and version as used by the chart label.
 {{- end }}
 
 {{/*
+Image reference helpers. Each returns "<repository>:<tag-or-AppVersion>".
+The per-component helpers fall back to the chart AppVersion when the
+component image.tag is empty, the same way Kargo's chart does.
+*/}}
+{{- define "magos.image" -}}
+{{- $tag := default .Chart.AppVersion .Values.image.tag -}}
+{{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- end -}}
+
+{{- define "magos.jobImage" -}}
+{{- $tag := default .Chart.AppVersion .Values.jobImage.tag -}}
+{{- printf "%s:%s" .Values.jobImage.repository $tag -}}
+{{- end -}}
+
+{{- define "magos.api.image" -}}
+{{- $tag := default .Chart.AppVersion .Values.api.image.tag -}}
+{{- printf "%s:%s" .Values.api.image.repository $tag -}}
+{{- end -}}
+
+{{- define "magos.ui.image" -}}
+{{- $tag := default .Chart.AppVersion .Values.ui.image.tag -}}
+{{- printf "%s:%s" .Values.ui.image.repository $tag -}}
+{{- end -}}
+
+{{/*
 Common labels
 */}}
 {{- define "magos.labels" -}}
@@ -49,6 +74,103 @@ Selector labels
 app.kubernetes.io/name: {{ include "magos.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{- define "magos.api.labels" -}}
+app.kubernetes.io/component: api
+{{- end -}}
+
+{{- define "magos.ui.labels" -}}
+app.kubernetes.io/component: ui
+{{- end -}}
+
+{{- define "magos.controller.labels" -}}
+app.kubernetes.io/component: controller
+{{- end -}}
+
+{{- define "magos.postgres.labels" -}}
+app.kubernetes.io/component: postgres
+{{- end -}}
+
+{{- define "magos.rustfs.labels" -}}
+app.kubernetes.io/component: rustfs
+{{- end -}}
+
+{{- define "magos.job.labels" -}}
+app.kubernetes.io/component: job
+{{- end -}}
+
+{{/*
+Render a complete metadata annotations block by merging
+.Values.global.annotations with a per-component annotations map.
+
+Call:
+  {{- include "magos.annotations" (dict "root" . "annotations" .Values.api.annotations) | nindent 2 }}
+
+When the merged result is empty the helper emits nothing.
+
+For resources with no component-specific annotations, omit the
+"annotations" key or pass an empty dict.
+*/}}
+{{- define "magos.annotations" -}}
+{{- with (mergeOverwrite (deepCopy (default dict .root.Values.global.annotations)) (.annotations | default dict)) -}}
+annotations:
+  {{- range $key, $value := . }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Returns "true" when the given service dict resolves to HTTPS.
+The service dict is expected to look like .Values.ui or .Values.api,
+carrying optional ingress.{enabled,tls.enabled} and tls.{enabled,terminatedUpstream}.
+*/}}
+{{- define "magos.useTLS" -}}
+{{- $service := . -}}
+{{- $useIngressTLS := and (default false $service.ingress.enabled) (default false $service.ingress.tls.enabled) -}}
+{{- $useDirectTLS := and (not (default false $service.ingress.enabled)) (default false $service.tls.enabled) -}}
+{{- $terminatedUpstream := default false $service.tls.terminatedUpstream -}}
+{{- if or $useIngressTLS $useDirectTLS $terminatedUpstream -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+Returns the base URL ("http://host" or "https://host") for a service
+described by .service plus a .host string.
+*/}}
+{{- define "magos.baseURL" -}}
+{{- $service := .service -}}
+{{- $host := .host -}}
+{{- if eq (include "magos.useTLS" $service) "true" -}}
+https://{{ $host }}
+{{- else -}}
+http://{{ $host }}
+{{- end -}}
+{{- end -}}
+
+{{- define "magos.ui.baseURL" -}}
+{{- include "magos.baseURL" (dict "service" .Values.ui "host" .Values.ui.host) -}}
+{{- end -}}
+
+{{/*
+Returns "limits.cpu" or "requests.cpu" based on which is set in the given
+resources dict. Falls back to "limits.cpu". Used as the resourceFieldRef
+divisor source for GOMAXPROCS.
+
+Call:
+  {{ include "magos.selectCpuResourceField" (dict "resources" .Values.api.resources) }}
+*/}}
+{{- define "magos.selectCpuResourceField" -}}
+{{- $resources := .resources -}}
+{{- $field := "limits.cpu" -}}
+{{- if $resources -}}
+{{- if and $resources.limits $resources.limits.cpu -}}
+{{- $field = "limits.cpu" -}}
+{{- else if and $resources.requests $resources.requests.cpu -}}
+{{- $field = "requests.cpu" -}}
+{{- end -}}
+{{- end -}}
+{{- $field -}}
+{{- end -}}
 
 {{/*
 Returns a non-empty value when at least one controller is enabled.
@@ -82,61 +204,18 @@ Create the name of the service account to use for the API
 {{- end }}
 
 {{/*
-Create the bundled RustFS resource names.
+Resolve and validate the postgres mode.
 */}}
-{{- define "magos.rustfsName" -}}
-{{- printf "%s-rustfs" (include "magos.fullname" .) -}}
-{{- end }}
-
-{{- define "magos.rustfsSecretName" -}}
-{{- if eq (include "magos.logsStorageMode" .) "external" -}}
-{{- required "logs.storage.external.existingSecret is required when logs.storage.mode=external" .Values.logs.storage.external.existingSecret -}}
-{{- else -}}
-{{- include "magos.rustfsName" . -}}
+{{- define "magos.postgresMode" -}}
+{{- $mode := default "embedded" .Values.postgres.mode -}}
+{{- if and (ne $mode "embedded") (ne $mode "external") -}}
+{{- fail (printf "postgres.mode must be either embedded or external, got %q" $mode) -}}
 {{- end -}}
-{{- end }}
-
-{{- define "magos.rustfsAccessKeyKey" -}}
-{{- if eq (include "magos.logsStorageMode" .) "external" -}}
-{{- default "accessKey" .Values.logs.storage.external.accessKeyKey -}}
-{{- else -}}
-accessKey
+{{- $mode -}}
 {{- end -}}
-{{- end }}
-
-{{- define "magos.rustfsSecretKeyKey" -}}
-{{- if eq (include "magos.logsStorageMode" .) "external" -}}
-{{- default "secretKey" .Values.logs.storage.external.secretKeyKey -}}
-{{- else -}}
-secretKey
-{{- end -}}
-{{- end }}
 
 {{/*
-Create the bundled PostgreSQL resource names
-*/}}
-{{- define "magos.postgresName" -}}
-{{- printf "%s-postgres" (include "magos.fullname" .) -}}
-{{- end }}
-
-{{- define "magos.postgresHeadlessName" -}}
-{{- printf "%s-headless" (include "magos.postgresName" .) -}}
-{{- end }}
-
-{{- define "magos.postgresSecretName" -}}
-{{- default (include "magos.postgresName" .) .Values.postgres.auth.existingSecret -}}
-{{- end }}
-
-{{- define "magos.postgresPasswordKey" -}}
-{{- if eq (include "magos.postgresMode" .) "external" -}}
-{{- default "password" .Values.postgres.external.passwordKey -}}
-{{- else -}}
-{{- default "password" .Values.postgres.auth.passwordKey -}}
-{{- end -}}
-{{- end }}
-
-{{/*
-Resolve the selected storage/database wiring modes.
+Resolve and validate the logs storage mode.
 */}}
 {{- define "magos.logsStorageMode" -}}
 {{- $mode := default "embedded" .Values.logs.storage.mode -}}
@@ -144,19 +223,68 @@ Resolve the selected storage/database wiring modes.
 {{- fail (printf "logs.storage.mode must be either embedded or external, got %q" $mode) -}}
 {{- end -}}
 {{- $mode -}}
-{{- end }}
-
-{{- define "magos.postgresMode" -}}
-{{- $mode := default "embedded" .Values.postgres.mode -}}
-{{- if and (ne $mode "embedded") (ne $mode "external") -}}
-{{- fail (printf "postgres.mode must be either embedded or external, got %q" $mode) -}}
 {{- end -}}
-{{- $mode -}}
-{{- end }}
+
+{{- define "magos.postgresName" -}}
+{{- printf "%s-postgres" (include "magos.fullname" .) -}}
+{{- end -}}
+
+{{- define "magos.postgresHeadlessName" -}}
+{{- printf "%s-headless" (include "magos.postgresName" .) -}}
+{{- end -}}
 
 {{/*
-Environment variables for the run-summary database. These are wired either from
-the bundled PostgreSQL deployment or from an external PostgreSQL instance.
+Returns the Secret name that holds the postgres password. In embedded mode
+this is either the user-supplied embedded.auth.secret.name or, when empty,
+the chart-managed "<release>-postgres" Secret. In external mode the
+external.secret.name field is required.
+*/}}
+{{- define "magos.postgresSecretName" -}}
+{{- if eq (include "magos.postgresMode" .) "external" -}}
+{{- required "postgres.external.secret.name is required when postgres.mode=external" .Values.postgres.external.secret.name -}}
+{{- else -}}
+{{- default (include "magos.postgresName" .) .Values.postgres.embedded.auth.secret.name -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "magos.postgresPasswordKey" -}}
+{{- if eq (include "magos.postgresMode" .) "external" -}}
+{{- default "password" .Values.postgres.external.secret.passwordKey -}}
+{{- else -}}
+{{- default "password" .Values.postgres.embedded.auth.secret.passwordKey -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "magos.rustfsName" -}}
+{{- printf "%s-rustfs" (include "magos.fullname" .) -}}
+{{- end -}}
+
+{{- define "magos.rustfsSecretName" -}}
+{{- if eq (include "magos.logsStorageMode" .) "external" -}}
+{{- required "logs.storage.external.secret.name is required when logs.storage.mode=external" .Values.logs.storage.external.secret.name -}}
+{{- else -}}
+{{- default (include "magos.rustfsName" .) .Values.logs.storage.embedded.secret.name -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "magos.rustfsAccessKeyKey" -}}
+{{- if eq (include "magos.logsStorageMode" .) "external" -}}
+{{- default "accessKey" .Values.logs.storage.external.secret.accessKeyKey -}}
+{{- else -}}
+{{- default "accessKey" .Values.logs.storage.embedded.secret.accessKeyKey -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "magos.rustfsSecretKeyKey" -}}
+{{- if eq (include "magos.logsStorageMode" .) "external" -}}
+{{- default "secretKey" .Values.logs.storage.external.secret.secretKeyKey -}}
+{{- else -}}
+{{- default "secretKey" .Values.logs.storage.embedded.secret.secretKeyKey -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Environment variables for the run-summary database.
 */}}
 {{- define "magos.postgresEnv" -}}
 {{- if eq (include "magos.postgresMode" .) "external" }}
@@ -171,7 +299,7 @@ the bundled PostgreSQL deployment or from an external PostgreSQL instance.
 - name: MAGOS_POSTGRES_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: {{ required "postgres.external.existingSecret is required when postgres.mode=external" .Values.postgres.external.existingSecret }}
+      name: {{ include "magos.postgresSecretName" . }}
       key: {{ include "magos.postgresPasswordKey" . }}
 - name: MAGOS_POSTGRES_SSLMODE
   value: {{ .Values.postgres.external.sslMode | quote }}
@@ -179,24 +307,23 @@ the bundled PostgreSQL deployment or from an external PostgreSQL instance.
 - name: MAGOS_POSTGRES_HOST
   value: {{ include "magos.postgresName" . | quote }}
 - name: MAGOS_POSTGRES_PORT
-  value: {{ .Values.postgres.service.port | quote }}
+  value: {{ .Values.postgres.embedded.service.port | quote }}
 - name: MAGOS_POSTGRES_DATABASE
-  value: {{ .Values.postgres.auth.database | quote }}
+  value: {{ .Values.postgres.embedded.auth.database | quote }}
 - name: MAGOS_POSTGRES_USER
-  value: {{ .Values.postgres.auth.username | quote }}
+  value: {{ .Values.postgres.embedded.auth.username | quote }}
 - name: MAGOS_POSTGRES_PASSWORD
   valueFrom:
     secretKeyRef:
       name: {{ include "magos.postgresSecretName" . }}
       key: {{ include "magos.postgresPasswordKey" . }}
 - name: MAGOS_POSTGRES_SSLMODE
-  value: {{ .Values.postgres.sslMode | quote }}
+  value: {{ .Values.postgres.embedded.sslMode | quote }}
 {{- end }}
-{{- end }}
+{{- end -}}
 
 {{/*
-Environment variables for the log store. These are wired either from the
-bundled RustFS deployment or from an external S3-compatible backend.
+Environment variables for the log store.
 */}}
 {{- define "magos.logstoreEnv" -}}
 {{- if eq (include "magos.logsStorageMode" .) "external" }}
@@ -204,7 +331,7 @@ bundled RustFS deployment or from an external S3-compatible backend.
   value: {{ required "logs.storage.external.endpoint is required when logs.storage.mode=external" .Values.logs.storage.external.endpoint | quote }}
 {{- else }}
 - name: MAGOS_LOGS_S3_ENDPOINT
-  value: {{ printf "http://%s:%v" (include "magos.rustfsName" .) .Values.logs.storage.service.port | quote }}
+  value: {{ printf "http://%s:%v" (include "magos.rustfsName" .) .Values.logs.storage.embedded.service.port | quote }}
 {{- end }}
 - name: MAGOS_LOGS_S3_ACCESS_KEY_ID
   valueFrom:
@@ -216,4 +343,4 @@ bundled RustFS deployment or from an external S3-compatible backend.
     secretKeyRef:
       name: {{ include "magos.rustfsSecretName" . }}
       key: {{ include "magos.rustfsSecretKeyKey" . }}
-{{- end }}
+{{- end -}}

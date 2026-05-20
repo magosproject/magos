@@ -1,0 +1,19 @@
+{{- include "magos.validate" . -}}
+{{- if eq (include "magos.logsStorageMode" .) "embedded" }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "magos.rustfsName" . }}
+  labels:
+    {{- include "magos.labels" . | nindent 4 }}
+    {{- include "magos.rustfs.labels" . | nindent 4 }}
+spec:
+  accessModes:
+  - ReadWriteOnce
+  {{- with .Values.logs.storage.embedded.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.logs.storage.embedded.persistence.size }}
+{{- end }}
