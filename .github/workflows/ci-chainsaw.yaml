@@ -3,14 +3,8 @@ name: CI - Chainsaw
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "ui/**"
-      - "api/**"
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "ui/**"
-      - "api/**"
   workflow_dispatch:
 
 concurrency:
@@ -60,6 +54,16 @@ jobs:
           cache-from: type=gha,scope=chainsaw-job
           cache-to: type=gha,mode=max,scope=chainsaw-job
 
+      - name: Build api image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: api/Dockerfile
+          tags: magos-api:local
+          load: true
+          cache-from: type=gha,scope=chainsaw-api
+          cache-to: type=gha,mode=max,scope=chainsaw-api
+
       - name: Create kind cluster
         uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
         with:
@@ -70,6 +74,7 @@ jobs:
         run: |
           kind load docker-image controller:local --name magos-chainsaw
           kind load docker-image magos-job:local --name magos-chainsaw
+          kind load docker-image magos-api:local --name magos-chainsaw
 
       - name: Install magos chart
         run: |
@@ -82,7 +87,9 @@ jobs:
             --set jobImage.tag=local \
             --set jobImage.pullPolicy=Never \
             --set ui.enabled=false \
-            --set api.enabled=false \
+            --set api.image.repository=magos-api \
+            --set api.image.tag=local \
+            --set api.image.pullPolicy=Never \
             --wait --timeout=5m
 
       - name: Install chainsaw
