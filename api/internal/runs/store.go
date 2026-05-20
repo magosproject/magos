@@ -42,7 +42,10 @@ var (
 )
 
 //go:embed schema/001_create_runs_table.sql
-var runSchema string
+var createRunsTableSchema string
+
+//go:embed schema/002_create_runs_workspace_sort_index.sql
+var createRunsWorkspaceSortIndexSchema string
 
 type Config struct {
 	DatabaseURL string
@@ -92,25 +95,17 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) init(ctx context.Context) error {
-	for _, stmt := range splitSQLStatements(runSchema) {
+	statements := []string{
+		createRunsTableSchema,
+		createRunsWorkspaceSortIndexSchema,
+	}
+
+	for _, stmt := range statements {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("initialize postgres run store schema: %w", err)
 		}
 	}
 	return nil
-}
-
-func splitSQLStatements(sqlText string) []string {
-	parts := strings.Split(sqlText, ";")
-	statements := make([]string, 0, len(parts))
-	for _, part := range parts {
-		stmt := strings.TrimSpace(part)
-		if stmt == "" {
-			continue
-		}
-		statements = append(statements, stmt)
-	}
-	return statements
 }
 
 func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run v1alpha1.Run) error {
