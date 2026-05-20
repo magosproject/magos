@@ -18,7 +18,6 @@ package workspace
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -28,7 +27,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -63,6 +61,37 @@ type WorkspaceReconciler struct {
 	Clientset   kubernetes.Interface // for reading pod logs
 	LogStore    logstore.Store
 	RunRecorder RunRecorder
+
+	jobResources   corev1.ResourceRequirements
+	defaultPVCSize string
+}
+
+func New(
+	c client.Client,
+	scheme *runtime.Scheme,
+	jobImage string,
+	clientset kubernetes.Interface,
+	logStore logstore.Store,
+	runRecorder RunRecorder,
+) (*WorkspaceReconciler, error) {
+	jobResources, err := loadJobResourcesFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	defaultPVCSize, err := loadDefaultPVCSizeFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	return &WorkspaceReconciler{
+		Client:         c,
+		Scheme:         scheme,
+		JobImage:       jobImage,
+		Clientset:      clientset,
+		LogStore:       logStore,
+		RunRecorder:    runRecorder,
+		jobResources:   jobResources,
+		defaultPVCSize: defaultPVCSize,
+	}, nil
 }
 
 // normalizeRepoURL trims whitespace, a trailing slash, and a single .git
@@ -332,12 +361,6 @@ func (r *WorkspaceReconciler) trackActiveWorkspaces(ctx context.Context) {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if defaultPVCSize := os.Getenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT"); defaultPVCSize != "" {
-		if _, err := resource.ParseQuantity(defaultPVCSize); err != nil {
-			return fmt.Errorf("invalid MAGOS_WORKSPACE_PVC_SIZE_DEFAULT %q: %w", defaultPVCSize, err)
-		}
-	}
-
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Workspace{}).
 		Owns(&batchv1.Job{}).

@@ -1,0 +1,19 @@
+{{- include "magos.validate" . -}}
+{{- if and .Values.rbac.installClusterRoles .Values.job.serviceAccount.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "magos.fullname" . }}-job
+  labels:
+    {{- include "magos.labels" . | nindent 4 }}
+    {{- include "magos.job.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - policies.kyverno.io
+  resources:
+  - validatingpolicies
+  verbs:
+  - get
+  - list
+  - watch
+{{- end }}

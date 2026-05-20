@@ -1,0 +1,30 @@
+{{- include "magos.validate" . -}}
+{{- if eq (include "magos.logsStorageMode" .) "embedded" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "magos.rustfsName" . }}
+  labels:
+    {{- include "magos.labels" . | nindent 4 }}
+    {{- include "magos.rustfs.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.logs.storage.embedded.service.type }}
+  selector:
+    {{- include "magos.selectorLabels" . | nindent 4 }}
+    {{- include "magos.rustfs.labels" . | nindent 4 }}
+  ports:
+  - name: s3
+    port: {{ .Values.logs.storage.embedded.service.port }}
+    targetPort: s3
+    protocol: TCP
+    {{- if and (eq .Values.logs.storage.embedded.service.type "NodePort") .Values.logs.storage.embedded.service.nodePort }}
+    nodePort: {{ .Values.logs.storage.embedded.service.nodePort }}
+    {{- end }}
+  - name: console
+    port: {{ .Values.logs.storage.embedded.service.consolePort }}
+    targetPort: console
+    protocol: TCP
+    {{- if and (eq .Values.logs.storage.embedded.service.type "NodePort") .Values.logs.storage.embedded.service.consoleNodePort }}
+    nodePort: {{ .Values.logs.storage.embedded.service.consoleNodePort }}
+    {{- end }}
+{{- end }}

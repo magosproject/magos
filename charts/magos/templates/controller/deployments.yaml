@@ -1,0 +1,199 @@
+{{- include "magos.validate" . -}}
+{{- $root := . -}}
+{{- range $name, $controller := .Values.controllers }}
+{{- if $controller.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "magos.fullname" $root }}-{{ $name }}
+  labels:
+    {{- include "magos.labels" $root | nindent 4 }}
+    {{- include "magos.controller.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}-controller
+    control-plane: magos
+    {{- with (mergeOverwrite (deepCopy (default dict $root.Values.global.labels)) ($controller.labels | default dict)) }}
+    {{- range $key, $value := . }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+    {{- end }}
+spec:
+  replicas: {{ $controller.replicas | default 1 }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "magos.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: {{ $name }}-controller
+  template:
+    metadata:
+      labels:
+        {{- include "magos.labels" $root | nindent 8 }}
+        app.kubernetes.io/component: {{ $name }}-controller
+        control-plane: magos
+        {{- with (mergeOverwrite (deepCopy (default dict $root.Values.global.podLabels)) ($controller.podLabels | default dict)) }}
+        {{- range $key, $value := . }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
+      {{- with (mergeOverwrite (deepCopy (default dict $root.Values.global.podAnnotations)) ($controller.podAnnotations | default dict)) }}
+      annotations:
+        {{- range $key, $value := . }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+      {{- end }}
+    spec:
+      {{- with $root.Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "magos.controllerServiceAccountName" (dict "root" $root "name" $name "controller" $controller) }}
+      {{- with $controller.securityContext | default $root.Values.global.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: manager
+        command:
+        - /manager
+        args:
+        {{- if $root.Values.leaderElection.enabled }}
+        - --leader-elect
+        - --leader-elect-id={{ $name }}-controller
+        {{- end }}
+        - --health-probe-bind-address=:{{ $root.Values.healthProbe.port }}
+        {{- if $root.Values.metricsService.enabled }}
+        - --metrics-bind-address=:{{ $root.Values.metricsService.port }}
+        - --metrics-secure={{ $root.Values.metricsService.secure }}
+        {{- end }}
+        - --enable-{{ $name }}-controller
+        {{- if eq $name "refwatcher" }}
+        - --default-poll-interval={{ $controller.defaultPollInterval | default "30s" }}
+        - --worker-count={{ $controller.workerCount | default 20 }}
+        - --work-queue-size={{ $controller.workQueueSize | default 200 }}
+        {{- end }}
+        image: {{ include "magos.image" $root }}
+        imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ $root.Values.healthProbe.port }}
+          name: health
+          protocol: TCP
+        {{- if $root.Values.metricsService.enabled }}
+        - containerPort: {{ $root.Values.metricsService.port }}
+          name: metrics
+          protocol: TCP
+        {{- end }}
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        {{- if eq $name "workspace" }}
+        - name: MAGOS_JOB_IMAGE
+          value: {{ include "magos.jobImage" $root | quote }}
+        - name: MAGOS_WORKSPACE_PVC_SIZE_DEFAULT
+          value: {{ $root.Values.workspace.defaultPVCSize | quote }}
+        - name: MAGOS_WORKSPACE_JOB_CPU_REQUEST
+          value: {{ $root.Values.job.resources.requests.cpu | quote }}
+        - name: MAGOS_WORKSPACE_JOB_MEMORY_REQUEST
+          value: {{ $root.Values.job.resources.requests.memory | quote }}
+        - name: MAGOS_WORKSPACE_JOB_CPU_LIMIT
+          value: {{ $root.Values.job.resources.limits.cpu | quote }}
+        - name: MAGOS_WORKSPACE_JOB_MEMORY_LIMIT
+          value: {{ $root.Values.job.resources.limits.memory | quote }}
+        {{- if not (($root.Values.job).colorOutput | default true) }}
+        - name: NO_COLOR
+          value: "1"
+        {{- end }}
+        {{- include "magos.logstoreEnv" $root | nindent 8 }}
+        {{- include "magos.postgresEnv" $root | nindent 8 }}
+        - name: MAGOS_LOGS_API_URL
+          value: {{ printf "http://%s-api:%v" (include "magos.fullname" $root) $root.Values.api.service.port | quote }}
+        {{- end }}
+        {{- with (concat (default list $root.Values.global.env) (default list $controller.env)) }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with (concat (default list $root.Values.global.envFrom) (default list $controller.envFrom)) }}
+        envFrom:
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with $controller.containerSecurityContext | default $root.Values.global.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- if $controller.probes.enabled }}
+        livenessProbe:
+          httpGet:
+            path: {{ $root.Values.healthProbe.livenessPath }}
+            port: {{ $root.Values.healthProbe.port }}
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: {{ $root.Values.healthProbe.readinessPath }}
+            port: {{ $root.Values.healthProbe.port }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        {{- end }}
+        resources:
+          {{- toYaml $controller.resources | nindent 10 }}
+        {{- if or $controller.cabundle.configMapName $controller.cabundle.secretName }}
+        volumeMounts:
+        - name: certs
+          mountPath: /etc/ssl/certs
+        {{- end }}
+      {{- with $controller.nodeSelector | default $root.Values.global.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $controller.tolerations | default $root.Values.global.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $controller.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $controller.affinity | default $root.Values.global.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $controller.priorityClassName | default $root.Values.global.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- if or $controller.cabundle.configMapName $controller.cabundle.secretName }}
+      initContainers:
+      - name: parse-cabundle
+        image: {{ include "magos.image" $root }}
+        imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+        securityContext:
+          runAsUser: 0
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          mkdir -p /usr/local/share/ca-certificates
+          for file in /tmp/source/*; do
+            base=$(basename "$file" .crt)
+            awk 'BEGIN {c=0;} /BEGIN CERT/{c++} { print > "/usr/local/share/ca-certificates/" base "." c ".crt"}' base="$base" < "$file"
+          done
+          /usr/sbin/update-ca-certificates
+          find /etc/ssl/certs -type l -exec cp --remove-destination {} /etc/ssl/certs/ \;
+          cp -r /etc/ssl/certs/* /tmp/target/
+        volumeMounts:
+        - { name: cabundle, mountPath: /tmp/source }
+        - { name: certs,    mountPath: /tmp/target }
+      volumes:
+      - name: cabundle
+        {{- if $controller.cabundle.secretName }}
+        secret:
+          secretName: {{ $controller.cabundle.secretName }}
+        {{- else }}
+        configMap:
+          name: {{ $controller.cabundle.configMapName }}
+        {{- end }}
+      - name: certs
+        emptyDir: {}
+      {{- end }}
+      terminationGracePeriodSeconds: 10
+{{- end }}
+{{- end }}
