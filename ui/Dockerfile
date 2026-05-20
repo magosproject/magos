@@ -13,6 +13,7 @@ RUN npm run build
 FROM nginx:alpine
 
 COPY nginx.conf.template /etc/nginx/templates/nginx.conf.template
+COPY nginx.tls.conf.template /etc/nginx/templates/nginx.tls.conf.template
 COPY --from=build-stage /app/build/client /usr/share/nginx/html
 
 ENV MAGOS_API_HOST=localhost
