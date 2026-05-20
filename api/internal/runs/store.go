@@ -3,6 +3,7 @@ package runs
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -39,6 +40,9 @@ var (
 	ErrInvalidCursor = errors.New("invalid run list cursor")
 	ErrNotFound      = errors.New("run not found")
 )
+
+//go:embed schema/001_create_runs_table.sql
+var runSchema string
 
 type Config struct {
 	DatabaseURL string
@@ -88,50 +92,8 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) init(ctx context.Context) error {
-	statements := []string{
-		`CREATE TABLE IF NOT EXISTS runs (
-			namespace TEXT NOT NULL,
-			workspace TEXT NOT NULL,
-			run_id TEXT NOT NULL,
-			trigger TEXT NOT NULL DEFAULT 'unknown',
-			target_revision TEXT NOT NULL DEFAULT '',
-			observed_revision TEXT NOT NULL DEFAULT '',
-			started_at TEXT,
-			finished_at TEXT,
-			sort_time TEXT NOT NULL,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL,
-			plan JSONB,
-			apply JSONB,
-			PRIMARY KEY (namespace, workspace, run_id)
-		)`,
-		`ALTER TABLE runs ADD COLUMN IF NOT EXISTS plan JSONB`,
-		`ALTER TABLE runs ADD COLUMN IF NOT EXISTS apply JSONB`,
-		`ALTER TABLE runs ALTER COLUMN trigger SET DEFAULT 'unknown'`,
-		`UPDATE runs SET trigger = 'configuration' WHERE trigger = ''`,
-		`UPDATE runs
-			SET started_at = NULLIF(plan->>'startedAt', '')
-			WHERE NULLIF(plan->>'startedAt', '') IS NOT NULL
-				AND started_at IS DISTINCT FROM NULLIF(plan->>'startedAt', '')`,
-		`UPDATE runs
-			SET finished_at = COALESCE(
-				NULLIF(apply->>'finishedAt', ''),
-				CASE WHEN plan->>'result' = 'Failed' THEN NULLIF(plan->>'finishedAt', '') END
-			)
-			WHERE finished_at IS NULL
-				AND COALESCE(
-					NULLIF(apply->>'finishedAt', ''),
-					CASE WHEN plan->>'result' = 'Failed' THEN NULLIF(plan->>'finishedAt', '') END
-				) IS NOT NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_runs_workspace_sort
-			ON runs (namespace, workspace, sort_time DESC, run_id DESC)`,
-		`ALTER TABLE runs ADD COLUMN IF NOT EXISTS scheduled_at TEXT`,
-	}
-
-	for _, stmt := range statements {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("initialize postgres run store: %w", err)
-		}
+	if _, err := s.db.ExecContext(ctx, runSchema); err != nil {
+		return fmt.Errorf("initialize postgres run store schema: %w", err)
 	}
 	return nil
 }
