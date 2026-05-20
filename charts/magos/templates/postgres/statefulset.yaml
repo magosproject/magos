@@ -63,6 +63,18 @@ spec:
             - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
           initialDelaySeconds: 30
           periodSeconds: 10
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - /bin/sh
+              - -ec
+              - |
+                for i in $(seq 1 60); do
+                  pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -q && break
+                  sleep 1
+                done
+                psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "ALTER USER \"$POSTGRES_USER\" WITH PASSWORD '$POSTGRES_PASSWORD'"
         securityContext:
           {{- toYaml .Values.postgres.embedded.containerSecurityContext | nindent 10 }}
         resources:
