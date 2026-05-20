@@ -298,12 +298,13 @@ func main() {
 	}
 
 	if enableRefWatcherController {
-		if err := (&refwatchercontroller.RefWatcherReconciler{
-			Client:              mgr.GetClient(),
-			DefaultPollInterval: defaultPollInterval,
-			WorkerCount:         refWatcherWorkerCount,
-			WorkQueueSize:       refWatcherWorkQueueSize,
-		}).SetupWithManager(mgr); err != nil {
+		refWatcher := refwatchercontroller.New(
+			mgr.GetClient(),
+			defaultPollInterval,
+			refWatcherWorkerCount,
+			refWatcherWorkQueueSize,
+		)
+		if err := refWatcher.SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "RefWatcher")
 			os.Exit(1)
 		}

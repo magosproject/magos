@@ -19,50 +19,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/magosproject/magos/internal/logstore"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-// New assembles a WorkspaceReconciler. It reads the controller's environment
-// configuration (job pod resources, default PVC size) once at construction
-// time and stores the resolved values on the receiver. The returned
-// reconciler is ready to hand to SetupWithManager.
-//
-// Reading env here, rather than in SetupWithManager or per-reconcile, keeps
-// the boundary tight: an invalid value fails the boot, the reconciler is
-// never observable in a half-built state, and SetupWithManager stays
-// responsible for one job (wiring to the Manager).
-func New(
-	c client.Client,
-	scheme *runtime.Scheme,
-	jobImage string,
-	clientset kubernetes.Interface,
-	logStore logstore.Store,
-	runRecorder RunRecorder,
-) (*WorkspaceReconciler, error) {
-	jobResources, err := loadJobResourcesFromEnv()
-	if err != nil {
-		return nil, err
-	}
-	defaultPVCSize, err := loadDefaultPVCSizeFromEnv()
-	if err != nil {
-		return nil, err
-	}
-	return &WorkspaceReconciler{
-		Client:         c,
-		Scheme:         scheme,
-		JobImage:       jobImage,
-		Clientset:      clientset,
-		LogStore:       logStore,
-		RunRecorder:    runRecorder,
-		jobResources:   jobResources,
-		defaultPVCSize: defaultPVCSize,
-	}, nil
-}
 
 const (
 	envWorkspacePVCSizeDefault   = "MAGOS_WORKSPACE_PVC_SIZE_DEFAULT"

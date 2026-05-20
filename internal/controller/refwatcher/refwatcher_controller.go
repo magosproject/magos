@@ -111,9 +111,9 @@ func (h *pollHeap) Pop() any {
 type RefWatcherReconciler struct {
 	client.Client
 
-	DefaultPollInterval time.Duration
-	WorkerCount         int
-	WorkQueueSize       int
+	defaultPollInterval time.Duration
+	workerCount         int
+	workQueueSize       int
 
 	registry Registry
 	workCh   chan types.NamespacedName
@@ -124,6 +124,21 @@ type RefWatcherReconciler struct {
 	// mutations (push), so it needs its own lock.
 	heapMu sync.Mutex
 	ph     pollHeap
+}
+
+func New(c client.Client, defaultPollInterval time.Duration, workerCount, workQueueSize int) *RefWatcherReconciler {
+	return &RefWatcherReconciler{
+		Client:              c,
+		defaultPollInterval: defaultPollInterval,
+		workerCount:         workerCount,
+		workQueueSize:       workQueueSize,
+		registry: Registry{
+			entries: make(map[types.NamespacedName]*registryEntry),
+		},
+		workCh:   make(chan types.NamespacedName, workQueueSize),
+		updateCh: make(chan struct{}, 1),
+		ph:       make(pollHeap, 0),
+	}
 }
 
 // +kubebuilder:rbac:groups=magosproject.io,resources=workspaces,verbs=get;list;watch;patch
@@ -183,7 +198,7 @@ func (r *RefWatcherReconciler) parsePollInterval(ws *v1alpha1.Workspace) time.Du
 			}
 		}
 	}
-	return r.DefaultPollInterval
+	return r.defaultPollInterval
 }
 
 // upsertEntry adds or updates a registry entry and signals the scheduler to
@@ -316,7 +331,7 @@ func (r *RefWatcherReconciler) Start(ctx context.Context) error {
 	logger := log.FromContext(ctx).WithName("refwatcher-scheduler")
 
 	var wg sync.WaitGroup
-	for i := 0; i < r.WorkerCount; i++ {
+	for i := 0; i < r.workerCount; i++ {
 		wg.Go(func() {
 			r.worker(ctx)
 		})
@@ -654,13 +669,6 @@ func minDuration(a, b time.Duration) time.Duration {
 // in upsertEntry prevents the resulting burst of polls from overwhelming the
 // Git host.
 func (r *RefWatcherReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	r.registry = Registry{
-		entries: make(map[types.NamespacedName]*registryEntry),
-	}
-	r.workCh = make(chan types.NamespacedName, r.WorkQueueSize)
-	r.updateCh = make(chan struct{}, 1)
-	r.ph = make(pollHeap, 0)
-
 	// Register as a manager Runnable so the scheduler and worker pool
 	// lifecycle is tied to the manager's context. Because NeedLeaderElection
 	// returns true, Start is only called on the elected leader.

@@ -66,6 +66,34 @@ type WorkspaceReconciler struct {
 	defaultPVCSize string
 }
 
+func New(
+	c client.Client,
+	scheme *runtime.Scheme,
+	jobImage string,
+	clientset kubernetes.Interface,
+	logStore logstore.Store,
+	runRecorder RunRecorder,
+) (*WorkspaceReconciler, error) {
+	jobResources, err := loadJobResourcesFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	defaultPVCSize, err := loadDefaultPVCSizeFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	return &WorkspaceReconciler{
+		Client:         c,
+		Scheme:         scheme,
+		JobImage:       jobImage,
+		Clientset:      clientset,
+		LogStore:       logStore,
+		RunRecorder:    runRecorder,
+		jobResources:   jobResources,
+		defaultPVCSize: defaultPVCSize,
+	}, nil
+}
+
 // normalizeRepoURL trims whitespace, a trailing slash, and a single .git
 // suffix so URLs that differ only in style match as the same repository.
 func normalizeRepoURL(u string) string {
