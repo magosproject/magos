@@ -1,0 +1,85 @@
+{{- include "magos.validate" . -}}
+{{- if eq (include "magos.logsStorageMode" .) "embedded" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "magos.rustfsName" . }}
+  labels:
+    {{- include "magos.labels" . | nindent 4 }}
+    {{- include "magos.rustfs.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "magos.selectorLabels" . | nindent 6 }}
+      {{- include "magos.rustfs.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "magos.labels" . | nindent 8 }}
+        {{- include "magos.rustfs.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.logs.storage.embedded.podSecurityContext | nindent 8 }}
+      containers:
+      - name: rustfs
+        image: "{{ .Values.logs.storage.embedded.image.repository }}:{{ .Values.logs.storage.embedded.image.tag }}"
+        imagePullPolicy: {{ .Values.logs.storage.embedded.image.pullPolicy }}
+        args:
+        - /data
+        ports:
+        - name: s3
+          containerPort: {{ .Values.logs.storage.embedded.service.port }}
+          protocol: TCP
+        - name: console
+          containerPort: {{ .Values.logs.storage.embedded.service.consolePort }}
+          protocol: TCP
+        env:
+        - name: RUSTFS_ADDRESS
+          value: ":{{ .Values.logs.storage.embedded.service.port }}"
+        - name: RUSTFS_CONSOLE_ADDRESS
+          value: ":{{ .Values.logs.storage.embedded.service.consolePort }}"
+        - name: RUSTFS_CONSOLE_ENABLE
+          value: "true"
+        - name: RUSTFS_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "magos.rustfsSecretName" . }}
+              key: {{ include "magos.rustfsAccessKeyKey" . }}
+        - name: RUSTFS_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "magos.rustfsSecretName" . }}
+              key: {{ include "magos.rustfsSecretKeyKey" . }}
+        securityContext:
+          {{- toYaml .Values.logs.storage.embedded.containerSecurityContext | nindent 10 }}
+        resources:
+          {{- toYaml .Values.logs.storage.embedded.resources | nindent 10 }}
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: logs
+          mountPath: /logs
+      {{- with .Values.logs.storage.embedded.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.logs.storage.embedded.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.logs.storage.embedded.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ include "magos.rustfsName" . }}
+      - name: logs
+        emptyDir: {}
+{{- end }}

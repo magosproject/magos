@@ -119,8 +119,8 @@ func (r *WorkspaceReconciler) resolveWorkspacePVCSize(ws *v1alpha1.Workspace) st
 	if ws.Spec.PVCSize != "" {
 		return ws.Spec.PVCSize
 	}
-	if defaultPVCSize := os.Getenv("MAGOS_WORKSPACE_PVC_SIZE_DEFAULT"); defaultPVCSize != "" {
-		return defaultPVCSize
+	if r.defaultPVCSize != "" {
+		return r.defaultPVCSize
 	}
 	return DefaultWorkspacePVCSize
 }
@@ -365,6 +365,7 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 							Image:           r.JobImage,
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Env:             envVars,
+							Resources:       r.jobResources,
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "workspace-data",

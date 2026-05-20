@@ -1,0 +1,21 @@
+{{- if and .Values.ui.enabled .Values.ui.podDisruptionBudget.enabled }}
+{{- include "magos.validate" . -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "magos.fullname" . }}-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "magos.labels" . | nindent 4 }}
+    {{- include "magos.ui.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.ui.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.ui.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ .Values.ui.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "magos.selectorLabels" . | nindent 6 }}
+      {{- include "magos.ui.labels" . | nindent 6 }}
+{{- end }}

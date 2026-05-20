@@ -1,0 +1,11 @@
+{{- if or (and .Values.ui.enabled .Values.ui.tls.enabled .Values.ui.tls.selfSignedCert)
+       (and .Values.ui.enabled .Values.ui.ingress.enabled .Values.ui.ingress.tls.enabled .Values.ui.ingress.tls.selfSignedCert) }}
+{{- include "magos.validate" . -}}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: magos-selfsigned-cert-issuer
+  namespace: {{ .Release.Namespace }}
+spec:
+  selfSigned: {}
+{{- end }}
