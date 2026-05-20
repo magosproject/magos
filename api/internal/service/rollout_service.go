@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
@@ -31,7 +32,7 @@ type rolloutService struct {
 	events   *Broadcaster[RolloutEvent]
 }
 
-func NewRolloutService(logger *slog.Logger, factory externalversions.SharedInformerFactory) RolloutService {
+func NewRolloutService(logger *slog.Logger, factory externalversions.SharedInformerFactory) (RolloutService, error) {
 	rolloutInformer := factory.Magosproject().V1alpha1().Rollouts()
 
 	svc := &rolloutService{
@@ -41,7 +42,7 @@ func NewRolloutService(logger *slog.Logger, factory externalversions.SharedInfor
 		events:   NewBroadcaster[RolloutEvent](),
 	}
 
-	rolloutInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err := rolloutInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			svc.events.Send(RolloutEvent{Type: watch.Added, Object: obj.(*apiv1alpha1.Rollout)})
 		},
@@ -62,9 +63,11 @@ func NewRolloutService(logger *slog.Logger, factory externalversions.SharedInfor
 			}
 			svc.events.Send(RolloutEvent{Type: watch.Deleted, Object: rollout})
 		},
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("register rollout event handler: %w", err)
+	}
 
-	return svc
+	return svc, nil
 }
 
 func (s *rolloutService) HasSynced() bool {
