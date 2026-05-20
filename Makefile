@@ -111,18 +111,18 @@ deps:
 # TODO: currently all logs go to 1 stdout stream, consider using a tmux set-up or other solution?
 .PHONY: run
 run: deps manifests generate fmt vet install-local-chart ## Run all components in parallel.
-	@$(KUBECTL) -n default wait deployment/magos-rustfs --for=condition=available --timeout=60s
-	@$(KUBECTL) -n default rollout status statefulset/magos-postgres --timeout=90s
+	@$(KUBECTL) -n magos-system wait deployment/magos-rustfs --for=condition=available --timeout=60s
+	@$(KUBECTL) -n magos-system rollout status statefulset/magos-postgres --timeout=90s
 	@trap 'kill 0' EXIT; \
 	export MAGOS_LOGS_S3_ENDPOINT="http://127.0.0.1:$(RUSTFS_S3_PORT)"; \
-	export MAGOS_LOGS_S3_ACCESS_KEY_ID="$$($(KUBECTL) -n default get secret magos-rustfs -o jsonpath='{.data.accessKey}' | base64 -d)"; \
-	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$$($(KUBECTL) -n default get secret magos-rustfs -o jsonpath='{.data.secretKey}' | base64 -d)"; \
+	export MAGOS_LOGS_S3_ACCESS_KEY_ID="$$($(KUBECTL) -n magos-system get secret magos-rustfs -o jsonpath='{.data.accessKey}' | base64 -d)"; \
+	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$$($(KUBECTL) -n magos-system get secret magos-rustfs -o jsonpath='{.data.secretKey}' | base64 -d)"; \
 	export MAGOS_LOGS_API_URL="http://127.0.0.1:8080"; \
 	export MAGOS_POSTGRES_HOST="127.0.0.1"; \
 	export MAGOS_POSTGRES_PORT="$(POSTGRES_PORT)"; \
 	export MAGOS_POSTGRES_DATABASE="magos"; \
 	export MAGOS_POSTGRES_USER="magos"; \
-	export MAGOS_POSTGRES_PASSWORD="$$($(KUBECTL) -n default get secret magos-postgres -o jsonpath='{.data.password}' | base64 -d)"; \
+	export MAGOS_POSTGRES_PASSWORD="$$($(KUBECTL) -n magos-system get secret magos-postgres -o jsonpath='{.data.password}' | base64 -d)"; \
 	export MAGOS_POSTGRES_SSLMODE="disable"; \
 	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
 	$(MAKE) -s run-api & \
@@ -235,8 +235,9 @@ install: manifests install-local-chart ## Install local development dependencies
 
 .PHONY: install-local-chart
 install-local-chart: ## Install or upgrade the local development chart in default.
+	$(KUBECTL) get namespace magos-system >/dev/null 2>&1 || $(KUBECTL) create namespace magos-system
 	$(HELM) upgrade --install magos charts/magos/ \
-		--namespace default \
+		--namespace magos-system \
 		--values hack/local-values.yaml \
 		--wait --timeout=5m
 
