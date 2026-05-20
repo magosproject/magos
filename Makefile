@@ -6,7 +6,28 @@ UI_IMG ?= ui:$(TAG)
 API_IMG ?= magos-api:$(TAG)
 RUSTFS_S3_PORT ?= 9000
 POSTGRES_PORT ?= 15432
-LOCAL_VALUES ?= hack/local-values.yaml
+LOCAL_NAMESPACE ?= magos-system
+LOCAL_HELM_SET_ARGS = \
+	--set-string image.repository=controller \
+	--set-string image.tag=$(TAG) \
+	--set image.pullPolicy=Never \
+	--set-string jobImage.repository=magos-job \
+	--set-string jobImage.tag=$(TAG) \
+	--set jobImage.pullPolicy=Never \
+	--set ui.enabled=false \
+	--set api.enabled=false \
+	--set controllers.workspace.enabled=false \
+	--set controllers.project.enabled=false \
+	--set controllers.rollout.enabled=false \
+	--set controllers.variableset.enabled=false \
+	--set controllers.refwatcher.enabled=false \
+	--set-string logs.storage.embedded.secret.name=magos-dev-rustfs \
+	--set-string logs.storage.embedded.service.type=NodePort \
+	--set logs.storage.embedded.service.nodePort=31900 \
+	--set-string logs.storage.embedded.persistence.size=1Gi \
+	--set-string postgres.embedded.auth.secret.name=magos-dev-postgres \
+	--set-string postgres.embedded.service.type=NodePort \
+	--set postgres.embedded.service.nodePort=31432
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -112,18 +133,18 @@ deps:
 # TODO: currently all logs go to 1 stdout stream, consider using a tmux set-up or other solution?
 .PHONY: run
 run: deps manifests generate fmt vet install-local-chart ## Run all components in parallel.
-	@$(KUBECTL) wait deployment/magos-rustfs --for=condition=available --timeout=60s
-	@$(KUBECTL) rollout status statefulset/magos-postgres --timeout=90s
+	@$(KUBECTL) -n $(LOCAL_NAMESPACE) wait deployment/magos-rustfs --for=condition=available --timeout=60s
+	@$(KUBECTL) -n $(LOCAL_NAMESPACE) rollout status statefulset/magos-postgres --timeout=90s
 	@trap 'kill 0' EXIT; \
 	export MAGOS_LOGS_S3_ENDPOINT="http://127.0.0.1:$(RUSTFS_S3_PORT)"; \
-	export MAGOS_LOGS_S3_ACCESS_KEY_ID="$$($(KUBECTL) get secret magos-dev-rustfs -o jsonpath='{.data.accessKey}' | base64 -d)"; \
-	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$$($(KUBECTL) get secret magos-dev-rustfs -o jsonpath='{.data.secretKey}' | base64 -d)"; \
+	export MAGOS_LOGS_S3_ACCESS_KEY_ID="$$($(KUBECTL) -n $(LOCAL_NAMESPACE) get secret magos-dev-rustfs -o jsonpath='{.data.accessKey}' | base64 -d)"; \
+	export MAGOS_LOGS_S3_SECRET_ACCESS_KEY="$$($(KUBECTL) -n $(LOCAL_NAMESPACE) get secret magos-dev-rustfs -o jsonpath='{.data.secretKey}' | base64 -d)"; \
 	export MAGOS_LOGS_API_URL="http://127.0.0.1:8080"; \
 	export MAGOS_POSTGRES_HOST="127.0.0.1"; \
 	export MAGOS_POSTGRES_PORT="$(POSTGRES_PORT)"; \
 	export MAGOS_POSTGRES_DATABASE="magos"; \
 	export MAGOS_POSTGRES_USER="magos"; \
-	export MAGOS_POSTGRES_PASSWORD="$$($(KUBECTL) get secret magos-dev-postgres -o jsonpath='{.data.password}' | base64 -d)"; \
+	export MAGOS_POSTGRES_PASSWORD="$$($(KUBECTL) -n $(LOCAL_NAMESPACE) get secret magos-dev-postgres -o jsonpath='{.data.password}' | base64 -d)"; \
 	export MAGOS_POSTGRES_SSLMODE="disable"; \
 	$(MAKE) -s run-controller ARGS="$(ARGS)" & \
 	$(MAKE) -s run-api & \
@@ -235,11 +256,14 @@ install: manifests install-local-chart ## Install local development dependencies
 	$(KUBECTL) apply -f charts/magos/resources/crds/
 
 .PHONY: install-local-chart
-install-local-chart: ## Install the local development chart render.
-	$(KUBECTL) create ns magos-system
-	$(KUBECTL) apply -f hack/dev-postgres-secret.yaml
-	$(KUBECTL) apply -f hack/dev-rustfs-secret.yaml
-	$(HELM) template magos charts/magos/ --namespace default --values $(LOCAL_VALUES) | $(KUBECTL) apply -f -
+install-local-chart: ## Install or upgrade the local development chart in $(LOCAL_NAMESPACE).
+	@$(KUBECTL) get namespace $(LOCAL_NAMESPACE) >/dev/null 2>&1 || $(KUBECTL) create namespace $(LOCAL_NAMESPACE)
+	$(KUBECTL) -n $(LOCAL_NAMESPACE) apply -f hack/dev-postgres-secret.yaml
+	$(KUBECTL) -n $(LOCAL_NAMESPACE) apply -f hack/dev-rustfs-secret.yaml
+	$(HELM) upgrade --install magos charts/magos/ \
+		--namespace $(LOCAL_NAMESPACE) --create-namespace \
+		$(LOCAL_HELM_SET_ARGS) \
+		--wait --timeout=5m
 
 .PHONY: uninstall-validatingpolicy-crd
 uninstall-validatingpolicy-crd: ## Remove the Kyverno ValidatingPolicy CRD (skips when Kyverno is installed, as it owns the CRD).
