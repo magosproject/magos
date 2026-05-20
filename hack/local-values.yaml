@@ -1,0 +1,36 @@
+# Local development chart overlay used by `make run`.
+#
+# `make run` starts the API, UI, and controllers from the host, so the
+# in-cluster API/UI/controller workloads are disabled here. Embedded
+# Postgres and RustFS stay enabled and expose stable NodePorts that Kind
+# maps to localhost.
+api:
+  enabled: false
+
+ui:
+  enabled: false
+
+controllers:
+  workspace:
+    enabled: false
+  project:
+    enabled: false
+  rollout:
+    enabled: false
+  variableset:
+    enabled: false
+  refwatcher:
+    enabled: false
+
+logs:
+  storage:
+    embedded:
+      service:
+        type: NodePort
+        nodePort: 31900
+
+postgres:
+  embedded:
+    service:
+      type: NodePort
+      nodePort: 31432
