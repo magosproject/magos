@@ -92,10 +92,25 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) init(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, runSchema); err != nil {
-		return fmt.Errorf("initialize postgres run store schema: %w", err)
+	for _, stmt := range splitSQLStatements(runSchema) {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("initialize postgres run store schema: %w", err)
+		}
 	}
 	return nil
+}
+
+func splitSQLStatements(sqlText string) []string {
+	parts := strings.Split(sqlText, ";")
+	statements := make([]string, 0, len(parts))
+	for _, part := range parts {
+		stmt := strings.TrimSpace(part)
+		if stmt == "" {
+			continue
+		}
+		statements = append(statements, stmt)
+	}
+	return statements
 }
 
 func (s *Store) UpsertRun(ctx context.Context, namespace, workspace string, run v1alpha1.Run) error {

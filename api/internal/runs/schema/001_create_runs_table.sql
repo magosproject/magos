@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS runs (
 	plan JSONB,
 	apply JSONB,
 	PRIMARY KEY (namespace, workspace, run_id)
-)
+);
 
 CREATE INDEX IF NOT EXISTS idx_runs_workspace_sort
-	ON runs (namespace, workspace, sort_time DESC, run_id DESC)
+	ON runs (namespace, workspace, sort_time DESC, run_id DESC);
