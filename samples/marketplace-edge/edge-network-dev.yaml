@@ -1,16 +1,18 @@
 apiVersion: magosproject.io/v1alpha1
 kind: Workspace
 metadata:
-  name: vpc-dev
-  namespace: default
+  name: edge-network-dev
+  namespace: marketplace-edge
   labels:
+    app.kubernetes.io/part-of: marketplace-platform
+    app.kubernetes.io/managed-by: magos
     env: dev
   annotations:
-    magosproject.io/reconcile-interval: "120s"
+    magosproject.io/reconcile-interval: "1800s"
 spec:
   projectRef:
-    name: networking
-  serviceAccountName: magos-job
+    name: marketplace-edge
+  autoApply: true
   source:
     repoURL: https://github.com/magosproject/demo.git
     targetRevision: main

@@ -1,20 +1,18 @@
 apiVersion: magosproject.io/v1alpha1
 kind: Workspace
 metadata:
-  name: dns-staging
-  namespace: default
+  name: edge-network-staging
+  namespace: marketplace-edge
   labels:
+    app.kubernetes.io/part-of: marketplace-platform
+    app.kubernetes.io/managed-by: magos
     env: staging
   annotations:
-    magosproject.io/reconcile-interval: "120s"
+    magosproject.io/reconcile-interval: "1800s"
 spec:
   projectRef:
-    name: networking-with-policies
-  serviceAccountName: magos-job
-  validation:
-    policySelector:
-      matchLabels:
-        policy.magosproject.io/category: network-security
+    name: marketplace-edge
+  autoApply: true
   source:
     repoURL: https://github.com/magosproject/demo.git
     targetRevision: main

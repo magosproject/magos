@@ -1,0 +1,12 @@
+apiVersion: magosproject.io/v1alpha1
+kind: Project
+metadata:
+  name: money-movement
+  namespace: money-movement
+  labels:
+    app.kubernetes.io/part-of: money-movement-platform
+    app.kubernetes.io/managed-by: magos
+spec:
+  description: Money-movement and settlement infrastructure for rider charges and driver payouts.
+  variableSetRef:
+  - name: money-movement-shared

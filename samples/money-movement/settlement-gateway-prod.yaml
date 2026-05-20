@@ -1,20 +1,19 @@
 apiVersion: magosproject.io/v1alpha1
 kind: Workspace
 metadata:
-  name: load-balancer-prod
-  namespace: default
+  name: settlement-gateway-prod
+  namespace: money-movement
   labels:
+    app.kubernetes.io/part-of: money-movement-platform
+    app.kubernetes.io/managed-by: magos
     env: prod
+    service: settlement-gateway
   annotations:
-    magosproject.io/reconcile-interval: "120s"
+    magosproject.io/reconcile-interval: "1800s"
 spec:
   projectRef:
-    name: networking-with-failed-policies
-  serviceAccountName: magos-job
-  validation:
-    policySelector:
-      matchLabels:
-        policy.magosproject.io/category: network-security
+    name: money-movement
+  autoApply: false
   source:
     repoURL: https://github.com/magosproject/demo.git
     targetRevision: main

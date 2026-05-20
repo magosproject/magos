@@ -1,7 +1,0 @@
-apiVersion: magosproject.io/v1alpha1
-kind: Project
-metadata:
-  name: networking-with-rollout
-  namespace: default
-spec:
-  description: Cloud Networking Platform

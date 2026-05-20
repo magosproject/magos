@@ -46,16 +46,16 @@ make port-forward
 In another terminal, apply the sample resources:
 
 ```bash
-kubectl apply -f samples/
+kubectl apply -f samples/marketplace-edge/
+# or
+kubectl apply -f samples/money-movement/
 ```
 
 Observe what's running:
 
 ```bash
-kubectl get projects
-kubectl get workspaces
-kubectl get jobs
-kubectl get rollouts
+kubectl get projects,workspaces,rollouts -A
+kubectl get jobs -A
 ```
 
 Visit the Magos UI at `http://localhost:8080` to see your Workspaces in action.

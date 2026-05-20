@@ -1,0 +1,12 @@
+apiVersion: magosproject.io/v1alpha1
+kind: Project
+metadata:
+  name: marketplace-edge
+  namespace: marketplace-edge
+  labels:
+    app.kubernetes.io/part-of: marketplace-platform
+    app.kubernetes.io/managed-by: magos
+spec:
+  description: Edge networking and VPC infrastructure for the rider and driver marketplace.
+  variableSetRef:
+  - name: marketplace-edge-shared

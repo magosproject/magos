@@ -1,0 +1,22 @@
+apiVersion: magosproject.io/v1alpha1
+kind: VariableSet
+metadata:
+  name: money-movement-shared
+  namespace: money-movement
+  labels:
+    app.kubernetes.io/part-of: money-movement-platform
+    app.kubernetes.io/managed-by: magos
+spec:
+  description: Region, state-backend, and ledger-DB context shared by every money-movement workspace.
+  variables:
+  - name: aws_region
+    value: us-east-1
+  - name: terraform_state_bucket
+    value: money-movement-tfstate
+  - name: cost_center
+    value: cc-money-movement
+  - name: ledger_db_admin_password
+    valueFrom:
+      secretKeyRef:
+        name: money-movement-ledger-admin
+        key: password

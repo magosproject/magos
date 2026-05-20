@@ -1,0 +1,24 @@
+apiVersion: magosproject.io/v1alpha1
+kind: Rollout
+metadata:
+  name: money-movement
+  namespace: money-movement
+  labels:
+    app.kubernetes.io/part-of: money-movement-platform
+    app.kubernetes.io/managed-by: magos
+spec:
+  projectRef: money-movement
+  strategy:
+    steps:
+    - name: dev
+      selector:
+        matchLabels:
+          env: dev
+    - name: staging
+      selector:
+        matchLabels:
+          env: staging
+    - name: prod
+      selector:
+        matchLabels:
+          env: prod

@@ -1,0 +1,17 @@
+apiVersion: magosproject.io/v1alpha1
+kind: VariableSet
+metadata:
+  name: marketplace-edge-shared
+  namespace: marketplace-edge
+  labels:
+    app.kubernetes.io/part-of: marketplace-platform
+    app.kubernetes.io/managed-by: magos
+spec:
+  description: Region and provider context shared by every marketplace-edge workspace.
+  variables:
+  - name: aws_region
+    value: us-east-1
+  - name: terraform_state_bucket
+    value: marketplace-edge-tfstate
+  - name: cost_center
+    value: cc-marketplace
