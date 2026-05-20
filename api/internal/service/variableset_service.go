@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
@@ -31,7 +32,7 @@ type variableSetService struct {
 	events   *Broadcaster[VariableSetEvent]
 }
 
-func NewVariableSetService(logger *slog.Logger, factory externalversions.SharedInformerFactory) VariableSetService {
+func NewVariableSetService(logger *slog.Logger, factory externalversions.SharedInformerFactory) (VariableSetService, error) {
 	variableSetInformer := factory.Magosproject().V1alpha1().VariableSets()
 
 	svc := &variableSetService{
@@ -41,7 +42,7 @@ func NewVariableSetService(logger *slog.Logger, factory externalversions.SharedI
 		events:   NewBroadcaster[VariableSetEvent](),
 	}
 
-	variableSetInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err := variableSetInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			svc.events.Send(VariableSetEvent{Type: watch.Added, Object: obj.(*apiv1alpha1.VariableSet)})
 		},
@@ -62,9 +63,11 @@ func NewVariableSetService(logger *slog.Logger, factory externalversions.SharedI
 			}
 			svc.events.Send(VariableSetEvent{Type: watch.Deleted, Object: vs})
 		},
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("register variableset event handler: %w", err)
+	}
 
-	return svc
+	return svc, nil
 }
 
 func (s *variableSetService) HasSynced() bool {

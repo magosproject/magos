@@ -114,7 +114,7 @@ type workspaceService struct {
 	runStore RunStore
 }
 
-func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory, client versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runs RunStore) WorkspaceService {
+func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory, client versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runs RunStore) (WorkspaceService, error) {
 	workspaceInformer := factory.Magosproject().V1alpha1().Workspaces()
 
 	svc := &workspaceService{
@@ -128,7 +128,7 @@ func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInf
 		runStore: runs,
 	}
 
-	workspaceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err := workspaceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			svc.events.Send(WorkspaceEvent{Type: watch.Added, Object: obj.(*apiv1alpha1.Workspace)})
 		},
@@ -149,9 +149,11 @@ func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInf
 			}
 			svc.events.Send(WorkspaceEvent{Type: watch.Deleted, Object: workspace})
 		},
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("register workspace event handler: %w", err)
+	}
 
-	return svc
+	return svc, nil
 }
 
 func (s *workspaceService) HasSynced() bool {
@@ -429,7 +431,7 @@ func (s *workspaceService) findRunPod(ctx context.Context, namespace, workspaceN
 	}
 
 	sort.SliceStable(pods.Items, func(i, j int) bool {
-		return pods.Items[i].CreationTimestamp.Time.After(pods.Items[j].CreationTimestamp.Time)
+		return pods.Items[i].CreationTimestamp.After(pods.Items[j].CreationTimestamp.Time)
 	})
 
 	for i := range pods.Items {
