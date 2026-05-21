@@ -202,6 +202,10 @@ dev: generate ## Generate, build all images, load into kind, install/upgrade the
 	    --set api.image.tag=local --set api.image.pullPolicy=Never \
 	    --wait --timeout=5m
 
+.PHONY: run
+run: kind ## Install chart dependencies into kind and run the UI, API, and controllers locally in this terminal.
+	@KIND_CLUSTER=$(KIND_CLUSTER) KIND=$(KIND) KUBECTL=$(KUBECTL) HELM=$(HELM) CONTAINER_TOOL=$(CONTAINER_TOOL) JOB_IMG=$(JOB_IMG) bash ./hack/dev/run.sh
+
 .PHONY: port-forward
 port-forward: ## Port-forward the UI to localhost:8080 and the API to localhost:8081. Blocks until Ctrl-C.
 	@echo "UI:  http://localhost:8080"

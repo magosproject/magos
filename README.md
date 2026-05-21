@@ -31,19 +31,35 @@ Create a local Kind cluster:
 make kind-cluster
 ```
 
-Build all images, load them into the cluster, and install the chart:
+#### In-Cluster Flow
+
+Run the full stack in Kind:
 
 ```bash
 make dev
 ```
 
-Expose the UI and API to your browser:
+Expose the in-cluster UI and API locally:
 
 ```bash
 make port-forward
 ```
 
-In another terminal, apply the sample resources:
+Open the UI at `http://localhost:8080`.
+
+#### Hybrid Flow
+
+Keep Postgres, RustFS, CRDs, and job plumbing in Kind, but run the UI, API, and controllers locally in one terminal:
+
+```bash
+make run
+```
+
+Open the UI at `http://localhost:5173`. The local API listens on `http://localhost:8080`.
+
+#### Sample Resources
+
+In another terminal, apply one of the sample stacks:
 
 ```bash
 kubectl apply -f samples/marketplace-edge/
@@ -58,9 +74,9 @@ kubectl get projects,workspaces,rollouts -A
 kubectl get jobs -A
 ```
 
-Visit the Magos UI at `http://localhost:8080` to see your Workspaces in action.
+#### Tear Down
 
-Tear down:
+Uninstall Magos and delete the Kind cluster:
 
 ```bash
 make uninstall
