@@ -1,0 +1,105 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: approval-rejected
+spec:
+  description: |
+    Asserts that setting magosproject.io/approval-decision=rejected on a
+    parked Workspace moves it to phase Rejected with reason PlanRejected,
+    no Apply Job is created, and the decision annotation is consumed.
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Project
+          metadata:
+            name: reject-project
+          spec: {}
+    - apply:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: reject-ws
+            annotations:
+              magosproject.io/execution-allowed: "true"
+          spec:
+            projectRef:
+              name: reject-project
+            autoApply: false
+            source:
+              repoURL: https://example.invalid/repo.git
+              targetRevision: main
+              path: .
+            terraform:
+              version: "1.14.8"
+            serviceAccountName: magos-job
+    # Wait for the controller to create the plan Job.
+    - assert:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            labels:
+              magosproject.io/workspace: reject-ws
+              magosproject.io/job-type: plan
+    # Force the plan Job to terminal success.
+    - script:
+        content: |
+          set -euo pipefail
+          job_name=$(kubectl get jobs -n "$NAMESPACE" \
+            -l magosproject.io/workspace=reject-ws,magosproject.io/job-type=plan \
+            -o jsonpath='{.items[0].metadata.name}')
+          if [ -z "$job_name" ]; then
+            echo "plan job not found"
+            exit 1
+          fi
+          kubectl patch job "$job_name" -n "$NAMESPACE" \
+            --subresource=status --type merge \
+            -p '{"status":{"succeeded":1,"completionTime":"2026-05-21T00:00:00Z","conditions":[{"type":"Complete","status":"True","lastTransitionTime":"2026-05-21T00:00:00Z","reason":"Completed","message":"plan completed"}]}}'
+    # Without an approval annotation the Workspace must park in Planned.
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: reject-ws
+          status:
+            phase: Planned
+            reason: PlanSucceeded
+    # Reject via the decision annotation.
+    - script:
+        content: |
+          set -euo pipefail
+          kubectl annotate workspace reject-ws -n "$NAMESPACE" \
+            magosproject.io/approval-decision=rejected --overwrite
+    # The Workspace must move to Rejected with reason PlanRejected.
+    - assert:
+        resource:
+          apiVersion: magosproject.io/v1alpha1
+          kind: Workspace
+          metadata:
+            name: reject-ws
+          status:
+            phase: Rejected
+            reason: PlanRejected
+    # No Apply Job must exist for this workspace after rejection.
+    - error:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            labels:
+              magosproject.io/workspace: reject-ws
+              magosproject.io/job-type: apply
+    # The decision annotation must be consumed (deleted) by the controller.
+    - script:
+        content: |
+          set -euo pipefail
+          val=$(kubectl get workspace reject-ws -n "$NAMESPACE" \
+            -o jsonpath='{.metadata.annotations.magosproject\.io/approval-decision}')
+          if [ -n "$val" ]; then
+            echo "approval-decision annotation was not consumed; got: $val"
+            exit 1
+          fi

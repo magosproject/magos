@@ -175,7 +175,10 @@ func runTriggerFromReason(reason string) v1alpha1.RunTrigger {
 
 func terminalWorkspaceRunRecorded(phase v1alpha1.Phase) bool {
 	switch phase {
-	case v1alpha1.PhaseApplied, v1alpha1.PhaseFailed, v1alpha1.PhaseValidationFailed:
+	case v1alpha1.PhaseApplied,
+		v1alpha1.PhaseFailed,
+		v1alpha1.PhaseRejected,
+		v1alpha1.PhaseValidationFailed:
 		return true
 	default:
 		return false

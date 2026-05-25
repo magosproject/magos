@@ -10,11 +10,13 @@ import (
 	"io"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
 	listerv1alpha1 "github.com/magosproject/magos/api/internal/generated/listers/magosproject/v1alpha1"
+	"github.com/magosproject/magos/api/internal/runs"
 	"github.com/magosproject/magos/internal/logstore"
 	apiv1alpha1 "github.com/magosproject/magos/types/magosproject/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -64,6 +66,8 @@ type WorkspaceService interface {
 	Get(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
 	Patch(ctx context.Context, namespace, name string, patch WorkspacePatch) (*apiv1alpha1.Workspace, error)
 	RequestReconcile(ctx context.Context, namespace, name string) (*apiv1alpha1.Workspace, error)
+	Approve(ctx context.Context, namespace, name, runID, reason string) (*apiv1alpha1.Workspace, error)
+	Reject(ctx context.Context, namespace, name, runID, reason string) (*apiv1alpha1.Workspace, error)
 	ListRuns(ctx context.Context, namespace, name string, limit int, cursor string) (*RunListResponse, error)
 	GetRunPhaseLog(ctx context.Context, namespace, name, runID string, phase apiv1alpha1.RunPhase) (io.ReadCloser, error)
 	RecordRun(ctx context.Context, namespace, name string, run apiv1alpha1.Run) error
@@ -76,6 +80,8 @@ type RunStore interface {
 	UpsertRun(ctx context.Context, namespace, workspace string, run apiv1alpha1.Run) error
 	ListRuns(ctx context.Context, namespace, workspace string, limit int, cursor string) ([]apiv1alpha1.Run, string, error)
 	GetRunPhase(ctx context.Context, namespace, workspace, runID string, phase apiv1alpha1.RunPhase) (*apiv1alpha1.RunPhaseSummary, error)
+	RecordApproval(ctx context.Context, namespace, workspace, runID string, approval runs.RunApproval) error
+	GetApproval(ctx context.Context, namespace, workspace, runID string) (*runs.RunApproval, error)
 }
 
 type RunListResponse struct {
@@ -301,7 +307,87 @@ func (s *workspaceService) RecordRunPhase(ctx context.Context, namespace, name, 
 	return s.runStore.UpsertRun(ctx, namespace, name, run)
 }
 
+// Approve records an approval decision on the given run, then signals the
+// workspace controller by patching the decision annotation. The DB write
+// happens first so the audit row exists even if the K8s patch fails.
+func (s *workspaceService) Approve(
+	ctx context.Context,
+	namespace, name, runID, reason string,
+) (*apiv1alpha1.Workspace, error) {
+	return s.decide(ctx, namespace, name, runID, reason, apiv1alpha1.ApprovalDecisionApproved)
+}
+
+// Reject records a rejection decision on the given run. A reason is required.
+func (s *workspaceService) Reject(
+	ctx context.Context,
+	namespace, name, runID, reason string,
+) (*apiv1alpha1.Workspace, error) {
+	if strings.TrimSpace(reason) == "" {
+		return nil, ErrReasonRequired
+	}
+	return s.decide(ctx, namespace, name, runID, reason, apiv1alpha1.ApprovalDecisionRejected)
+}
+
+func (s *workspaceService) decide(
+	ctx context.Context,
+	namespace, name, runID, reason, decision string,
+) (*apiv1alpha1.Workspace, error) {
+	reason = strings.TrimSpace(reason)
+	if len(reason) > approvalReasonMaxLen {
+		return nil, ErrReasonTooLong
+	}
+
+	ws, err := s.Get(ctx, namespace, name)
+	if err != nil {
+		return nil, err
+	}
+	if !apiv1alpha1.IsApprovalPending(ws) {
+		return nil, ErrApprovalNotPending
+	}
+	if ws.Status.CurrentRunID != runID {
+		return nil, ErrRunIDMismatch
+	}
+
+	approval := runs.RunApproval{
+		Decision:  decision,
+		Reason:    reason,
+		DecidedAt: time.Now().UTC(),
+	}
+	if err := s.runStore.RecordApproval(ctx, namespace, name, runID, approval); err != nil {
+		return nil, err
+	}
+
+	annot := decision
+	patch := WorkspacePatch{
+		Metadata: &ObjectMetaPatch{
+			Annotations: map[string]*string{
+				apiv1alpha1.WorkspaceApprovalDecisionAnnotation: &annot,
+			},
+		},
+	}
+	return s.Patch(ctx, namespace, name, patch)
+}
+
 var errRunEnded = errors.New("run ended")
+
+var (
+	// ErrApprovalNotPending is returned when an approve or reject call lands
+	// on a workspace that is not currently waiting for a decision.
+	ErrApprovalNotPending = errors.New("workspace has no approval pending")
+
+	// ErrRunIDMismatch is returned when the supplied runID does not match
+	// the workspace's current run.
+	ErrRunIDMismatch = errors.New("runID does not match current run")
+
+	// ErrReasonRequired is returned when a reject call has no reason.
+	ErrReasonRequired = errors.New("reason is required for reject")
+
+	// ErrReasonTooLong is returned when the reason exceeds the maximum
+	// allowed length after trimming.
+	ErrReasonTooLong = errors.New("reason exceeds 1024 characters")
+)
+
+const approvalReasonMaxLen = 1024
 
 func (s *workspaceService) StreamCurrentRunLogs(ctx context.Context, namespace, name string) <-chan RunLogStreamEvent {
 	ch := make(chan RunLogStreamEvent)

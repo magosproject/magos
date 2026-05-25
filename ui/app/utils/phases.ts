@@ -11,12 +11,14 @@ export const PHASE = {
   Applied: "Applied",
   Failed: "Failed",
   ValidationFailed: "ValidationFailed",
+  Rejected: "Rejected",
   Deleting: "Deleting",
 } as const satisfies Record<string, Phase>;
 
 export const RECONCILABLE_PHASES = new Set<Phase>([
   PHASE.Applied,
   PHASE.Failed,
+  PHASE.Rejected,
   PHASE.ValidationFailed,
   PHASE.Idle,
 ]);
@@ -30,4 +32,16 @@ export const SPINNING_PHASES = new Set<Phase>([
 
 export function isPhase(value: string): value is Phase {
   return Object.values(PHASE).includes(value as Phase);
+}
+
+export function isApprovalPending(ws: {
+  spec?: { autoApply?: boolean };
+  status?: { phase?: string };
+  metadata?: { annotations?: Record<string, string | undefined> };
+}): boolean {
+  if (ws.spec?.autoApply) return false;
+  if (ws.status?.phase !== "Planned") return false;
+  const decision = ws.metadata?.annotations?.["magosproject.io/approval-decision"];
+  if (decision) return false;
+  return true;
 }

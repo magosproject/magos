@@ -12,6 +12,7 @@ export const statusColor: Record<Phase, string> = {
   Applied: "green",
   Failed: "red",
   ValidationFailed: "red",
+  Rejected: "red",
   Deleting: "orange",
 };
 

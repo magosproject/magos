@@ -17,6 +17,14 @@
                 },
                 "type": "object"
             },
+            "handlers.ApprovalDecisionRequest": {
+                "properties": {
+                    "reason": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handlers.ErrorResponse": {
                 "properties": {
                     "error": {
@@ -506,6 +514,7 @@
                     "Applied",
                     "Failed",
                     "ValidationFailed",
+                    "Rejected",
                     "Deleting"
                 ],
                 "type": "string",
@@ -520,6 +529,7 @@
                     "PhaseApplied",
                     "PhaseFailed",
                     "PhaseValidationFailed",
+                    "PhaseRejected",
                     "PhaseDeleting"
                 ]
             },
@@ -701,6 +711,9 @@
                     "apply": {
                         "$ref": "#/components/schemas/v1alpha1.RunPhaseSummary"
                     },
+                    "approval": {
+                        "$ref": "#/components/schemas/v1alpha1.RunApproval"
+                    },
                     "finishedAt": {
                         "description": "FinishedAt is when the last completed phase of this run finished.\n+optional",
                         "type": "string"
@@ -730,6 +743,21 @@
                     },
                     "trigger": {
                         "$ref": "#/components/schemas/v1alpha1.RunTrigger"
+                    }
+                },
+                "type": "object"
+            },
+            "v1alpha1.RunApproval": {
+                "description": "Approval, if present, captures the reviewer decision recorded by the API\nfor this run. Populated only for runs that went through a manual approval\nflow.\n+optional",
+                "properties": {
+                    "decided_at": {
+                        "type": "string"
+                    },
+                    "decision": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -1912,6 +1940,114 @@
                 ]
             }
         },
+        "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/approve": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Run ID",
+                        "in": "path",
+                        "name": "runID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handlers.ApprovalDecisionRequest",
+                                        "summary": "body",
+                                        "description": "Optional reason"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Optional reason"
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.Workspace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Approve a parked plan for a workspace",
+                "tags": [
+                    "Workspace"
+                ]
+            }
+        },
         "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/log": {
             "get": {
                 "parameters": [
@@ -1984,6 +2120,115 @@
                     }
                 },
                 "summary": "Get the archived log for one phase of a plan and apply run",
+                "tags": [
+                    "Workspace"
+                ]
+            }
+        },
+        "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/reject": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Run ID",
+                        "in": "path",
+                        "name": "runID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handlers.ApprovalDecisionRequest",
+                                        "summary": "body",
+                                        "description": "Reason (required)"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Reason (required)",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.Workspace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handlers.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Reject a parked plan for a workspace",
                 "tags": [
                     "Workspace"
                 ]

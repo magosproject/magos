@@ -450,8 +450,11 @@ func (r *RolloutReconciler) findRolloutsForWorkspace(ctx context.Context, o clie
 // This function is the Rollout controller's primary signal for deciding
 // whether a level has finished. It checks two things:
 //
-//  1. The Workspace must be in PhaseApplied, meaning its most recent apply
-//     Job succeeded.
+//  1. The Workspace must be in a terminal state for this revision. PhaseApplied
+//     is the happy path (the most recent apply Job succeeded). PhaseRejected is
+//     an alternate terminal state where a reviewer declined the parked plan.
+//     Both signal that this Workspace will not advance the current revision any
+//     further, so the Rollout queue should not block waiting on it.
 //  2. The detected-revision annotation must be absent. The RefWatcher sets
 //     this annotation when it discovers that a branch or tag now points to
 //     a new commit. The Workspace controller preserves the annotation
@@ -467,7 +470,13 @@ func (r *RolloutReconciler) findRolloutsForWorkspace(ctx context.Context, o clie
 // would cause us to incorrectly report the Workspace as fully applied and
 // advance the Rollout to the next level.
 func workspaceFullyApplied(ws *v1alpha1.Workspace) bool {
-	if ws.Status.Phase != v1alpha1.PhaseApplied {
+	// A workspace is done for rollout purposes when it has reached a terminal
+	// state for this revision. PhaseApplied is the happy path; PhaseRejected
+	// is a reviewer declining the parked plan. Both signal the rollout queue
+	// that this workspace will not advance the current revision any further.
+	switch ws.Status.Phase {
+	case v1alpha1.PhaseApplied, v1alpha1.PhaseRejected:
+	default:
 		return false
 	}
 	if ws.Annotations != nil {

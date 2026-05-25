@@ -82,14 +82,29 @@ func (r *WorkspaceReconciler) reconcileApplyJob(
 	return r.handleApplySuccess(ctx, workspace, rc)
 }
 
-// createApplyJobIfApproved checks for plan approval (autoApply or annotation)
-// and creates the Apply Job if approved. Parks the Workspace in Planned
-// phase otherwise and waits for an approval annotation to trigger a new reconcile.
+// createApplyJobIfApproved checks for a plan decision and acts on it.
 //
-// When we do have approval we remove the annotation before creating the
-// Job. This is important because annotations persist across reconciles. If
-// we left it in place and the spec changed later (producing a new plan),
-// that stale "approved" annotation would cause the new plan to be applied
+// Decision routing:
+//
+//   - magosproject.io/approval-decision=rejected: move the workspace to
+//     PhaseRejected, consume the decision and execution-lock annotations, and
+//     return without creating an apply job. PhaseRejected is terminal but
+//     restartable: a new commit detected by the RefWatcher or a manual
+//     reconcile request starts a fresh cycle.
+//
+//   - magosproject.io/approval-decision=approved: consume the annotation and
+//     proceed to create the Apply Job.
+//
+//   - spec.autoApply=true: proceed to create the Apply Job immediately without
+//     requiring any annotation.
+//
+//   - No decision, no autoApply: park the workspace in PhasePlanned and wait
+//     for a reviewer to set a decision annotation.
+//
+// Approval annotations are always consumed (deleted) before the Apply Job is
+// created. This is important because annotations persist across reconciles. If
+// we left a stale approved annotation in place and the spec changed later
+// (producing a new plan), that annotation would cause the new plan to be applied
 // without anyone actually reviewing it.
 func (r *WorkspaceReconciler) createApplyJobIfApproved(
 	ctx context.Context,
@@ -98,10 +113,36 @@ func (r *WorkspaceReconciler) createApplyJobIfApproved(
 ) error {
 	logger := log.FromContext(ctx)
 
-	isApproved := workspace.Spec.AutoApply
-	if workspace.Annotations != nil && workspace.Annotations[v1alpha1.WorkspaceApprovedAnnotation] == v1alpha1.AnnotationValueTrue {
-		isApproved = true
+	decision := ""
+	if workspace.Annotations != nil {
+		decision = workspace.Annotations[v1alpha1.WorkspaceApprovalDecisionAnnotation]
 	}
+
+	// Rejected: archive the plan logs, move to PhaseRejected, release the
+	// execution lock, and consume the decision annotation. No apply job.
+	if decision == v1alpha1.ApprovalDecisionRejected {
+		logger.Info("Plan rejected by reviewer", "workspace", workspace.Name)
+		if err := r.archiveRunLogs(ctx, workspace, rc.planJob, v1alpha1.RunPhasePlan, v1alpha1.RunLogResultSucceeded); err != nil {
+			logger.Error(err, "Failed to archive plan logs after rejection", "job", rc.planJobName)
+		}
+		r.updateStatus(ctx, workspace,
+			v1alpha1.PhaseRejected,
+			"PlanRejected",
+			"Plan was rejected. See run history for details.",
+			metav1.ConditionFalse,
+		)
+		if err := r.deleteAnnotations(ctx, workspace,
+			v1alpha1.WorkspaceApprovalDecisionAnnotation,
+			v1alpha1.WorkspaceExecutionAllowedAnnotation,
+			v1alpha1.WorkspaceReconcileRequestAnnotation,
+		); err != nil {
+			logger.Error(err, "Failed to consume rejection annotations via Patch")
+			return err
+		}
+		return nil
+	}
+
+	isApproved := workspace.Spec.AutoApply || decision == v1alpha1.ApprovalDecisionApproved
 
 	if !isApproved {
 		logger.Info("Workspace has planned successfully, but is pending approval to apply", "workspace", workspace.Name)
@@ -114,13 +155,13 @@ func (r *WorkspaceReconciler) createApplyJobIfApproved(
 		return nil
 	}
 
-	// Remove the approval annotation before creating the Job. See the
-	// comment above for why leaving it around would be dangerous.
-	if workspace.Annotations != nil && workspace.Annotations[v1alpha1.WorkspaceApprovedAnnotation] != "" {
+	// Remove any approval annotations before creating the Job. See the
+	// comment above for why leaving them around would be dangerous.
+	if workspace.Annotations != nil && workspace.Annotations[v1alpha1.WorkspaceApprovalDecisionAnnotation] != "" {
 		patch := client.MergeFrom(workspace.DeepCopy())
-		delete(workspace.Annotations, v1alpha1.WorkspaceApprovedAnnotation)
+		delete(workspace.Annotations, v1alpha1.WorkspaceApprovalDecisionAnnotation)
 		if err := r.Patch(ctx, workspace, patch); err != nil {
-			logger.Error(err, "Failed to consume approval annotation via Patch")
+			logger.Error(err, "Failed to consume approval annotations via Patch")
 			return err
 		}
 	}

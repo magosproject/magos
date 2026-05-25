@@ -27,8 +27,19 @@ const (
 	// WorkspaceFinalizerName is the finalizer added to Workspace resources
 	WorkspaceFinalizerName = "magosproject.io/finalizer"
 
-	// WorkspaceApprovedAnnotation is the annotation used to approve a workspace run
-	WorkspaceApprovedAnnotation = "magosproject.io/approved"
+	// WorkspaceApprovalDecisionAnnotation carries the decision (approved or
+	// rejected) from the API to the workspace controller.
+	WorkspaceApprovalDecisionAnnotation = "magosproject.io/approval-decision"
+
+	// ApprovalDecisionApproved is the value written to
+	// WorkspaceApprovalDecisionAnnotation when the user approves the parked
+	// plan.
+	ApprovalDecisionApproved = "approved"
+
+	// ApprovalDecisionRejected is the value written to
+	// WorkspaceApprovalDecisionAnnotation when the user rejects the parked
+	// plan. The workspace controller moves the workspace to PhaseRejected.
+	ApprovalDecisionRejected = "rejected"
 
 	// WorkspaceExecutionAllowedAnnotation is set to "true" by the Rollout
 	// controller when it is this Workspace's turn to execute. The Workspace
@@ -378,6 +389,18 @@ type Run struct {
 	// supposed to start, separately from when the plan job actually started.
 	// +optional
 	ScheduledAt *metav1.Time `json:"scheduledAt,omitempty"`
+	// Approval, if present, captures the reviewer decision recorded by the API
+	// for this run. Populated only for runs that went through a manual approval
+	// flow.
+	// +optional
+	Approval *RunApproval `json:"approval,omitempty"`
+}
+
+// RunApproval is the audit record of a reviewer decision on a parked plan.
+type RunApproval struct {
+	Decision  string      `json:"decision"`
+	Reason    string      `json:"reason,omitempty"`
+	DecidedAt metav1.Time `json:"decided_at"`
 }
 
 // +genclient

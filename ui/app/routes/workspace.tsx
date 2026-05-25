@@ -12,6 +12,7 @@ import ProjectLineageGraph from "../components/ProjectLineageGraph";
 import WorkspaceRunHistory from "../components/WorkspaceRunHistory";
 import WorkspaceLiveConsole from "../components/WorkspaceLiveConsole";
 import WorkspaceOverview from "../components/WorkspaceOverview";
+import WorkspaceApprovalBanner from "../components/WorkspaceApprovalBanner";
 import { apiUrl } from "../api/base";
 import apiClient from "../api/client";
 import type { Phase, Workspace as WorkspaceType } from "../api/types";
@@ -209,6 +210,8 @@ export default function Workspace() {
 
         <Tabs.Panel value="runs" pt="md">
           <Stack gap="lg">
+            <WorkspaceApprovalBanner workspace={ws} />
+
             {namespace && name && (
               <WorkspaceLiveConsole
                 namespace={namespace}
