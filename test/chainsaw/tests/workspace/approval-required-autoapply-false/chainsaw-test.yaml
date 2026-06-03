@@ -56,9 +56,17 @@ spec:
             echo "plan job not found"
             exit 1
           fi
+          # completionTime must be >= the Job's real startTime, and recent
+          # Kubernetes requires a SuccessCriteriaMet=True condition before
+          # Complete=True. Reuse the actual startTime (equal is allowed) so the
+          # patch stays valid regardless of when the test runs.
+          start=$(kubectl get job "$job_name" -n "$NAMESPACE" -o jsonpath='{.status.startTime}')
+          if [ -z "$start" ]; then
+            start=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          fi
           kubectl patch job "$job_name" -n "$NAMESPACE" \
             --subresource=status --type merge \
-            -p '{"status":{"succeeded":1,"completionTime":"2026-05-21T00:00:00Z","conditions":[{"type":"Complete","status":"True","lastTransitionTime":"2026-05-21T00:00:00Z","reason":"Completed","message":"plan completed"}]}}'
+            -p "{\"status\":{\"succeeded\":1,\"completionTime\":\"${start}\",\"conditions\":[{\"type\":\"SuccessCriteriaMet\",\"status\":\"True\",\"lastTransitionTime\":\"${start}\",\"reason\":\"CompletionsReached\",\"message\":\"plan completed\"},{\"type\":\"Complete\",\"status\":\"True\",\"lastTransitionTime\":\"${start}\",\"reason\":\"CompletionsReached\",\"message\":\"plan completed\"}]}}"
     # Without an approval annotation the Workspace must park in Planned.
     - assert:
         resource:
