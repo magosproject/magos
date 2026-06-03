@@ -42,6 +42,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	"github.com/magosproject/magos/internal/controller/index"
 	projectcontroller "github.com/magosproject/magos/internal/controller/project"
 	refwatchercontroller "github.com/magosproject/magos/internal/controller/refwatcher"
 	rolloutcontroller "github.com/magosproject/magos/internal/controller/rollout"
@@ -226,6 +227,18 @@ func main() {
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
+	}
+
+	// The Project and Rollout controllers list the Workspaces belonging to a
+	// Project on every reconcile. Register the spec.projectRef.name field index
+	// once so those lists use a field selector instead of scanning every
+	// Workspace in the namespace. Only register when a consumer is enabled to
+	// avoid starting a Workspace informer in processes that do not need one.
+	if enableProjectController || enableRolloutController {
+		if err := index.AddWorkspaceProjectRef(context.Background(), mgr.GetFieldIndexer()); err != nil {
+			setupLog.Error(err, "unable to register Workspace projectRef index")
+			os.Exit(1)
+		}
 	}
 
 	if enableWorkspaceController {

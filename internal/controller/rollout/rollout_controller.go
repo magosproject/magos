@@ -18,6 +18,7 @@ package rollout
 import (
 	"context"
 
+	"github.com/magosproject/magos/internal/controller/index"
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -151,24 +152,26 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 			return err
 		}
 
-		// List all Workspaces in the same namespace that match the step's
-		// label selector. This is a broad query; we filter by project below.
+		// List the Workspaces that match the step's label selector and belong
+		// to this Rollout's Project. The spec.projectRef.name field index
+		// (registered in main) scopes the query to this Project at the cache
+		// level, so the label selector cannot pull in identically-labelled
+		// Workspaces from other Projects and we avoid scanning the whole
+		// namespace.
 		var wsList v1alpha1.WorkspaceList
-		if err := r.List(ctx, &wsList, client.InNamespace(rollout.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		if err := r.List(ctx, &wsList,
+			client.InNamespace(rollout.Namespace),
+			client.MatchingLabelsSelector{Selector: selector},
+			client.MatchingFields{index.WorkspaceProjectRefField: rollout.Spec.ProjectRef},
+		); err != nil {
 			logger.Error(err, "Failed to list workspaces for step", "step", step.Name)
 			return err
 		}
 
-		// Filter Workspaces to only those belonging to this Rollout's
-		// Project. The label selector alone might match Workspaces from
-		// other Projects that happen to share the same labels.
-		var target []v1alpha1.Workspace
-		uids := make(map[types.UID]struct{})
-		for _, ws := range wsList.Items {
-			if ws.Spec.ProjectRef.Name == rollout.Spec.ProjectRef {
-				target = append(target, ws)
-				uids[ws.UID] = struct{}{}
-			}
+		target := wsList.Items
+		uids := make(map[types.UID]struct{}, len(target))
+		for _, ws := range target {
+			uids[ws.UID] = struct{}{}
 		}
 
 		// If no Workspaces match this step's selector, the Rollout cannot

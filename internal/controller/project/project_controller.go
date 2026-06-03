@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/magosproject/magos/internal/controller/index"
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -180,26 +181,22 @@ func (r *ProjectReconciler) reconcileProject(ctx context.Context, project *v1alp
 	// reference this Project and universally grants them execution permission
 	// by setting the execution-allowed annotation, allowing Terraform
 	// operations to proceed concurrently.
+	// The spec.projectRef.name field index (registered in main) scopes this
+	// list to the Workspaces that reference this Project, so the cache returns
+	// only the relevant objects instead of every Workspace in the namespace.
 	var workspaces v1alpha1.WorkspaceList
-	if err := r.List(ctx, &workspaces, client.InNamespace(project.Namespace)); err != nil {
+	if err := r.List(ctx, &workspaces,
+		client.InNamespace(project.Namespace),
+		client.MatchingFields{index.WorkspaceProjectRefField: project.Name},
+	); err != nil {
 		logger.Error(err, "Failed to list workspaces")
 		return err
 	}
 
-	// Count workspaces that reference this project for the gauge.
-	var wsCount float64
-	for i := range workspaces.Items {
-		if workspaces.Items[i].Spec.ProjectRef.Name == project.Name {
-			wsCount++
-		}
-	}
-	workspaceCount.WithLabelValues(project.Namespace, project.Name).Set(wsCount)
+	workspaceCount.WithLabelValues(project.Namespace, project.Name).Set(float64(len(workspaces.Items)))
 
 	for i := range workspaces.Items {
 		ws := &workspaces.Items[i]
-		if ws.Spec.ProjectRef.Name != project.Name {
-			continue
-		}
 
 		// Skip Workspaces that already have execution permission. Re-applying
 		// the permission would not change anything, but it would still result
