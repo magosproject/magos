@@ -81,6 +81,9 @@ func main() {
 	var enableRolloutController bool
 	var enableRefWatcherController bool
 
+	// Reconcile concurrency
+	var maxConcurrentReconciles int
+
 	// RefWatcher flags
 	var defaultPollInterval time.Duration
 	var refWatcherWorkerCount int
@@ -117,6 +120,8 @@ func main() {
 		"Enable the Rollout controller.")
 	flag.BoolVar(&enableRefWatcherController, "enable-refwatcher-controller", false,
 		"Enable the RefWatcher controller.")
+	flag.IntVar(&maxConcurrentReconciles, "max-concurrent-reconciles", 5,
+		"Maximum number of Workspaces, Projects, VariableSets, or Rollouts each controller reconciles in parallel.")
 	flag.DurationVar(&defaultPollInterval, "default-poll-interval", 30*time.Second,
 		"Default git remote poll interval for RefWatcher.")
 	flag.IntVar(&refWatcherWorkerCount, "worker-count", 20,
@@ -257,6 +262,7 @@ func main() {
 			setupLog.Error(err, "unable to construct Workspace controller")
 			os.Exit(1)
 		}
+		workspaceReconciler.MaxConcurrentReconciles = maxConcurrentReconciles
 		if err := workspaceReconciler.SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Workspace")
 			os.Exit(1)
@@ -266,8 +272,9 @@ func main() {
 
 	if enableProjectController {
 		if err := (&projectcontroller.ProjectReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
+			Client:                  mgr.GetClient(),
+			Scheme:                  mgr.GetScheme(),
+			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Project")
 			os.Exit(1)
@@ -277,8 +284,9 @@ func main() {
 
 	if enableVariableSetController {
 		if err := (&variablesetcontroller.VariableSetReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
+			Client:                  mgr.GetClient(),
+			Scheme:                  mgr.GetScheme(),
+			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "VariableSet")
 			os.Exit(1)
@@ -288,8 +296,9 @@ func main() {
 
 	if enableRolloutController {
 		if err := (&rolloutcontroller.RolloutReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
+			Client:                  mgr.GetClient(),
+			Scheme:                  mgr.GetScheme(),
+			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Rollout")
 			os.Exit(1)

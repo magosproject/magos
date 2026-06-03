@@ -19,6 +19,7 @@ import (
 	crand "crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
@@ -90,17 +91,37 @@ func computeNextReconcileTime(ws *v1alpha1.Workspace, existing *metav1.Time) (me
 	return metav1.NewTime(next), interval, due
 }
 
+// maxScheduleJitter caps the random delay added to a scheduled requeue.
+const maxScheduleJitter = 30 * time.Second
+
 // withScheduledRequeue keeps any deliberately shorter requeue while preventing
 // stale schedule durations from drifting after status update latency.
+//
+// When it adopts the scheduled interval it adds a small random jitter. Without
+// jitter, Workspaces created together (e.g. applied from one manifest) share an
+// identical cadence and reconcile in lockstep, producing a thundering herd
+// every interval. The jitter is purely additive so a Workspace never wakes
+// before its scheduled time and reconciles to a not-yet-due no-op.
 func withScheduledRequeue(res ctrl.Result, next time.Time) ctrl.Result {
 	scheduled := time.Until(next)
 	if scheduled <= 0 {
 		scheduled = time.Nanosecond
 	}
 	if res.RequeueAfter == 0 || res.RequeueAfter > scheduled {
-		res.RequeueAfter = scheduled
+		res.RequeueAfter = scheduled + scheduleJitter(scheduled)
 	}
 	return res
+}
+
+// scheduleJitter returns a random non-negative delay of up to 10% of the
+// scheduled interval, capped at maxScheduleJitter. It returns 0 for intervals
+// too short to meaningfully spread.
+func scheduleJitter(scheduled time.Duration) time.Duration {
+	span := min(scheduled/10, maxScheduleJitter)
+	if span <= 0 {
+		return 0
+	}
+	return time.Duration(rand.Int64N(int64(span)))
 }
 
 func newRunID() string {

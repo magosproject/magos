@@ -34,9 +34,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -61,6 +63,10 @@ type WorkspaceReconciler struct {
 	Clientset   kubernetes.Interface // for reading pod logs
 	LogStore    logstore.Store
 	RunRecorder RunRecorder
+
+	// MaxConcurrentReconciles bounds how many Workspaces this controller
+	// reconciles in parallel. Values below 1 are treated as 1.
+	MaxConcurrentReconciles int
 
 	jobResources   corev1.ResourceRequirements
 	defaultPVCSize string
@@ -297,8 +303,6 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Workspace", "name", workspace.Name, "namespace", workspace.Namespace)
 
-	defer r.trackActiveWorkspaces(ctx)
-
 	rc, err := r.newRunContext(ctx, workspace)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -346,21 +350,13 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	return ctrl.Result{}, r.reconcileApplyJob(ctx, workspace, rc)
 }
 
-func (r *WorkspaceReconciler) trackActiveWorkspaces(ctx context.Context) {
-	var allWorkspaces v1alpha1.WorkspaceList
-	if err := r.List(ctx, &allWorkspaces); err == nil {
-		var active float64
-		for _, ws := range allWorkspaces.Items {
-			if ws.Status.Phase == v1alpha1.PhasePlanning || ws.Status.Phase == v1alpha1.PhaseApplying {
-				active++
-			}
-		}
-		activeCount.Set(active)
-	}
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// The active-workspaces gauge is computed lazily at scrape time from the
+	// cache rather than recomputed on every reconcile, so reconcile cost stays
+	// independent of the total number of Workspaces.
+	metrics.Registry.MustRegister(newActiveWorkspacesCollector(r.Client))
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Workspace{}).
 		Owns(&batchv1.Job{}).
@@ -375,6 +371,7 @@ func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.findWorkspacesForVariableSet),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
+		WithOptions(controller.Options{MaxConcurrentReconciles: max(1, r.MaxConcurrentReconciles)}).
 		Named("workspace").
 		Complete(r)
 }
