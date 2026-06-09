@@ -280,7 +280,8 @@ export default function WorkspaceRunHistory({
   // navigation fast), fetch the first page on mount.
   useEffect(() => {
     if (!initialRuns) {
-      void refreshToLatest();
+      const timer = window.setTimeout(() => void refreshToLatest(), 0);
+      return () => window.clearTimeout(timer);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
