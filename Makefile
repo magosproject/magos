@@ -110,7 +110,7 @@ deps:
 ##                 Go handlers ──► OpenAPI spec           (swag)
 ##                 OpenAPI spec ──► TypeScript types       (openapi-typescript)
 .PHONY: generate
-generate: generate-controller generate-api-client generate-swagger generate-ui-types chart-docs ## Run full code generation pipeline (deepcopy, clients, OpenAPI, TS types, chart README).
+generate: manifests generate-controller generate-api-client generate-swagger generate-ui-types chart-docs ## Run full code generation pipeline (CRD/RBAC manifests, deepcopy, clients, OpenAPI, TS types, chart README).
 
 .PHONY: generate-controller
 generate-controller: controller-gen ## Generate deepcopy, conversion and defaulter functions.
@@ -201,6 +201,15 @@ dev: generate ## Generate, build all images, load into kind, install/upgrade the
 	    --set ui.image.tag=local --set ui.image.pullPolicy=Never \
 	    --set api.image.tag=local --set api.image.pullPolicy=Never \
 	    --wait --timeout=5m
+	# The :local tag is unchanged across rebuilds, so helm upgrade alone
+	# does not restart pods even when the image content changed. Force a
+	# rolling restart and wait for each deployment to converge so callers
+	# of `make dev` can rely on the new build being live when the target
+	# returns.
+	$(KUBECTL) -n magos-system rollout restart deployment -l app.kubernetes.io/instance=magos
+	@for d in $$($(KUBECTL) -n magos-system get deploy -l app.kubernetes.io/instance=magos -o jsonpath='{.items[*].metadata.name}'); do \
+	    $(KUBECTL) -n magos-system rollout status deployment/$$d --timeout=5m; \
+	done
 
 .PHONY: port-forward
 port-forward: ## Port-forward the UI to localhost:8080 and the API to localhost:8081. Blocks until Ctrl-C.

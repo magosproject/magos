@@ -30,6 +30,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -47,6 +48,10 @@ import (
 type VariableSetReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	// MaxConcurrentReconciles bounds how many VariableSets this controller
+	// reconciles in parallel. Values below 1 are treated as 1.
+	MaxConcurrentReconciles int
 }
 
 // +kubebuilder:rbac:groups=magosproject.io,resources=variablesets,verbs=get;list;watch;create;update;patch;delete
@@ -347,6 +352,7 @@ func (r *VariableSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.findVariableSetsForConfigMap),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
+		WithOptions(controller.Options{MaxConcurrentReconciles: max(1, r.MaxConcurrentReconciles)}).
 		Named("variableset").
 		Complete(r)
 }

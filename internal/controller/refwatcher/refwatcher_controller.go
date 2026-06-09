@@ -534,6 +534,17 @@ func (r *RefWatcherReconciler) pollRemote(ctx context.Context, key types.Namespa
 		return
 	}
 
+	// If the workspace is currently waiting for a reviewer decision, defer the
+	// patch. We deliberately do NOT update lastSHA. The next poll after the
+	// decision resolves still sees the diff and patches normally. This keeps a
+	// pending approval from being interrupted by upstream commits.
+	if v1alpha1.IsApprovalPending(workspace) {
+		logger.Info("Deferred patch, approval pending", "old", lastSHA, "new", newSHA)
+		pollTotal.WithLabelValues(key.Namespace, key.Name, "deferred").Inc()
+		r.reschedule(key, interval)
+		return
+	}
+
 	// Use MergeFrom so we only send the annotation diff, not the entire
 	// object. This avoids conflicts with concurrent updates to unrelated
 	// fields (e.g. the Workspace controller updating status).

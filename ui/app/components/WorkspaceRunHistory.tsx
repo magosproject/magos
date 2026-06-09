@@ -336,6 +336,7 @@ export default function WorkspaceRunHistory({
           { key: "revision", label: "Revision" },
           { key: "plan", label: "Plan" },
           { key: "apply", label: "Apply" },
+          { key: "decision", label: "Decision" },
         ]}
         rows={currentPage.items.map((run) => {
           const isFlashing = flashingIDs.has(run.runID ?? "");
@@ -365,6 +366,30 @@ export default function WorkspaceRunHistory({
               </Code>,
               <PhaseBadge key="plan" summary={run.plan} />,
               <PhaseBadge key="apply" summary={run.apply} />,
+              run.approval?.decision ? (
+                <Stack key="decision" gap={2}>
+                  <Badge
+                    size="sm"
+                    color={run.approval.decision === "rejected" ? "red" : "green"}
+                    variant="light"
+                    tt="none"
+                  >
+                    {run.approval.decision}
+                  </Badge>
+                  {run.approval.reason && (
+                    <Text size="xs" c="dimmed" fs="italic" lineClamp={1}>
+                      {run.approval.reason}
+                    </Text>
+                  )}
+                  {run.approval.decidedAt && (
+                    <Text size="xs" c="dimmed">
+                      {formatDateTime(run.approval.decidedAt)}
+                    </Text>
+                  )}
+                </Stack>
+              ) : (
+                <Text key="decision" size="sm" c="dimmed">—</Text>
+              ),
             ],
           };
         })}

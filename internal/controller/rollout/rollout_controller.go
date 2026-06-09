@@ -18,6 +18,7 @@ package rollout
 import (
 	"context"
 
+	"github.com/magosproject/magos/internal/controller/index"
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -28,6 +29,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -38,6 +40,10 @@ import (
 type RolloutReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	// MaxConcurrentReconciles bounds how many Rollouts this controller
+	// reconciles in parallel. Values below 1 are treated as 1.
+	MaxConcurrentReconciles int
 }
 
 // +kubebuilder:rbac:groups=magosproject.io,resources=rollouts,verbs=get;list;watch;create;update;patch;delete
@@ -146,24 +152,26 @@ func (r *RolloutReconciler) reconcileRollout(ctx context.Context, rollout *v1alp
 			return err
 		}
 
-		// List all Workspaces in the same namespace that match the step's
-		// label selector. This is a broad query; we filter by project below.
+		// List the Workspaces that match the step's label selector and belong
+		// to this Rollout's Project. The spec.projectRef.name field index
+		// (registered in main) scopes the query to this Project at the cache
+		// level, so the label selector cannot pull in identically-labelled
+		// Workspaces from other Projects and we avoid scanning the whole
+		// namespace.
 		var wsList v1alpha1.WorkspaceList
-		if err := r.List(ctx, &wsList, client.InNamespace(rollout.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		if err := r.List(ctx, &wsList,
+			client.InNamespace(rollout.Namespace),
+			client.MatchingLabelsSelector{Selector: selector},
+			client.MatchingFields{index.WorkspaceProjectRefField: rollout.Spec.ProjectRef},
+		); err != nil {
 			logger.Error(err, "Failed to list workspaces for step", "step", step.Name)
 			return err
 		}
 
-		// Filter Workspaces to only those belonging to this Rollout's
-		// Project. The label selector alone might match Workspaces from
-		// other Projects that happen to share the same labels.
-		var target []v1alpha1.Workspace
-		uids := make(map[types.UID]struct{})
-		for _, ws := range wsList.Items {
-			if ws.Spec.ProjectRef.Name == rollout.Spec.ProjectRef {
-				target = append(target, ws)
-				uids[ws.UID] = struct{}{}
-			}
+		target := wsList.Items
+		uids := make(map[types.UID]struct{}, len(target))
+		for _, ws := range target {
+			uids[ws.UID] = struct{}{}
 		}
 
 		// If no Workspaces match this step's selector, the Rollout cannot
@@ -450,8 +458,11 @@ func (r *RolloutReconciler) findRolloutsForWorkspace(ctx context.Context, o clie
 // This function is the Rollout controller's primary signal for deciding
 // whether a level has finished. It checks two things:
 //
-//  1. The Workspace must be in PhaseApplied, meaning its most recent apply
-//     Job succeeded.
+//  1. The Workspace must be in a terminal state for this revision. PhaseApplied
+//     is the happy path (the most recent apply Job succeeded). PhaseRejected is
+//     an alternate terminal state where a reviewer declined the parked plan.
+//     Both signal that this Workspace will not advance the current revision any
+//     further, so the Rollout queue should not block waiting on it.
 //  2. The detected-revision annotation must be absent. The RefWatcher sets
 //     this annotation when it discovers that a branch or tag now points to
 //     a new commit. The Workspace controller preserves the annotation
@@ -467,7 +478,13 @@ func (r *RolloutReconciler) findRolloutsForWorkspace(ctx context.Context, o clie
 // would cause us to incorrectly report the Workspace as fully applied and
 // advance the Rollout to the next level.
 func workspaceFullyApplied(ws *v1alpha1.Workspace) bool {
-	if ws.Status.Phase != v1alpha1.PhaseApplied {
+	// A workspace is done for rollout purposes when it has reached a terminal
+	// state for this revision. PhaseApplied is the happy path; PhaseRejected
+	// is a reviewer declining the parked plan. Both signal the rollout queue
+	// that this workspace will not advance the current revision any further.
+	switch ws.Status.Phase {
+	case v1alpha1.PhaseApplied, v1alpha1.PhaseRejected:
+	default:
 		return false
 	}
 	if ws.Annotations != nil {
@@ -488,6 +505,7 @@ func (r *RolloutReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.findRolloutsForWorkspace),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
+		WithOptions(controller.Options{MaxConcurrentReconciles: max(1, r.MaxConcurrentReconciles)}).
 		Named("rollout").
 		Complete(r)
 }

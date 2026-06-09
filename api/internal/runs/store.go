@@ -39,6 +39,9 @@ const (
 var (
 	ErrInvalidCursor = errors.New("invalid run list cursor")
 	ErrNotFound      = errors.New("run not found")
+	// ErrConflictingDecision is returned by RecordApproval when a different
+	// decision already exists for the same run.
+	ErrConflictingDecision = errors.New("approval decision conflicts with existing record")
 )
 
 //go:embed schema/001_create_runs_table.sql
@@ -47,12 +50,25 @@ var createRunsTableSchema string
 //go:embed schema/002_create_runs_workspace_sort_index.sql
 var createRunsWorkspaceSortIndexSchema string
 
+//go:embed schema/003_add_runs_approval.sql
+var addRunsApprovalSchema string
+
 type Config struct {
 	DatabaseURL string
 }
 
 type Store struct {
 	db *sql.DB
+}
+
+// RunApproval is the audit record stored on a run row when a reviewer approves
+// or rejects a parked plan. The DB shape uses time.Time; conversion to the
+// v1alpha1.RunApproval API shape (metav1.Time) happens at the ListRuns
+// boundary.
+type RunApproval struct {
+	Decision  string    `json:"decision"`
+	Reason    string    `json:"reason,omitempty"`
+	DecidedAt time.Time `json:"decided_at"`
 }
 
 type listCursor struct {
@@ -98,6 +114,7 @@ func (s *Store) init(ctx context.Context) error {
 	statements := []string{
 		createRunsTableSchema,
 		createRunsWorkspaceSortIndexSchema,
+		addRunsApprovalSchema,
 	}
 
 	for _, stmt := range statements {
@@ -187,7 +204,7 @@ func (s *Store) ListRuns(ctx context.Context, namespace, workspace string, limit
 	}
 
 	query := `
-		SELECT run_id, trigger, target_revision, observed_revision, started_at, finished_at, scheduled_at, sort_time, plan, apply
+		SELECT run_id, trigger, target_revision, observed_revision, started_at, finished_at, scheduled_at, sort_time, plan, apply, approval
 		FROM runs
 		WHERE namespace = $1 AND workspace = $2`
 	args := []any{namespace, workspace}
@@ -270,6 +287,7 @@ func scanRun(scanner interface {
 	var trigger string
 	var startedAt, finishedAt, scheduledAt sql.NullString
 	var plan, apply sql.NullString
+	var approvalRaw sql.NullString
 	var sortTime string
 	if err := scanner.Scan(
 		&run.ID,
@@ -282,6 +300,7 @@ func scanRun(scanner interface {
 		&sortTime,
 		&plan,
 		&apply,
+		&approvalRaw,
 	); err != nil {
 		return run, "", fmt.Errorf("scan run: %w", err)
 	}
@@ -310,7 +329,105 @@ func scanRun(scanner interface {
 	if err != nil {
 		return run, "", err
 	}
+	if approvalRaw.Valid && approvalRaw.String != "" {
+		var dbA RunApproval
+		if err := json.Unmarshal([]byte(approvalRaw.String), &dbA); err != nil {
+			return run, "", fmt.Errorf("decode approval: %w", err)
+		}
+		run.Approval = &v1alpha1.RunApproval{
+			Decision:  dbA.Decision,
+			Reason:    dbA.Reason,
+			DecidedAt: metav1.NewTime(dbA.DecidedAt),
+		}
+	}
 	return run, sortTime, nil
+}
+
+// RecordApproval writes the approval audit record onto an existing run row.
+// The write is idempotent for the same decision: a second call with the same
+// decision returns nil. A second call with a different decision returns
+// ErrConflictingDecision. The run row must already exist (the plan archive
+// path creates it) -- this method does not create rows.
+func (s *Store) RecordApproval(
+	ctx context.Context,
+	namespace, workspace, runID string,
+	approval RunApproval,
+) error {
+	if namespace == "" || workspace == "" || runID == "" {
+		return fmt.Errorf("namespace, workspace, and runID are required")
+	}
+	if approval.Decision != v1alpha1.ApprovalDecisionApproved &&
+		approval.Decision != v1alpha1.ApprovalDecisionRejected {
+		return fmt.Errorf("invalid decision %q", approval.Decision)
+	}
+
+	payload, err := json.Marshal(approval)
+	if err != nil {
+		return fmt.Errorf("marshal approval: %w", err)
+	}
+
+	const stmt = `
+UPDATE runs
+SET approval = $4::jsonb
+WHERE namespace = $1
+  AND workspace = $2
+  AND run_id    = $3
+  AND approval IS NULL
+`
+	res, err := s.db.ExecContext(ctx, stmt,
+		namespace, workspace, runID, payload,
+	)
+	if err != nil {
+		return fmt.Errorf("record approval: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("record approval rows affected: %w", err)
+	}
+	if affected == 1 {
+		return nil
+	}
+
+	existing, err := s.GetApproval(ctx, namespace, workspace, runID)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return ErrNotFound
+	}
+	if existing.Decision != approval.Decision {
+		return ErrConflictingDecision
+	}
+	return nil
+}
+
+// GetApproval returns the approval record for a run, or (nil, nil) when the
+// row exists but has no approval yet. Returns (nil, ErrNotFound) when the row
+// does not exist.
+func (s *Store) GetApproval(
+	ctx context.Context,
+	namespace, workspace, runID string,
+) (*RunApproval, error) {
+	const stmt = `
+SELECT approval
+FROM runs
+WHERE namespace = $1 AND workspace = $2 AND run_id = $3
+`
+	var raw sql.NullString
+	if err := s.db.QueryRowContext(ctx, stmt, namespace, workspace, runID).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get approval: %w", err)
+	}
+	if !raw.Valid || raw.String == "" {
+		return nil, nil
+	}
+	var out RunApproval
+	if err := json.Unmarshal([]byte(raw.String), &out); err != nil {
+		return nil, fmt.Errorf("unmarshal approval: %w", err)
+	}
+	return &out, nil
 }
 
 func encodeCursor(cursor listCursor) (string, error) {

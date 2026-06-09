@@ -145,6 +145,8 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/log", s.workspaceHandler.GetRunPhaseLog)
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/current/log/stream", s.workspaceHandler.StreamCurrentRunLog)
 	mux.HandleFunc("POST /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/reconcile", s.workspaceHandler.RequestReconcile)
+	mux.HandleFunc("POST /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/approve", s.workspaceHandler.ApproveRun)
+	mux.HandleFunc("POST /apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/reject", s.workspaceHandler.RejectRun)
 
 	// Internal log ingestion endpoint used by the workspace controller after
 	// archiving a completed phase log to RustFS.
