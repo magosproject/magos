@@ -29,14 +29,14 @@
     "simple-icons": "^16.23.0"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
+    "@eslint/js": "^9.39.4",
     "@react-router/dev": "7.17.0",
     "@types/node": "^25",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@typescript-eslint/eslint-plugin": "^8.61.0",
     "@typescript-eslint/parser": "^8.57.2",
-    "eslint": "^10.4.1",
+    "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
@@ -47,7 +47,7 @@
     "postcss-preset-mantine": "^1.18.0",
     "postcss-simple-vars": "^7.0.1",
     "prettier": "^3.8.4",
-    "typescript": "^6.0.3",
+    "typescript": "^5.9.3",
     "vite": "^8.0.16",
     "vite-tsconfig-paths": "^6.1.1"
   }
