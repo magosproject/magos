@@ -1858,7 +1858,7 @@ export interface components {
          *     +optional
          */
         "v1alpha1.RunApproval": {
-            decided_at?: string;
+            decidedAt?: string;
             decision?: string;
             reason?: string;
         };

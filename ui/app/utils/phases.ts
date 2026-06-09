@@ -40,8 +40,8 @@ export function isApprovalPending(ws: {
   metadata?: { annotations?: Record<string, string | undefined> };
 }): boolean {
   if (ws.spec?.autoApply) return false;
-  if (ws.status?.phase !== "Planned") return false;
-  const decision = ws.metadata?.annotations?.["magosproject.io/approval-decision"];
-  if (decision) return false;
+  if (ws.status?.phase !== PHASE.Planned) return false;
+  const annotations = ws.metadata?.annotations;
+  if (annotations && "magosproject.io/approval-decision" in annotations) return false;
   return true;
 }

@@ -750,7 +750,7 @@
             "v1alpha1.RunApproval": {
                 "description": "Approval, if present, captures the reviewer decision recorded by the API\nfor this run. Populated only for runs that went through a manual approval\nflow.\n+optional",
                 "properties": {
-                    "decided_at": {
+                    "decidedAt": {
                         "type": "string"
                     },
                     "decision": {

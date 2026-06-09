@@ -120,7 +120,7 @@ type workspaceService struct {
 	runStore RunStore
 }
 
-func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory, client versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runs RunStore) (WorkspaceService, error) {
+func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInformerFactory, client versioned.Interface, kube kubernetes.Interface, logs logstore.Store, runStore RunStore) (WorkspaceService, error) {
 	workspaceInformer := factory.Magosproject().V1alpha1().Workspaces()
 
 	svc := &workspaceService{
@@ -131,7 +131,7 @@ func NewWorkspaceService(logger *slog.Logger, factory externalversions.SharedInf
 		informer: workspaceInformer.Informer(),
 		events:   NewBroadcaster[WorkspaceEvent](),
 		logStore: logs,
-		runStore: runs,
+		runStore: runStore,
 	}
 
 	if _, err := workspaceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -244,12 +244,12 @@ func (s *workspaceService) ListRuns(ctx context.Context, namespace, name string,
 	if err != nil {
 		return nil, err
 	}
-	runs, nextCursor, err := s.runStore.ListRuns(ctx, workspace.Namespace, workspace.Name, limit, cursor)
+	items, nextCursor, err := s.runStore.ListRuns(ctx, workspace.Namespace, workspace.Name, limit, cursor)
 	if err != nil {
 		return nil, err
 	}
 	return &RunListResponse{
-		Items:      runs,
+		Items:      items,
 		NextCursor: nextCursor,
 	}, nil
 }

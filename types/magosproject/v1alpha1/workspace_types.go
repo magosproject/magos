@@ -400,7 +400,7 @@ type Run struct {
 type RunApproval struct {
 	Decision  string      `json:"decision"`
 	Reason    string      `json:"reason,omitempty"`
-	DecidedAt metav1.Time `json:"decided_at"`
+	DecidedAt metav1.Time `json:"decidedAt"`
 }
 
 // +genclient

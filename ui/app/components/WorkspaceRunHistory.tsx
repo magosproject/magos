@@ -381,9 +381,9 @@ export default function WorkspaceRunHistory({
                       {run.approval.reason}
                     </Text>
                   )}
-                  {run.approval.decided_at && (
+                  {run.approval.decidedAt && (
                     <Text size="xs" c="dimmed">
-                      {formatDateTime(run.approval.decided_at)}
+                      {formatDateTime(run.approval.decidedAt)}
                     </Text>
                   )}
                 </Stack>

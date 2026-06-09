@@ -372,10 +372,10 @@ SET approval = $4::jsonb
 WHERE namespace = $1
   AND workspace = $2
   AND run_id    = $3
-  AND (approval IS NULL OR approval->>'decision' = $5)
+  AND approval IS NULL
 `
 	res, err := s.db.ExecContext(ctx, stmt,
-		namespace, workspace, runID, payload, approval.Decision,
+		namespace, workspace, runID, payload,
 	)
 	if err != nil {
 		return fmt.Errorf("record approval: %w", err)

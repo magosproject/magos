@@ -48,7 +48,7 @@ spec:
     # Force the plan Job to terminal success.
     - script:
         content: |
-          set -euo pipefail
+          set -eu
           job_name=$(kubectl get jobs -n "$NAMESPACE" \
             -l magosproject.io/workspace=approve-ws,magosproject.io/job-type=plan \
             -o jsonpath='{.items[0].metadata.name}')
@@ -80,7 +80,7 @@ spec:
     # Approve via the decision annotation.
     - script:
         content: |
-          set -euo pipefail
+          set -eu
           kubectl annotate workspace approve-ws -n "$NAMESPACE" \
             magosproject.io/approval-decision=approved --overwrite
     # The controller consumes the annotation and creates the Apply Job.
@@ -104,7 +104,7 @@ spec:
     # The decision annotation must be consumed (deleted) by the controller.
     - script:
         content: |
-          set -euo pipefail
+          set -eu
           val=$(kubectl get workspace approve-ws -n "$NAMESPACE" \
             -o jsonpath='{.metadata.annotations.magosproject\.io/approval-decision}')
           if [ -n "$val" ]; then
