@@ -188,7 +188,7 @@ func (m *Manager) completeOIDC(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, redirectTo, http.StatusFound)
 }
 
-func (m *Manager) identityFromOIDCToken(ctx context.Context, token *oidc.IDToken) (Identity, error) {
+func (m *Manager) identityFromOIDCToken(_ context.Context, token *oidc.IDToken) (Identity, error) {
 	var claims oidcClaims
 	if err := token.Claims(&claims); err != nil {
 		return Identity{}, err

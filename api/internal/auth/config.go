@@ -49,18 +49,18 @@ type InternalConfig struct {
 
 func LoadConfigFromEnv() (Config, error) {
 	cfg := Config{
-		Enabled:        parseBoolEnv("MAGOS_AUTH_ENABLED", false),
+		Enabled:        parseBoolEnv("MAGOS_AUTH_ENABLED"),
 		BaseURL:        strings.TrimRight(os.Getenv("MAGOS_AUTH_BASE_URL"), "/"),
-		CookieSecure:   parseBoolEnv("MAGOS_AUTH_COOKIE_SECURE", false),
+		CookieSecure:   parseBoolEnv("MAGOS_AUTH_COOKIE_SECURE"),
 		AllowedOrigins: splitCSV(os.Getenv("MAGOS_AUTH_ALLOWED_ORIGINS")),
 		SessionTTL:     defaultSessionTTL,
 		SigningKey:     []byte(os.Getenv("MAGOS_AUTH_SESSION_SIGNING_KEY")),
 		Admin: AdminConfig{
-			Enabled:      parseBoolEnv("MAGOS_AUTH_ADMIN_ENABLED", false),
+			Enabled:      parseBoolEnv("MAGOS_AUTH_ADMIN_ENABLED"),
 			PasswordHash: os.Getenv("MAGOS_AUTH_ADMIN_PASSWORD_HASH"),
 		},
 		OIDC: OIDCConfig{
-			Enabled:          parseBoolEnv("MAGOS_AUTH_OIDC_ENABLED", false),
+			Enabled:          parseBoolEnv("MAGOS_AUTH_OIDC_ENABLED"),
 			IssuerURL:        strings.TrimRight(os.Getenv("MAGOS_AUTH_OIDC_ISSUER_URL"), "/"),
 			ClientID:         os.Getenv("MAGOS_AUTH_OIDC_CLIENT_ID"),
 			UsernameClaim:    firstNonEmpty(os.Getenv("MAGOS_AUTH_OIDC_USERNAME_CLAIM"), defaultUsernameClaim),
@@ -113,14 +113,10 @@ func (c Config) Validate() error {
 	return nil
 }
 
-func parseBoolEnv(name string, fallback bool) bool {
-	raw := os.Getenv(name)
-	if raw == "" {
-		return fallback
-	}
-	v, err := strconv.ParseBool(raw)
+func parseBoolEnv(name string) bool {
+	v, err := strconv.ParseBool(os.Getenv(name))
 	if err != nil {
-		return fallback
+		return false
 	}
 	return v
 }

@@ -111,21 +111,25 @@ component-level field is empty.
 
 ### API Parameters
 
-| Name                            | Description                                                   | Value  |
-| ------------------------------- | ------------------------------------------------------------- | ------ |
-| `auth.enabled`                  | Enable Magos API/UI authentication                            | `true` |
-| `api.enabled`                   | Deploy the Magos API server                                   | `true` |
-| `api.replicas`                  | Number of API pod replicas                                    | `1`    |
-| `api.topologySpreadConstraints` | Topology spread constraints for the API pods                  | `[]`   |
-| `api.labels`                    | Extra labels for the API Deployment                           | `{}`   |
-| `api.annotations`               | Extra annotations for the API Deployment                      | `{}`   |
-| `api.podLabels`                 | Extra labels for API pods                                     | `{}`   |
-| `api.podAnnotations`            | Extra annotations for API pods                                | `{}`   |
-| `api.env`                       | Additional environment variables for the API container        | `[]`   |
-| `api.envFrom`                   | Additional environment variable sources for the API container | `[]`   |
-| `api.nodeSelector`              | Node selector for API pods                                    | `{}`   |
-| `api.tolerations`               | Tolerations for API pods                                      | `[]`   |
-| `api.affinity`                  | Affinity rules for API pods                                   | `{}`   |
+| Name                            | Description                                                                                                                                        | Value   |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `auth.enabled`                  | Enable Magos API/UI authentication                                                                                                                 | `true`  |
+| `auth.admin.enabled`            | Enable the built-in `admin` account. Convenient for development but should be disabled in production in favour of OIDC (`auth.oidc.enabled=true`). | `true`  |
+| `auth.oidc.enabled`             | Enable OIDC authentication. Recommended for production instead of the built-in admin account.                                                      | `false` |
+| `auth.oidc.issuerURL`           | OIDC issuer URL (e.g. https://accounts.google.com)                                                                                                 | `""`    |
+| `auth.oidc.clientID`            | OIDC client ID                                                                                                                                     | `""`    |
+| `api.enabled`                   | Deploy the Magos API server                                                                                                                        | `true`  |
+| `api.replicas`                  | Number of API pod replicas                                                                                                                         | `1`     |
+| `api.topologySpreadConstraints` | Topology spread constraints for the API pods                                                                                                       | `[]`    |
+| `api.labels`                    | Extra labels for the API Deployment                                                                                                                | `{}`    |
+| `api.annotations`               | Extra annotations for the API Deployment                                                                                                           | `{}`    |
+| `api.podLabels`                 | Extra labels for API pods                                                                                                                          | `{}`    |
+| `api.podAnnotations`            | Extra annotations for API pods                                                                                                                     | `{}`    |
+| `api.env`                       | Additional environment variables for the API container                                                                                             | `[]`    |
+| `api.envFrom`                   | Additional environment variable sources for the API container                                                                                      | `[]`    |
+| `api.nodeSelector`              | Node selector for API pods                                                                                                                         | `{}`    |
+| `api.tolerations`               | Tolerations for API pods                                                                                                                           | `[]`    |
+| `api.affinity`                  | Affinity rules for API pods                                                                                                                        | `{}`    |
 
 ### Controllers Parameters
 
