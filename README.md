@@ -31,19 +31,36 @@ Create a local Kind cluster:
 make kind-cluster
 ```
 
-Build all images, load them into the cluster, and install the chart:
+#### In-Cluster Flow
+
+Run the full stack in Kind:
 
 ```bash
 make dev
 ```
 
-Expose the UI and API to your browser:
+Expose the in-cluster UI and API locally:
 
 ```bash
 make port-forward
 ```
 
-In another terminal, apply the sample resources:
+Open the UI at `http://localhost:8080`.
+
+#### UI Hot Reload Flow
+
+Keep the API, controllers, jobs, Postgres, and RustFS in Kind via the Helm chart, but run the React UI locally for hot reloading:
+
+```bash
+make run
+```
+
+This command rebuilds and deploys the in-cluster backend with the UI disabled, port-forwards the in-cluster API to `http://localhost:8080`, and starts the React dev server at `http://localhost:5173`.
+The Helm override for this flow lives in [hack/values.ui-hot-reload.yaml](hack/values.ui-hot-reload.yaml).
+
+#### Sample Resources
+
+In another terminal, apply one of the sample stacks:
 
 ```bash
 kubectl apply -f samples/marketplace-edge/
@@ -58,9 +75,9 @@ kubectl get projects,workspaces,rollouts -A
 kubectl get jobs -A
 ```
 
-Visit the Magos UI at `http://localhost:8080` to see your Workspaces in action.
+#### Tear Down
 
-Tear down:
+Uninstall Magos and delete the Kind cluster:
 
 ```bash
 make uninstall

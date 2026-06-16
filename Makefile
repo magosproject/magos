@@ -6,6 +6,11 @@ IMG ?= ghcr.io/magosproject/magos/controller:$(TAG)
 JOB_IMG ?= ghcr.io/magosproject/magos/job:$(TAG)
 UI_IMG ?= ghcr.io/magosproject/magos/ui:$(TAG)
 API_IMG ?= ghcr.io/magosproject/magos/api:$(TAG)
+MAGOS_NAMESPACE ?= magos-system
+MAGOS_RELEASE ?= magos
+MAGOS_API_PORT ?= 8080
+MAGOS_UI_PORT ?= 5173
+MAGOS_UI_HOT_RELOAD_VALUES ?= hack/values.ui-hot-reload.yaml
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -209,6 +214,54 @@ dev: generate ## Generate, build all images, load into kind, install/upgrade the
 	$(KUBECTL) -n magos-system rollout restart deployment -l app.kubernetes.io/instance=magos
 	@for d in $$($(KUBECTL) -n magos-system get deploy -l app.kubernetes.io/instance=magos -o jsonpath='{.items[*].metadata.name}'); do \
 	    $(KUBECTL) -n magos-system rollout status deployment/$$d --timeout=5m; \
+	done
+
+.PHONY: run
+run: generate ## Build all images, deploy the chart with the in-cluster UI disabled, and run the React UI locally.
+	@$(KIND) get clusters | grep -qx $(KIND_CLUSTER) || { \
+	    echo "ERROR: kind cluster '$(KIND_CLUSTER)' not found. Run 'make kind-cluster' first."; \
+	    exit 1; \
+	}
+	$(MAKE) docker-build
+	$(MAKE) kind-load
+	$(KUBECTL) get namespace $(MAGOS_NAMESPACE) >/dev/null 2>&1 || $(KUBECTL) create namespace $(MAGOS_NAMESPACE)
+	$(HELM) upgrade --install $(MAGOS_RELEASE) charts/magos/ \
+	    --namespace $(MAGOS_NAMESPACE) \
+	    -f $(MAGOS_UI_HOT_RELOAD_VALUES) \
+	    --set image.tag=local --set image.pullPolicy=Never \
+	    --set jobImage.tag=local --set jobImage.pullPolicy=Never \
+	    --set ui.image.tag=local --set ui.image.pullPolicy=Never \
+	    --set api.image.tag=local --set api.image.pullPolicy=Never \
+	    --wait --timeout=5m
+	$(KUBECTL) -n $(MAGOS_NAMESPACE) rollout restart deployment -l app.kubernetes.io/instance=$(MAGOS_RELEASE)
+	@for d in $$($(KUBECTL) -n $(MAGOS_NAMESPACE) get deploy -l app.kubernetes.io/instance=$(MAGOS_RELEASE) -o jsonpath='{.items[*].metadata.name}'); do \
+	    $(KUBECTL) -n $(MAGOS_NAMESPACE) rollout status deployment/$$d --timeout=5m; \
+	done
+	@echo "UI:  http://127.0.0.1:$(MAGOS_UI_PORT)"
+	@echo "API: http://127.0.0.1:$(MAGOS_API_PORT)"
+	@trap 'kill 0' EXIT; \
+	$(KUBECTL) -n $(MAGOS_NAMESPACE) port-forward svc/$(MAGOS_RELEASE)-api $(MAGOS_API_PORT):80 >/tmp/$(MAGOS_RELEASE)-api-port-forward.log 2>&1 & \
+	api_pf_pid=$$!; \
+	for _ in $$(seq 1 50); do \
+	    nc -z 127.0.0.1 $(MAGOS_API_PORT) >/dev/null 2>&1 && break; \
+	    sleep 0.2; \
+	done; \
+	nc -z 127.0.0.1 $(MAGOS_API_PORT) >/dev/null 2>&1 || { \
+	    echo "ERROR: timed out waiting for localhost:$(MAGOS_API_PORT)"; \
+	    exit 1; \
+	}; \
+	cd ui && npm run dev -- --host 127.0.0.1 --port $(MAGOS_UI_PORT) & \
+	ui_pid=$$!; \
+	while true; do \
+	    if ! kill -0 $$api_pf_pid >/dev/null 2>&1; then \
+	        wait $$api_pf_pid; \
+	        break; \
+	    fi; \
+	    if ! kill -0 $$ui_pid >/dev/null 2>&1; then \
+	        wait $$ui_pid; \
+	        break; \
+	    fi; \
+	    sleep 1; \
 	done
 
 .PHONY: port-forward
