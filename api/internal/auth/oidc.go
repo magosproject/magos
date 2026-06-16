@@ -22,7 +22,6 @@ type oidcStateClaims struct {
 	jwt.RegisteredClaims
 }
 
-type oidcClaims map[string]any
 
 func (m *Manager) oidcOAuthConfig() oauth2.Config {
 	scopes := []string{oidc.ScopeOpenID, "profile", "email"}
@@ -189,7 +188,7 @@ func (m *Manager) completeOIDC(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) identityFromOIDCToken(_ context.Context, token *oidc.IDToken) (Identity, error) {
-	var claims oidcClaims
+	var claims map[string]any
 	if err := token.Claims(&claims); err != nil {
 		return Identity{}, err
 	}
