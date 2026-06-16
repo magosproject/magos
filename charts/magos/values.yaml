@@ -190,6 +190,34 @@ ui:
 
 ## @section API Parameters
 
+auth:
+  ## @param auth.enabled Enable Magos API/UI authentication
+  enabled: true
+  ## @skip auth.secret
+  secret:
+    ## @skip auth.secret.name
+    name: ""
+    sessionSigningKeyKey: sessionSigningKey
+    internalTokenKey: internalToken
+    adminPasswordHashKey: adminPasswordHash
+  ## @skip auth.session
+  session:
+    ttl: 24h
+    cookieSecure: false
+    allowedOrigins: []
+  ## @skip auth.admin
+  admin:
+    enabled: true
+  ## @skip auth.oidc
+  oidc:
+    enabled: false
+    issuerURL: ""
+    clientID: ""
+    usernameClaim: email
+    groupsClaim: groups
+    additionalScopes:
+    - groups
+
 api:
   ## @param api.enabled Deploy the Magos API server
   enabled: true

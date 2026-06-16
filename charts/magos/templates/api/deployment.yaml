@@ -72,6 +72,53 @@ spec:
               resource: {{ include "magos.selectCpuResourceField" (dict "resources" .Values.api.resources) }}
         {{- include "magos.logstoreEnv" . | nindent 8 }}
         {{- include "magos.postgresEnv" . | nindent 8 }}
+        - name: MAGOS_AUTH_ENABLED
+          value: {{ .Values.auth.enabled | quote }}
+        - name: MAGOS_AUTH_BASE_URL
+          value: {{ include "magos.ui.baseURL" . | quote }}
+        - name: MAGOS_AUTH_COOKIE_SECURE
+          value: {{ or .Values.auth.session.cookieSecure (eq (include "magos.useTLS" .Values.ui) "true") | quote }}
+        - name: MAGOS_AUTH_SESSION_TTL
+          value: {{ .Values.auth.session.ttl | quote }}
+        {{- with .Values.auth.session.allowedOrigins }}
+        - name: MAGOS_AUTH_ALLOWED_ORIGINS
+          value: {{ join "," . | quote }}
+        {{- end }}
+        {{- if .Values.auth.enabled }}
+        - name: MAGOS_AUTH_SESSION_SIGNING_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "magos.authSecretName" . }}
+              key: {{ include "magos.authSessionSigningKeyKey" . }}
+        - name: MAGOS_AUTH_INTERNAL_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "magos.authSecretName" . }}
+              key: {{ include "magos.authInternalTokenKey" . }}
+        - name: MAGOS_AUTH_ADMIN_ENABLED
+          value: {{ .Values.auth.admin.enabled | quote }}
+        {{- if .Values.auth.admin.enabled }}
+        - name: MAGOS_AUTH_ADMIN_PASSWORD_HASH
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "magos.authSecretName" . }}
+              key: {{ include "magos.authAdminPasswordHashKey" . }}
+        {{- end }}
+        - name: MAGOS_AUTH_OIDC_ENABLED
+          value: {{ .Values.auth.oidc.enabled | quote }}
+        {{- if .Values.auth.oidc.enabled }}
+        - name: MAGOS_AUTH_OIDC_ISSUER_URL
+          value: {{ required "auth.oidc.issuerURL is required when auth.oidc.enabled=true" .Values.auth.oidc.issuerURL | quote }}
+        - name: MAGOS_AUTH_OIDC_CLIENT_ID
+          value: {{ required "auth.oidc.clientID is required when auth.oidc.enabled=true" .Values.auth.oidc.clientID | quote }}
+        - name: MAGOS_AUTH_OIDC_USERNAME_CLAIM
+          value: {{ .Values.auth.oidc.usernameClaim | quote }}
+        - name: MAGOS_AUTH_OIDC_GROUPS_CLAIM
+          value: {{ .Values.auth.oidc.groupsClaim | quote }}
+        - name: MAGOS_AUTH_OIDC_ADDITIONAL_SCOPES
+          value: {{ join "," .Values.auth.oidc.additionalScopes | quote }}
+        {{- end }}
+        {{- end }}
         {{- with (concat (default list .Values.global.env) (default list .Values.api.env)) }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

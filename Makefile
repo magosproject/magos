@@ -233,6 +233,16 @@ run: generate ## Build all images, deploy the chart with the in-cluster UI disab
 	    --set ui.image.tag=local --set ui.image.pullPolicy=Never \
 	    --set api.image.tag=local --set api.image.pullPolicy=Never \
 	    --wait --timeout=5m
+	@if $(KUBECTL) -n $(MAGOS_NAMESPACE) get secret $(MAGOS_RELEASE)-auth >/dev/null 2>&1; then \
+	    admin_password_b64="$$($(KUBECTL) -n $(MAGOS_NAMESPACE) get secret $(MAGOS_RELEASE)-auth -o jsonpath='{.data.adminPassword}' 2>/dev/null)"; \
+	    if [ -n "$$admin_password_b64" ]; then \
+	        admin_password="$$(printf '%s' "$$admin_password_b64" | base64 -d 2>/dev/null || printf '%s' "$$admin_password_b64" | base64 -D 2>/dev/null)"; \
+	        if [ -n "$$admin_password" ]; then \
+	            echo "Admin username: admin"; \
+	            echo "Admin password: $$admin_password"; \
+	        fi; \
+	    fi; \
+	fi
 	$(KUBECTL) -n $(MAGOS_NAMESPACE) rollout restart deployment -l app.kubernetes.io/instance=$(MAGOS_RELEASE)
 	@for d in $$($(KUBECTL) -n $(MAGOS_NAMESPACE) get deploy -l app.kubernetes.io/instance=$(MAGOS_RELEASE) -o jsonpath='{.items[*].metadata.name}'); do \
 	    $(KUBECTL) -n $(MAGOS_NAMESPACE) rollout status deployment/$$d --timeout=5m; \

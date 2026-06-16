@@ -20,6 +20,23 @@ NOTE: cert-manager CRDs must be installed in this cluster.
       ui.{tls,ingress.tls}.selfSignedCert=false and bring your own Secret.
 {{- end }}
 
+{{- if and .Values.auth.enabled .Values.auth.admin.enabled }}
+
+Authentication is enabled. The fallback admin username is:
+
+  admin
+
+{{- if .Values.auth.secret.name }}
+The admin password hash is read from Secret {{ .Values.auth.secret.name }} key {{ include "magos.authAdminPasswordHashKey" . }}.
+{{- else }}
+The generated admin password is stored in Secret {{ include "magos.authSecretName" . }}:
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "magos.authSecretName" . }} -o jsonpath='{.data.adminPassword}' | base64 -d
+
+For production, set auth.secret.name to a Secret you manage.
+{{- end }}
+{{- end }}
+
 {{- if eq (include "magos.postgresMode" .) "embedded" }}
 {{- if not .Values.postgres.embedded.auth.secret.name }}
 

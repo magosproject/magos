@@ -17,7 +17,9 @@ import (
 )
 
 const (
-	envLogsAPIURL = "MAGOS_LOGS_API_URL"
+	envLogsAPIURL          = "MAGOS_LOGS_API_URL"
+	envAuthInternalToken   = "MAGOS_AUTH_INTERNAL_TOKEN"
+	authorizationHeaderKey = "Authorization"
 )
 
 type RunRecorder interface {
@@ -26,8 +28,9 @@ type RunRecorder interface {
 }
 
 type HTTPRunRecorder struct {
-	baseURL string
-	client  *http.Client
+	baseURL       string
+	internalToken string
+	client        *http.Client
 }
 
 type recordRunPhaseRequest struct {
@@ -45,7 +48,8 @@ func NewHTTPRunRecorderFromEnv() (RunRecorder, error) {
 	}
 
 	return &HTTPRunRecorder{
-		baseURL: baseURL,
+		baseURL:       baseURL,
+		internalToken: os.Getenv(envAuthInternalToken),
 		client: &http.Client{
 			Timeout: 15 * time.Second,
 		},
@@ -81,6 +85,7 @@ func (r *HTTPRunRecorder) RecordRunPhase(ctx context.Context, namespace, workspa
 		return fmt.Errorf("create run phase record request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	r.setAuthHeader(req)
 
 	resp, err := r.client.Do(req)
 	if err != nil {
@@ -123,6 +128,7 @@ func (r *HTTPRunRecorder) RecordRun(ctx context.Context, namespace, workspace st
 		return fmt.Errorf("create run record request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	r.setAuthHeader(req)
 
 	resp, err := r.client.Do(req)
 	if err != nil {
@@ -136,4 +142,10 @@ func (r *HTTPRunRecorder) RecordRun(ctx context.Context, namespace, workspace st
 
 	responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
 	return fmt.Errorf("record run: status %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
+}
+
+func (r *HTTPRunRecorder) setAuthHeader(req *http.Request) {
+	if r.internalToken != "" {
+		req.Header.Set(authorizationHeaderKey, "Bearer "+r.internalToken)
+	}
 }

@@ -113,6 +113,7 @@ component-level field is empty.
 
 | Name                            | Description                                                   | Value  |
 | ------------------------------- | ------------------------------------------------------------- | ------ |
+| `auth.enabled`                  | Enable Magos API/UI authentication                            | `true` |
 | `api.enabled`                   | Deploy the Magos API server                                   | `true` |
 | `api.replicas`                  | Number of API pod replicas                                    | `1`    |
 | `api.topologySpreadConstraints` | Topology spread constraints for the API pods                  | `[]`   |

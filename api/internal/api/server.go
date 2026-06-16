@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/magosproject/magos/api/internal/api/handlers"
+	"github.com/magosproject/magos/api/internal/auth"
 	"github.com/magosproject/magos/api/internal/generated/clientset/versioned"
 	"github.com/magosproject/magos/api/internal/generated/informers/externalversions"
 	"github.com/magosproject/magos/api/internal/runs"
@@ -36,6 +37,7 @@ type Server struct {
 	workspaceHandler   *handlers.WorkspaceHandler
 	rolloutHandler     *handlers.RolloutHandler
 	variableSetHandler *handlers.VariableSetHandler
+	authManager        *auth.Manager
 }
 
 // NewServer creates a new API server with the given Kubernetes client.
@@ -59,6 +61,15 @@ func NewServer(logger *slog.Logger, vc versioned.Interface, kube kubernetes.Inte
 		return nil, fmt.Errorf("create variableset service: %w", err)
 	}
 
+	authCfg, err := auth.LoadConfigFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("load auth config: %w", err)
+	}
+	authManager, err := auth.NewManager(context.Background(), logger, authCfg, auth.AllowAuthenticatedAuthorizer{})
+	if err != nil {
+		return nil, fmt.Errorf("create auth manager: %w", err)
+	}
+
 	factory.Start(context.Background().Done())
 
 	return &Server{
@@ -67,6 +78,7 @@ func NewServer(logger *slog.Logger, vc versioned.Interface, kube kubernetes.Inte
 		workspaceHandler:   handlers.NewWorkspaceHandler(logger, workspaceSvc),
 		rolloutHandler:     handlers.NewRolloutHandler(logger, rolloutSvc),
 		variableSetHandler: handlers.NewVariableSetHandler(logger, variableSetSvc),
+		authManager:        authManager,
 	}, nil
 }
 
@@ -130,6 +142,7 @@ func (s *Server) Router() http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(swaggerUI)
 	})
+	s.authManager.RegisterRoutes(mux)
 
 	// Projects
 	mux.HandleFunc("GET /apis/magosproject.io/v1alpha1/projects", s.projectHandler.List)
@@ -165,6 +178,7 @@ func (s *Server) Router() http.Handler {
 
 	// Wrap with middleware
 	var handler http.Handler = mux
+	handler = s.authManager.Middleware(handler)
 	handler = s.loggingMiddleware(handler)
 	handler = s.recoveryMiddleware(handler)
 	handler = s.corsMiddleware(handler)
@@ -211,13 +225,20 @@ func (s *Server) recoveryMiddleware(next http.Handler) http.Handler {
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// TODO(anyone): figure out if it is a security concern to allow all origins
-		// my first intuition says it's fine for now especially since we're not storing any cookies/sessions in
-		// the browser and this will never run on a public domain anyways?
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if origin := r.Header.Get("Origin"); origin != "" {
+			// Authenticated browser requests use same-origin cookies. Do not combine
+			// credentialed sessions with wildcard CORS.
+			if s.authManager == nil || !s.authManager.Enabled() {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			} else if s.authManager.AllowsOrigin(origin) {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Add("Vary", "Origin")
+			}
+		}
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
