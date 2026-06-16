@@ -37,6 +37,20 @@ NOTE: For production, it is recommended to disable the admin account (auth.admin
       use OIDC instead (auth.oidc.enabled=true).
 {{- end }}
 
+{{- if and .Values.auth.enabled .Values.auth.oidc.enabled }}
+
+OIDC authentication is enabled (issuer: {{ .Values.auth.oidc.issuerURL }}).
+{{- if not .Values.auth.oidc.clientSecretRef.name }}
+
+NOTE: If your OIDC provider requires a client secret (e.g. Google "Web application"
+      client type), create a Secret and reference it:
+
+  kubectl -n {{ .Release.Namespace }} create secret generic magos-oidc-secret \
+    --from-literal=oidcClientSecret=<your-client-secret>
+
+  Then set auth.oidc.clientSecretRef.name=magos-oidc-secret when upgrading.
+{{- end }}
+{{- end }}
 {{- if eq (include "magos.postgresMode" .) "embedded" }}
 {{- if not .Values.postgres.embedded.auth.secret.name }}
 

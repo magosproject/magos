@@ -79,9 +79,15 @@ export default function Login() {
             <IconHexagon size={34} color="var(--mantine-color-magos-5)" stroke={2.5} />
             <Stack gap={0}>
               <Title order={2}>Sign in to Magos</Title>
-              <Text size="sm" c="dimmed">
-                Use SSO or the configured fallback admin account.
-              </Text>
+              {config && (
+                <Text size="sm" c="dimmed">
+                  {config.oidc.enabled && config.adminEnabled
+                    ? "Use SSO or the fallback admin account."
+                    : config.oidc.enabled
+                      ? "Use SSO to continue."
+                      : "Use the admin account to continue."}
+                </Text>
+              )}
             </Stack>
           </Group>
 

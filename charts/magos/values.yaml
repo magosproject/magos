@@ -193,6 +193,8 @@ ui:
 auth:
   ## @param auth.enabled Enable Magos API/UI authentication
   enabled: true
+  ## @param auth.baseURL Base URL of the Magos UI as seen by the browser (e.g. `https://magos.example.com`). Used to build the OIDC redirect URI. Defaults to the ingress/TLS URL when ingress is enabled, or `http://localhost` otherwise.
+  baseURL: ""
   secret:
     ## @param auth.secret.name Name of an existing Secret to use for auth credentials. When set, the chart does **not** generate a Secret. The Secret must contain the following keys: `sessionSigningKey` (random string ≥ 32 chars), `internalToken` (random string), and — when `auth.admin.enabled=true` — `adminPassword` and `adminPasswordHash` (bcrypt hash of the password).
     name: ""
@@ -213,6 +215,11 @@ auth:
     issuerURL: ""
     ## @param auth.oidc.clientID OIDC client ID
     clientID: ""
+    ## @param auth.oidc.clientSecretRef.name Name of an existing Secret containing the OIDC client secret. Required for providers that use the confidential client type (e.g. Google "Web application"). Leave empty for public clients (e.g. Google "Desktop app" type, or providers that support PKCE without a secret).
+    ## @param auth.oidc.clientSecretRef.key Key within the Secret that holds the client secret value.
+    clientSecretRef:
+      name: ""
+      key: "oidcClientSecret"
     ## @skip auth.oidc.usernameClaim
     usernameClaim: email
     ## @skip auth.oidc.groupsClaim

@@ -27,10 +27,11 @@ func (m *Manager) oidcOAuthConfig() oauth2.Config {
 	scopes := []string{oidc.ScopeOpenID, "profile", "email"}
 	scopes = append(scopes, m.cfg.OIDC.AdditionalScopes...)
 	return oauth2.Config{
-		ClientID:    m.cfg.OIDC.ClientID,
-		Endpoint:    m.provider.Endpoint(),
-		RedirectURL: m.baseURL() + "/auth/oidc/callback",
-		Scopes:      scopes,
+		ClientID:     m.cfg.OIDC.ClientID,
+		ClientSecret: m.cfg.OIDC.ClientSecret,
+		Endpoint:     m.provider.Endpoint(),
+		RedirectURL:  m.baseURL() + "/auth/oidc/callback",
+		Scopes:       scopes,
 	}
 }
 

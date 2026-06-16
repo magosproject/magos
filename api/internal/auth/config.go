@@ -37,6 +37,7 @@ type OIDCConfig struct {
 	Enabled          bool     `json:"enabled"`
 	IssuerURL        string   `json:"issuerUrl,omitempty"`
 	ClientID         string   `json:"clientId,omitempty"`
+	ClientSecret     string   `json:"-"`
 	UsernameClaim    string   `json:"usernameClaim,omitempty"`
 	GroupsClaim      string   `json:"groupsClaim,omitempty"`
 	AdditionalScopes []string `json:"additionalScopes,omitempty"`
@@ -63,6 +64,7 @@ func LoadConfigFromEnv() (Config, error) {
 			Enabled:          parseBoolEnv("MAGOS_AUTH_OIDC_ENABLED"),
 			IssuerURL:        strings.TrimRight(os.Getenv("MAGOS_AUTH_OIDC_ISSUER_URL"), "/"),
 			ClientID:         os.Getenv("MAGOS_AUTH_OIDC_CLIENT_ID"),
+			ClientSecret:     os.Getenv("MAGOS_AUTH_OIDC_CLIENT_SECRET"),
 			UsernameClaim:    firstNonEmpty(os.Getenv("MAGOS_AUTH_OIDC_USERNAME_CLAIM"), defaultUsernameClaim),
 			GroupsClaim:      firstNonEmpty(os.Getenv("MAGOS_AUTH_OIDC_GROUPS_CLAIM"), defaultGroupsClaim),
 			AdditionalScopes: splitCSV(os.Getenv("MAGOS_AUTH_OIDC_ADDITIONAL_SCOPES")),
