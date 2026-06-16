@@ -22,6 +22,7 @@ func NewVariableSetHandler(logger *slog.Logger, svc service.VariableSetService) 
 //
 //	@Summary	List VariableSet resources
 //	@Tags		VariableSet
+//	@Security	CookieAuth
 //	@Produce	json
 //	@Success	200	{array}		VariableSet
 //	@Failure	500	{object}	ErrorResponse
@@ -41,6 +42,7 @@ func (h *VariableSetHandler) List(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Get VariableSet resource
 //	@Tags		VariableSet
+//	@Security	CookieAuth
 //	@Produce	json
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
@@ -71,6 +73,7 @@ func (h *VariableSetHandler) Get(w http.ResponseWriter, r *http.Request) {
 //	@Summary		Stream VariableSet events
 //	@Description	Server-Sent Events stream of VariableSet changes. Each event is a JSON-encoded VariableSetEvent.
 //	@Tags			VariableSet
+//	@Security		CookieAuth
 //	@Produce		text/event-stream
 //	@Success		200	{object}	service.VariableSetEvent
 //	@Router			/apis/magosproject.io/v1alpha1/variablesets/events [get]

@@ -35,6 +35,15 @@ func (m *Manager) oidcOAuthConfig() oauth2.Config {
 	}
 }
 
+// startOIDC godoc
+//
+//	@Summary	Initiate OIDC login flow
+//	@Tags		Auth
+//	@Param		redirectTo	query	string	false	"Path to redirect to after login"
+//	@Success	302
+//	@Failure	404	{object}	ErrorResponse
+//	@Failure	503	{object}	ErrorResponse
+//	@Router		/auth/oidc/login [get]
 func (m *Manager) startOIDC(w http.ResponseWriter, r *http.Request) {
 	if !m.cfg.Enabled || !m.cfg.OIDC.Enabled {
 		writeError(w, http.StatusNotFound, "oidc is not enabled")
@@ -88,6 +97,16 @@ func (m *Manager) startOIDC(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
+// completeOIDC godoc
+//
+//	@Summary	OIDC callback – completes the login flow
+//	@Tags		Auth
+//	@Param		code	query	string	true	"Authorization code"
+//	@Param		state	query	string	true	"OAuth2 state"
+//	@Success	302
+//	@Failure	400	{object}	ErrorResponse
+//	@Failure	401	{object}	ErrorResponse
+//	@Router		/auth/oidc/callback [get]
 func (m *Manager) completeOIDC(w http.ResponseWriter, r *http.Request) {
 	if !m.cfg.Enabled || !m.cfg.OIDC.Enabled {
 		writeError(w, http.StatusNotFound, "oidc is not enabled")

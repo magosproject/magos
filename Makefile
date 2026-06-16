@@ -131,7 +131,7 @@ generate-swagger: swag ## Generate OpenAPI spec (swagger.json) from handler anno
 	cd api && $(SWAG) fmt -g cmd/api/main.go -d ./cmd/api/,./internal/
 	cd api && $(SWAG) init \
 		-g main.go \
-		--dir ./cmd/api/,./internal/api/,./internal/service/ \
+		--dir ./cmd/api/,./internal/api/,./internal/auth/,./internal/service/ \
 		--output internal/api/docs \
 		--outputTypes json \
 		--v3.1 \

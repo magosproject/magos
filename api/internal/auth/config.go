@@ -34,12 +34,13 @@ type AdminConfig struct {
 }
 
 type OIDCConfig struct {
-	Enabled          bool
-	IssuerURL        string
-	ClientID         string
-	UsernameClaim    string
-	GroupsClaim      string
-	AdditionalScopes []string
+	Enabled          bool     `json:"enabled"`
+	IssuerURL        string   `json:"issuerUrl,omitempty"`
+	ClientID         string   `json:"clientId,omitempty"`
+	UsernameClaim    string   `json:"usernameClaim,omitempty"`
+	GroupsClaim      string   `json:"groupsClaim,omitempty"`
+	AdditionalScopes []string `json:"additionalScopes,omitempty"`
+	LoginURL         string   `json:"loginUrl,omitempty"`
 }
 
 type InternalConfig struct {

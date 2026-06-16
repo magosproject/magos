@@ -86,24 +86,18 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 	})
 }
 
+// config godoc
+//
+//	@Summary	Get authentication configuration
+//	@Tags		Auth
+//	@Produce	json
+//	@Success	200	{object}	ConfigResponse
+//	@Router		/auth/config [get]
 func (m *Manager) config(w http.ResponseWriter, _ *http.Request) {
-	type oidcConfig struct {
-		Enabled          bool     `json:"enabled"`
-		IssuerURL        string   `json:"issuerUrl,omitempty"`
-		ClientID         string   `json:"clientId,omitempty"`
-		UsernameClaim    string   `json:"usernameClaim,omitempty"`
-		GroupsClaim      string   `json:"groupsClaim,omitempty"`
-		AdditionalScopes []string `json:"additionalScopes,omitempty"`
-		LoginURL         string   `json:"loginUrl,omitempty"`
-	}
-	resp := struct {
-		Enabled      bool       `json:"enabled"`
-		AdminEnabled bool       `json:"adminEnabled"`
-		OIDC         oidcConfig `json:"oidc"`
-	}{
+	resp := ConfigResponse{
 		Enabled:      m.cfg.Enabled,
 		AdminEnabled: m.cfg.Enabled && m.cfg.Admin.Enabled,
-		OIDC: oidcConfig{
+		OIDC: OIDCConfig{
 			Enabled:          m.cfg.Enabled && m.cfg.OIDC.Enabled,
 			IssuerURL:        m.cfg.OIDC.IssuerURL,
 			ClientID:         m.cfg.OIDC.ClientID,
@@ -116,9 +110,18 @@ func (m *Manager) config(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// me godoc
+//
+//	@Summary	Get current authenticated identity
+//	@Tags		Auth
+//	@Security	CookieAuth
+//	@Produce	json
+//	@Success	200	{object}	AuthResponse
+//	@Failure	401	{object}	ErrorResponse
+//	@Router		/auth/me [get]
 func (m *Manager) me(w http.ResponseWriter, r *http.Request) {
 	if !m.cfg.Enabled {
-		writeJSON(w, http.StatusOK, map[string]any{"authenticated": false})
+		writeJSON(w, http.StatusOK, AuthResponse{})
 		return
 	}
 	identity, ok := m.identityFromRequest(r)
@@ -126,20 +129,26 @@ func (m *Manager) me(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"authenticated": true,
-		"identity":      identity,
-	})
+	writeJSON(w, http.StatusOK, AuthResponse{Authenticated: true, Identity: identity})
 }
 
+// adminLogin godoc
+//
+//	@Summary	Login with admin password
+//	@Tags		Auth
+//	@Accept		json
+//	@Produce	json
+//	@Param		body	body		AdminLoginRequest	true	"Login credentials"
+//	@Success	200		{object}	AuthResponse
+//	@Failure	400		{object}	ErrorResponse
+//	@Failure	403		{object}	ErrorResponse
+//	@Router		/auth/admin/login [post]
 func (m *Manager) adminLogin(w http.ResponseWriter, r *http.Request) {
 	if !m.cfg.Enabled || !m.cfg.Admin.Enabled {
 		writeError(w, http.StatusForbidden, "admin login is not enabled")
 		return
 	}
-	var req struct {
-		Password string `json:"password"`
-	}
+	var req AdminLoginRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil || req.Password == "" {
@@ -161,12 +170,16 @@ func (m *Manager) adminLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create session")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"authenticated": true,
-		"identity":      identity,
-	})
+	writeJSON(w, http.StatusOK, AuthResponse{Authenticated: true, Identity: identity})
 }
 
+// logout godoc
+//
+//	@Summary	Logout and clear session
+//	@Tags		Auth
+//	@Success	204
+//	@Failure	200	{object}	ErrorResponse
+//	@Router		/auth/logout [post]
 func (m *Manager) logout(w http.ResponseWriter, _ *http.Request) {
 	m.clearSession(w)
 	w.WriteHeader(http.StatusNoContent)

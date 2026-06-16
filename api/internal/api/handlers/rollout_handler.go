@@ -22,6 +22,7 @@ func NewRolloutHandler(logger *slog.Logger, svc service.RolloutService) *Rollout
 //
 //	@Summary	List Rollout resources
 //	@Tags		Rollout
+//	@Security	CookieAuth
 //	@Produce	json
 //	@Success	200	{array}		Rollout
 //	@Failure	500	{object}	ErrorResponse
@@ -41,6 +42,7 @@ func (h *RolloutHandler) List(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Get Rollout resource
 //	@Tags		Rollout
+//	@Security	CookieAuth
 //	@Produce	json
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
@@ -71,6 +73,7 @@ func (h *RolloutHandler) Get(w http.ResponseWriter, r *http.Request) {
 //	@Summary		Stream Rollout events
 //	@Description	Server-Sent Events stream of Rollout changes. Each event is a JSON-encoded RolloutEvent.
 //	@Tags			Rollout
+//	@Security		CookieAuth
 //	@Produce		text/event-stream
 //	@Success		200	{object}	service.RolloutEvent
 //	@Router			/apis/magosproject.io/v1alpha1/rollouts/events [get]

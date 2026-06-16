@@ -155,7 +155,7 @@ export default function Shell() {
           </Group>
 
           <Group gap="xs">
-            <Anchor href="#" size="sm" c="dimmed" underline="hover" style={{ fontWeight: 500 }}>
+            <Anchor href="/docs" target="_blank" rel="noopener noreferrer" size="sm" c="dimmed" underline="hover" style={{ fontWeight: 500 }}>
               API Reference
             </Anchor>
             {identity && (

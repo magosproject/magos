@@ -32,6 +32,7 @@ func NewWorkspaceHandler(logger *slog.Logger, svc service.WorkspaceService) *Wor
 //
 //	@Summary	List Workspace resources
 //	@Tags		Workspace
+//	@Security	CookieAuth
 //	@Produce	json
 //	@Success	200	{array}		Workspace
 //	@Failure	500	{object}	ErrorResponse
@@ -51,6 +52,7 @@ func (h *WorkspaceHandler) List(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Get Workspace resource
 //	@Tags		Workspace
+//	@Security	CookieAuth
 //	@Produce	json
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
@@ -80,6 +82,7 @@ func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Patch a Workspace resource
 //	@Tags		Workspace
+//	@Security	CookieAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		namespace	path		string					true	"Namespace"
@@ -126,6 +129,7 @@ func (h *WorkspaceHandler) Patch(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Request Workspace reconcile
 //	@Tags		Workspace
+//	@Security	CookieAuth
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
 //	@Success	200			{object}	Workspace
@@ -159,6 +163,7 @@ func (h *WorkspaceHandler) RequestReconcile(w http.ResponseWriter, r *http.Reque
 //
 //	@Summary	List runs for a Workspace
 //	@Tags		Workspace
+//	@Security	CookieAuth
 //	@Produce	json
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
@@ -204,6 +209,7 @@ func (h *WorkspaceHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Get the archived log for one phase of a plan and apply run
 //	@Tags		Workspace
+//	@Security	CookieAuth
 //	@Produce	plain
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
@@ -342,6 +348,7 @@ func (h *WorkspaceHandler) RecordRunPhase(w http.ResponseWriter, r *http.Request
 //
 //	@Summary	Stream live logs from the in-progress plan and apply run
 //	@Tags		Workspace
+//	@Security	CookieAuth
 //	@Produce	text/event-stream
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
@@ -417,6 +424,7 @@ func parseListLimit(raw string) (int, error) {
 //
 //	@Summary	Approve a parked plan for a workspace
 //	@Tags		Workspace
+//	@Security	CookieAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		namespace	path		string					true	"Namespace"
@@ -438,6 +446,7 @@ func (h *WorkspaceHandler) ApproveRun(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Reject a parked plan for a workspace
 //	@Tags		Workspace
+//	@Security	CookieAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		namespace	path		string					true	"Namespace"
@@ -508,6 +517,7 @@ func (h *WorkspaceHandler) decide(w http.ResponseWriter, r *http.Request, approv
 //	@Summary		Stream Workspace events
 //	@Description	Server-Sent Events stream of Workspace changes. Each event is a JSON-encoded WorkspaceEvent. Use ?namespace=ns&name=n to scope to a single workspace, or ?projectRef=name to filter by project.
 //	@Tags			Workspace
+//	@Security		CookieAuth
 //	@Produce		text/event-stream
 //	@Param			namespace	query		string	false	"Filter by namespace and name (both required)"
 //	@Param			name		query		string	false	"Filter by namespace and name (both required)"

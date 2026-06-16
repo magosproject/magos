@@ -22,6 +22,7 @@ func NewProjectHandler(logger *slog.Logger, svc service.ProjectService) *Project
 //
 //	@Summary	List Project resources
 //	@Tags		Project
+//	@Security	CookieAuth
 //	@Produce	json
 //	@Success	200	{array}		Project
 //	@Failure	500	{object}	ErrorResponse
@@ -41,6 +42,7 @@ func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Get Project resource
 //	@Tags		Project
+//	@Security	CookieAuth
 //	@Produce	json
 //	@Param		namespace	path		string	true	"Namespace"
 //	@Param		name		path		string	true	"Name"
@@ -71,6 +73,7 @@ func (h *ProjectHandler) Get(w http.ResponseWriter, r *http.Request) {
 //	@Summary		Stream Project events
 //	@Description	Server-Sent Events stream of Project changes. Each event is a JSON-encoded ProjectEvent.
 //	@Tags			Project
+//	@Security		CookieAuth
 //	@Produce		text/event-stream
 //	@Success		200	{object}	service.ProjectEvent
 //	@Router			/apis/magosproject.io/v1alpha1/projects/events [get]

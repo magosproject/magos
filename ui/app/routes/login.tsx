@@ -114,7 +114,7 @@ export default function Login() {
             <Alert color="yellow">Authentication is enabled, but no login method is configured.</Alert>
           )}
 
-          <Anchor href="/docs" size="sm" c="dimmed">
+          <Anchor href="/docs" target="_blank" rel="noopener noreferrer" size="sm" c="dimmed">
             API documentation
           </Anchor>
         </Stack>
