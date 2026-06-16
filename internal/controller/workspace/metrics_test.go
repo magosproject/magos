@@ -16,10 +16,15 @@ specific language governing permissions and limitations under the License.
 package workspace
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestReconcileTotalIncrementsOnSuccess(t *testing.T) {
@@ -58,10 +63,30 @@ func TestJobDurationSecondsDistinguishesPlanAndApply(t *testing.T) {
 	assert.GreaterOrEqual(t, planCount, 2)
 }
 
-func TestActiveCountSetsValue(t *testing.T) {
-	activeCount.Set(7)
-	assert.Equal(t, float64(7), testutil.ToFloat64(activeCount))
+func TestActiveWorkspacesCollectorCountsActivePhases(t *testing.T) {
+	scheme := runtime.NewScheme()
+	assert.NoError(t, v1alpha1.AddToScheme(scheme))
 
-	activeCount.Set(0)
-	assert.Equal(t, float64(0), testutil.ToFloat64(activeCount))
+	wsInPhase := func(name string, phase v1alpha1.Phase) *v1alpha1.Workspace {
+		return &v1alpha1.Workspace{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Status:     v1alpha1.WorkspaceStatus{Phase: phase},
+		}
+	}
+
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		wsInPhase("planning", v1alpha1.PhasePlanning),
+		wsInPhase("applying", v1alpha1.PhaseApplying),
+		wsInPhase("applied", v1alpha1.PhaseApplied),
+		wsInPhase("failed", v1alpha1.PhaseFailed),
+	).Build()
+
+	collector := newActiveWorkspacesCollector(c)
+
+	const expected = `
+# HELP workspace_active_count Current number of Workspaces in an active phase (Planning or Applying).
+# TYPE workspace_active_count gauge
+workspace_active_count 2
+`
+	assert.NoError(t, testutil.CollectAndCompare(collector, strings.NewReader(expected)))
 }

@@ -53,7 +53,10 @@ func (r *WorkspaceReconciler) cleanupOrphanedJobs(ctx context.Context, workspace
 
 	logger := log.FromContext(ctx)
 	var childJobs batchv1.JobList
-	if err := r.List(ctx, &childJobs, client.InNamespace(workspace.Namespace)); err != nil {
+	if err := r.List(ctx, &childJobs,
+		client.InNamespace(workspace.Namespace),
+		client.MatchingLabels{workspaceLabelKey: workspace.Name},
+	); err != nil {
 		return
 	}
 	for _, j := range childJobs.Items {

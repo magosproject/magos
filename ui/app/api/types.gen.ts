@@ -831,6 +831,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a parked plan for a workspace */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Namespace */
+                    namespace: string;
+                    /** @description Name */
+                    name: string;
+                    /** @description Run ID */
+                    runID: string;
+                };
+                cookie?: never;
+            };
+            /** @description Optional reason */
+            requestBody?: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handlers.ApprovalDecisionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.Workspace"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/log": {
         parameters: {
             query?: never;
@@ -889,6 +973,90 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a parked plan for a workspace */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Namespace */
+                    namespace: string;
+                    /** @description Name */
+                    name: string;
+                    /** @description Run ID */
+                    runID: string;
+                };
+                cookie?: never;
+            };
+            /** @description Reason (required) */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handlers.ApprovalDecisionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.Workspace"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["handlers.ErrorResponse"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -999,6 +1167,9 @@ export interface components {
              */
             value?: string;
             valueFrom?: components["schemas"]["v1alpha1.VariableSource"];
+        };
+        "handlers.ApprovalDecisionRequest": {
+            reason?: string;
         };
         "handlers.ErrorResponse": {
             error?: string;
@@ -1493,7 +1664,7 @@ export interface components {
          *     +optional
          * @enum {string}
          */
-        "v1alpha1.Phase": "Pending" | "Reconciling" | "Ready" | "Idle" | "Planning" | "Planned" | "Applying" | "Applied" | "Failed" | "ValidationFailed" | "Deleting";
+        "v1alpha1.Phase": "Pending" | "Reconciling" | "Ready" | "Idle" | "Planning" | "Planned" | "Applying" | "Applied" | "Failed" | "ValidationFailed" | "Rejected" | "Deleting";
         "v1alpha1.PolicyViolation": {
             /** @description Message is the human-readable violation message from the rule definition. */
             message?: string;
@@ -1643,6 +1814,7 @@ export interface components {
         };
         "v1alpha1.Run": {
             apply?: components["schemas"]["v1alpha1.RunPhaseSummary"];
+            approval?: components["schemas"]["v1alpha1.RunApproval"];
             /**
              * @description FinishedAt is when the last completed phase of this run finished.
              *     +optional
@@ -1678,6 +1850,17 @@ export interface components {
              */
             targetRevision?: string;
             trigger?: components["schemas"]["v1alpha1.RunTrigger"];
+        };
+        /**
+         * @description Approval, if present, captures the reviewer decision recorded by the API
+         *     for this run. Populated only for runs that went through a manual approval
+         *     flow.
+         *     +optional
+         */
+        "v1alpha1.RunApproval": {
+            decidedAt?: string;
+            decision?: string;
+            reason?: string;
         };
         /**
          * @description Result is the terminal outcome of the phase.

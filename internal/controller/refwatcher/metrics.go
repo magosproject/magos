@@ -34,12 +34,13 @@ import (
 var (
 	// pollTotal counts every git ls-remote attempt. The "result" label is one
 	// of "changed" (new SHA detected and annotation patched), "unchanged"
-	// (remote matches lastSHA), or "error" (network failure, auth failure, or
-	// ref-not-found).
+	// (remote matches lastSHA), "deferred" (new SHA detected but workspace is
+	// parked waiting for a reviewer decision), "seeded" (first poll for a new
+	// workspace), or "error" (network failure, auth failure, or ref-not-found).
 	pollTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "refwatcher_poll_total",
-			Help: "Total number of git remote polls partitioned by result.",
+			Help: "Total number of git remote polls partitioned by result. Possible result labels: changed, unchanged, deferred, seeded, error.",
 		},
 		[]string{"namespace", "name", "result"},
 	)

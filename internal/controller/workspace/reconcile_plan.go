@@ -53,7 +53,10 @@ func (r *WorkspaceReconciler) reconcilePlanJob(
 	// we fall through to Step 7 to decide whether to apply it.
 	if rc.planJob == nil {
 		var ownedJobs batchv1.JobList
-		if err := r.List(ctx, &ownedJobs, client.InNamespace(workspace.Namespace)); err != nil {
+		if err := r.List(ctx, &ownedJobs,
+			client.InNamespace(workspace.Namespace),
+			client.MatchingLabels{workspaceLabelKey: workspace.Name},
+		); err != nil {
 			return ctrl.Result{}, false, err
 		}
 		for _, job := range ownedJobs.Items {

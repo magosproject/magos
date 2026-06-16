@@ -15,6 +15,12 @@ updates:
       - "/hack/tools"
     schedule:
       interval: "weekly"
+    ignore:
+    # these two forked dependencies are manually updated/managed
+    - dependency-name: "github.com/magosproject/hc-install"
+      versions: [">= 0.10.0"]
+    - dependency-name: "github.com/magosproject/terraform-exec"
+      versions: [">= 0.26.0"]
     groups:
       all-deps:
         applies-to: version-updates
@@ -22,5 +28,13 @@ updates:
           - "*"
       all-security-deps:
         applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: npm
+    directory: "/ui"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-deps:
         patterns:
           - "*"

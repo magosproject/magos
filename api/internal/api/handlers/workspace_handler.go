@@ -247,6 +247,12 @@ func (h *WorkspaceHandler) GetRunPhaseLog(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// ApprovalDecisionRequest is the request body for the approve and reject
+// endpoints. Reason is required when rejecting and optional when approving.
+type ApprovalDecisionRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
 type recordRunPhaseRequest struct {
 	Run apiv1alpha1.Run `json:"run"`
 }
@@ -405,6 +411,96 @@ func parseListLimit(raw string) (int, error) {
 		return 100, nil
 	}
 	return value, nil
+}
+
+// ApproveRun godoc
+//
+//	@Summary	Approve a parked plan for a workspace
+//	@Tags		Workspace
+//	@Accept		json
+//	@Produce	json
+//	@Param		namespace	path		string					true	"Namespace"
+//	@Param		name		path		string					true	"Name"
+//	@Param		runID		path		string					true	"Run ID"
+//	@Param		body		body		ApprovalDecisionRequest	false	"Optional reason"
+//	@Success	200			{object}	Workspace
+//	@Failure	400			{object}	ErrorResponse
+//	@Failure	404			{object}	ErrorResponse
+//	@Failure	409			{object}	ErrorResponse
+//	@Failure	500			{object}	ErrorResponse
+//	@Router		/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/approve [post]
+func (h *WorkspaceHandler) ApproveRun(w http.ResponseWriter, r *http.Request) {
+	// TODO: enforce approver identity when RBAC is introduced.
+	h.decide(w, r, true)
+}
+
+// RejectRun godoc
+//
+//	@Summary	Reject a parked plan for a workspace
+//	@Tags		Workspace
+//	@Accept		json
+//	@Produce	json
+//	@Param		namespace	path		string					true	"Namespace"
+//	@Param		name		path		string					true	"Name"
+//	@Param		runID		path		string					true	"Run ID"
+//	@Param		body		body		ApprovalDecisionRequest	true	"Reason (required)"
+//	@Success	200			{object}	Workspace
+//	@Failure	400			{object}	ErrorResponse
+//	@Failure	404			{object}	ErrorResponse
+//	@Failure	409			{object}	ErrorResponse
+//	@Failure	500			{object}	ErrorResponse
+//	@Router		/apis/magosproject.io/v1alpha1/workspaces/{namespace}/{name}/runs/{runID}/reject [post]
+func (h *WorkspaceHandler) RejectRun(w http.ResponseWriter, r *http.Request) {
+	// TODO: enforce approver identity when RBAC is introduced.
+	h.decide(w, r, false)
+}
+
+func (h *WorkspaceHandler) decide(w http.ResponseWriter, r *http.Request, approve bool) {
+	namespace := r.PathValue("namespace")
+	name := r.PathValue("name")
+	runID := r.PathValue("runID")
+	if namespace == "" || name == "" || runID == "" {
+		writeError(w, http.StatusBadRequest, "namespace, name, and runID are required")
+		return
+	}
+
+	var body ApprovalDecisionRequest
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
+	}
+
+	var (
+		ws  *apiv1alpha1.Workspace
+		err error
+	)
+	if approve {
+		ws, err = h.service.Approve(r.Context(), namespace, name, runID, body.Reason)
+	} else {
+		ws, err = h.service.Reject(r.Context(), namespace, name, runID, body.Reason)
+	}
+
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusOK, ws)
+	case errors.Is(err, service.ErrApprovalNotPending):
+		writeError(w, http.StatusConflict, "no approval pending")
+	case errors.Is(err, service.ErrRunIDMismatch):
+		writeError(w, http.StatusNotFound, "run not found")
+	case errors.Is(err, service.ErrReasonRequired):
+		writeError(w, http.StatusBadRequest, "reason is required for reject")
+	case errors.Is(err, service.ErrReasonTooLong):
+		writeError(w, http.StatusBadRequest, "reason exceeds 1024 characters")
+	case errors.Is(err, runs.ErrConflictingDecision):
+		writeError(w, http.StatusConflict, "already decided")
+	case apierrors.IsNotFound(err):
+		writeError(w, http.StatusNotFound, "workspace not found")
+	default:
+		h.logger.Error("approval decision failed", "error", err, "namespace", namespace, "name", name, "runID", runID, "approve", approve)
+		writeError(w, http.StatusInternalServerError, "approval decision failed")
+	}
 }
 
 // Events godoc

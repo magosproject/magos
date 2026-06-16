@@ -36,7 +36,7 @@ type ValidationSpec struct {
 }
 
 // Phase represents the current lifecycle phase of a resource.
-// +kubebuilder:validation:Enum=Pending;Reconciling;Ready;Idle;Planning;Planned;Applying;Applied;Failed;ValidationFailed;Deleting
+// +kubebuilder:validation:Enum=Pending;Reconciling;Ready;Idle;Planning;Planned;Applying;Applied;Failed;ValidationFailed;Rejected;Deleting
 type Phase string
 
 const (
@@ -71,6 +71,11 @@ const (
 	// ValidatingPolicy rules. Apply is blocked until the violations are
 	// resolved and a new plan cycle succeeds.
 	PhaseValidationFailed Phase = "ValidationFailed"
+
+	// PhaseRejected indicates that a parked plan was rejected by a reviewer.
+	// Terminal but restartable: a new commit detected by the RefWatcher (or a
+	// manual reconcile request) starts a fresh plan and apply cycle.
+	PhaseRejected Phase = "Rejected"
 
 	// PhaseDeleting indicates the resource is being deleted and cleanup is in progress
 	PhaseDeleting Phase = "Deleting"

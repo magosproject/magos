@@ -283,6 +283,7 @@ spec:
                 - Applied
                 - Failed
                 - ValidationFailed
+                - Rejected
                 - Deleting
                 type: string
               reason:

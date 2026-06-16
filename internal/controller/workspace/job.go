@@ -56,6 +56,15 @@ const (
 	// runIDLabelKey is the label key used on Jobs and Pods to carry the current
 	// run ID, allowing log archival to associate pod logs with the correct run.
 	runIDLabelKey = "magosproject.io/run-id"
+
+	// workspaceLabelKey is the label key set on every Job and Pod with the
+	// owning Workspace name. It lets the controller list only a single
+	// Workspace's Jobs instead of scanning every Job in the namespace.
+	workspaceLabelKey = "magosproject.io/workspace"
+
+	// jobTypeLabelKey is the label key set on every Job and Pod with the run
+	// type ("plan" or "apply").
+	jobTypeLabelKey = "magosproject.io/job-type"
 )
 
 // getSpecHash produces a short, deterministic hash of the Workspace spec. This
@@ -329,9 +338,9 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 			Name:      jobName,
 			Namespace: ws.Namespace,
 			Labels: map[string]string{
-				"magosproject.io/workspace": ws.Name,
-				"magosproject.io/job-type":  jobType,
-				runIDLabelKey:               runID,
+				workspaceLabelKey: ws.Name,
+				jobTypeLabelKey:   jobType,
+				runIDLabelKey:     runID,
 			},
 		},
 		Spec: batchv1.JobSpec{
@@ -341,9 +350,9 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: podAnnotations,
 					Labels: map[string]string{
-						"magosproject.io/workspace": ws.Name,
-						"magosproject.io/job-type":  jobType,
-						runIDLabelKey:               runID,
+						workspaceLabelKey: ws.Name,
+						jobTypeLabelKey:   jobType,
+						runIDLabelKey:     runID,
 					},
 				},
 				Spec: corev1.PodSpec{
