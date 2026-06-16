@@ -205,16 +205,21 @@ auth:
     ttl: 24h
     cookieSecure: false
     allowedOrigins: []
-  ## @skip auth.admin
   admin:
+    ## @param auth.admin.enabled Enable the built-in `admin` account. Convenient for development but should be disabled in production in favour of OIDC (`auth.oidc.enabled=true`).
     enabled: true
-  ## @skip auth.oidc
   oidc:
+    ## @param auth.oidc.enabled Enable OIDC authentication. Recommended for production instead of the built-in admin account.
     enabled: false
+    ## @param auth.oidc.issuerURL OIDC issuer URL (e.g. https://accounts.google.com)
     issuerURL: ""
+    ## @param auth.oidc.clientID OIDC client ID
     clientID: ""
+    ## @skip auth.oidc.usernameClaim
     usernameClaim: email
+    ## @skip auth.oidc.groupsClaim
     groupsClaim: groups
+    ## @skip auth.oidc.additionalScopes
     additionalScopes:
     - groups
 

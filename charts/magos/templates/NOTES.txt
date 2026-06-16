@@ -22,9 +22,7 @@ NOTE: cert-manager CRDs must be installed in this cluster.
 
 {{- if and .Values.auth.enabled .Values.auth.admin.enabled }}
 
-Authentication is enabled. The fallback admin username is:
-
-  admin
+Authentication is enabled with the built-in admin account.
 
 {{- if .Values.auth.secret.name }}
 The admin password hash is read from Secret {{ .Values.auth.secret.name }} key {{ include "magos.authAdminPasswordHashKey" . }}.
@@ -33,8 +31,10 @@ The generated admin password is stored in Secret {{ include "magos.authSecretNam
 
   kubectl -n {{ .Release.Namespace }} get secret {{ include "magos.authSecretName" . }} -o jsonpath='{.data.adminPassword}' | base64 -d
 
-For production, set auth.secret.name to a Secret you manage.
 {{- end }}
+
+NOTE: For production, it is recommended to disable the admin account (auth.admin.enabled=false) and
+      use OIDC instead (auth.oidc.enabled=true).
 {{- end }}
 
 {{- if eq (include "magos.postgresMode" .) "embedded" }}
