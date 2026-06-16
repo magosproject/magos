@@ -89,12 +89,12 @@ spec:
           valueFrom:
             secretKeyRef:
               name: {{ include "magos.authSecretName" . }}
-              key: {{ include "magos.authSessionSigningKeyKey" . }}
+              key: sessionSigningKey
         - name: MAGOS_AUTH_INTERNAL_TOKEN
           valueFrom:
             secretKeyRef:
               name: {{ include "magos.authSecretName" . }}
-              key: {{ include "magos.authInternalTokenKey" . }}
+              key: internalToken
         - name: MAGOS_AUTH_ADMIN_ENABLED
           value: {{ .Values.auth.admin.enabled | quote }}
         {{- if .Values.auth.admin.enabled }}
@@ -102,7 +102,7 @@ spec:
           valueFrom:
             secretKeyRef:
               name: {{ include "magos.authSecretName" . }}
-              key: {{ include "magos.authAdminPasswordHashKey" . }}
+              key: adminPasswordHash
         {{- end }}
         - name: MAGOS_AUTH_OIDC_ENABLED
           value: {{ .Values.auth.oidc.enabled | quote }}

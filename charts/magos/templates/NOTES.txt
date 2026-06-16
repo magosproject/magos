@@ -25,7 +25,7 @@ NOTE: cert-manager CRDs must be installed in this cluster.
 Authentication is enabled with the built-in admin account.
 
 {{- if .Values.auth.secret.name }}
-The admin password hash is read from Secret {{ .Values.auth.secret.name }} key {{ include "magos.authAdminPasswordHashKey" . }}.
+The admin password hash is read from Secret {{ .Values.auth.secret.name }} key `adminPasswordHash`.
 {{- else }}
 The generated admin password is stored in Secret {{ include "magos.authSecretName" . }}:
 

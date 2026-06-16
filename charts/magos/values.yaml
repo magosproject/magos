@@ -193,17 +193,15 @@ ui:
 auth:
   ## @param auth.enabled Enable Magos API/UI authentication
   enabled: true
-  ## @skip auth.secret
   secret:
-    ## @skip auth.secret.name
+    ## @param auth.secret.name Name of an existing Secret to use for auth credentials. When set, the chart does **not** generate a Secret. The Secret must contain the following keys: `sessionSigningKey` (random string ≥ 32 chars), `internalToken` (random string), and — when `auth.admin.enabled=true` — `adminPassword` and `adminPasswordHash` (bcrypt hash of the password).
     name: ""
-    sessionSigningKeyKey: sessionSigningKey
-    internalTokenKey: internalToken
-    adminPasswordHashKey: adminPasswordHash
-  ## @skip auth.session
   session:
+    ## @param auth.session.ttl Duration for which a session cookie is valid (e.g. `24h`, `7d`).
     ttl: 24h
+    ## @param auth.session.cookieSecure Set the `Secure` flag on session cookies. Enable when the UI is served over HTTPS.
     cookieSecure: false
+    ## @param auth.session.allowedOrigins List of allowed CORS origins for credentialed requests (e.g. `["https://magos.example.com"]`).
     allowedOrigins: []
   admin:
     ## @param auth.admin.enabled Enable the built-in `admin` account. Convenient for development but should be disabled in production in favour of OIDC (`auth.oidc.enabled=true`).
@@ -219,7 +217,7 @@ auth:
     usernameClaim: email
     ## @skip auth.oidc.groupsClaim
     groupsClaim: groups
-    ## @skip auth.oidc.additionalScopes
+    ## @param auth.oidc.additionalScopes Additional OAuth2 scopes to request alongside `openid profile email`.
     additionalScopes:
     - groups
 

@@ -207,17 +207,6 @@ Create the name of the service account to use for the API
 {{- default (printf "%s-auth" (include "magos.fullname" .)) .Values.auth.secret.name -}}
 {{- end -}}
 
-{{- define "magos.authSessionSigningKeyKey" -}}
-{{- default "sessionSigningKey" .Values.auth.secret.sessionSigningKeyKey -}}
-{{- end -}}
-
-{{- define "magos.authInternalTokenKey" -}}
-{{- default "internalToken" .Values.auth.secret.internalTokenKey -}}
-{{- end -}}
-
-{{- define "magos.authAdminPasswordHashKey" -}}
-{{- default "adminPasswordHash" .Values.auth.secret.adminPasswordHashKey -}}
-{{- end -}}
 
 {{/*
 Resolve and validate the postgres mode.

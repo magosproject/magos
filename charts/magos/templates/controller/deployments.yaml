@@ -114,7 +114,7 @@ spec:
           valueFrom:
             secretKeyRef:
               name: {{ include "magos.authSecretName" $root }}
-              key: {{ include "magos.authInternalTokenKey" $root }}
+              key: internalToken
         {{- end }}
         {{- end }}
         {{- with (concat (default list $root.Values.global.env) (default list $controller.env)) }}

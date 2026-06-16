@@ -22,4 +22,3 @@ type ConfigResponse struct {
 	AdminEnabled bool       `json:"adminEnabled"`
 	OIDC         OIDCConfig `json:"oidc"`
 }
-
