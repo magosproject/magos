@@ -37,7 +37,7 @@ func (m *Manager) setSession(w http.ResponseWriter, identity Identity) error {
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   identity.Subject,
 			Issuer:    m.issuer(),
-			Audience:  []string{m.audience()},
+			Audience:  []string{m.issuer()},
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.cfg.SessionTTL)),
@@ -73,7 +73,7 @@ func (m *Manager) identityFromRequest(r *http.Request) (Identity, bool) {
 			return nil, fmt.Errorf("unexpected signing method %q", token.Header["alg"])
 		}
 		return m.cfg.SigningKey, nil
-	}, jwt.WithIssuer(m.issuer()), jwt.WithAudience(m.audience()))
+	}, jwt.WithIssuer(m.issuer()), jwt.WithAudience(m.issuer()))
 	if err != nil || !token.Valid {
 		return Identity{}, false
 	}

@@ -1,6 +1,17 @@
 package auth
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrUnauthenticated is returned by an Authorizer when the identity cannot be
+// verified and the caller should re-authenticate (HTTP 401).
+var ErrUnauthenticated = errors.New("authentication required")
+
+// ErrForbidden is returned by an Authorizer when the identity is valid but
+// does not have permission to perform the operation (HTTP 403).
+var ErrForbidden = errors.New("forbidden")
 
 type Provider string
 
@@ -33,7 +44,11 @@ func IdentityFromContext(ctx context.Context) (Identity, bool) {
 }
 
 type Operation struct {
-	Method    string
+	// Method is the raw HTTP method.
+	Method string
+	// Verb is the normalized RBAC verb derived from the HTTP method and path:
+	// get, list, create, update, patch, delete, watch.
+	Verb      string
 	Path      string
 	Resource  string
 	Namespace string

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -21,7 +22,6 @@ type oidcStateClaims struct {
 	CodeVerifier string `json:"codeVerifier"`
 	jwt.RegisteredClaims
 }
-
 
 func (m *Manager) oidcOAuthConfig() oauth2.Config {
 	scopes := []string{oidc.ScopeOpenID, "profile", "email"}
@@ -73,7 +73,7 @@ func (m *Manager) startOIDC(w http.ResponseWriter, r *http.Request) {
 		CodeVerifier: verifier,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    m.issuer(),
-			Audience:  []string{m.audience()},
+			Audience:  []string{m.issuer()},
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(10 * time.Minute)),
@@ -127,7 +127,7 @@ func (m *Manager) completeOIDC(w http.ResponseWriter, r *http.Request) {
 			return nil, fmt.Errorf("unexpected signing method %q", token.Header["alg"])
 		}
 		return m.cfg.SigningKey, nil
-	}, jwt.WithIssuer(m.issuer()), jwt.WithAudience(m.audience()))
+	}, jwt.WithIssuer(m.issuer()), jwt.WithAudience(m.issuer()))
 	if err != nil || !token.Valid || stateClaims.State == "" || stateClaims.CodeVerifier == "" {
 		writeError(w, http.StatusBadRequest, "invalid oidc state")
 		return
@@ -244,12 +244,12 @@ func claimString(claims map[string]any, name string) string {
 	if !ok {
 		return ""
 	}
-	switch typed := v.(type) {
-	case string:
-		return typed
-	default:
-		return fmt.Sprint(typed)
+	s, ok := v.(string)
+	if !ok {
+		slog.Warn("oidc claim is not a string, coercing", "claim", name, "type", fmt.Sprintf("%T", v))
+		return fmt.Sprint(v)
 	}
+	return s
 }
 
 func claimStringSlice(claims map[string]any, name string) []string {

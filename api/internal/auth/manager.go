@@ -216,10 +216,14 @@ func (m *Manager) authenticateUser(next http.Handler, w http.ResponseWriter, r *
 	}
 	ctx := ContextWithIdentity(r.Context(), identity)
 	if err := m.authorizer.Authorize(ctx, identity, operationFromRequest(r, false)); err != nil {
-		if errors.Is(err, context.Canceled) {
+		switch {
+		case errors.Is(err, context.Canceled):
 			return
+		case errors.Is(err, ErrUnauthenticated):
+			writeError(w, http.StatusUnauthorized, "authentication required")
+		default:
+			writeError(w, http.StatusForbidden, "forbidden")
 		}
-		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	next.ServeHTTP(w, r.WithContext(ctx))
@@ -235,13 +239,6 @@ func (m *Manager) isPublic(r *http.Request) bool {
 }
 
 func (m *Manager) issuer() string {
-	if m.cfg.BaseURL != "" {
-		return m.cfg.BaseURL
-	}
-	return "magos"
-}
-
-func (m *Manager) audience() string {
 	if m.cfg.BaseURL != "" {
 		return m.cfg.BaseURL
 	}
@@ -276,11 +273,35 @@ func unsafeMethod(method string) bool {
 func operationFromRequest(r *http.Request, internal bool) Operation {
 	return Operation{
 		Method:    r.Method,
+		Verb:      verbFromRequest(r),
 		Path:      r.URL.Path,
 		Resource:  resourceFromPath(r.URL.Path),
 		Namespace: r.PathValue("namespace"),
 		Name:      r.PathValue("name"),
 		Internal:  internal,
+	}
+}
+
+// verbFromRequest maps an HTTP request to an RBAC verb.
+// GET on a named resource → "get", GET on a collection or stream → "list",
+// POST → "create", PUT → "update", PATCH → "patch", DELETE → "delete".
+func verbFromRequest(r *http.Request) string {
+	switch r.Method {
+	case http.MethodGet:
+		if r.PathValue("name") != "" {
+			return "get"
+		}
+		return "list"
+	case http.MethodPost:
+		return "create"
+	case http.MethodPut:
+		return "update"
+	case http.MethodPatch:
+		return "patch"
+	case http.MethodDelete:
+		return "delete"
+	default:
+		return strings.ToLower(r.Method)
 	}
 }
 
