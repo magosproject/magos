@@ -56,7 +56,7 @@ make run
 ```
 
 This command rebuilds and deploys the in-cluster backend with the UI disabled, port-forwards the in-cluster API to `http://localhost:8080`, and starts the React dev server at `http://localhost:5173`.
-The Helm override for this flow lives in [hack/values.ui-hot-reload.yaml](/Users/ramon/projects/personal/magos/hack/values.ui-hot-reload.yaml).
+The Helm override for this flow lives in [hack/values.ui-hot-reload.yaml](hack/values.ui-hot-reload.yaml).
 
 #### Sample Resources
 
