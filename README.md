@@ -47,15 +47,16 @@ make port-forward
 
 Open the UI at `http://localhost:8080`.
 
-#### Hybrid Flow
+#### UI Hot Reload Flow
 
-Keep Postgres, RustFS, CRDs, and job plumbing in Kind, but run the UI, API, and controllers locally in one terminal:
+Keep the API, controllers, jobs, Postgres, and RustFS in Kind via the Helm chart, but run the React UI locally for hot reloading:
 
 ```bash
 make run
 ```
 
-Open the UI at `http://localhost:5173`. The local API listens on `http://localhost:8080`.
+This command rebuilds and deploys the in-cluster backend with the UI disabled, port-forwards the in-cluster API to `http://localhost:8080`, and starts the React dev server at `http://localhost:5173`.
+The Helm override for this flow lives in [hack/values.ui-hot-reload.yaml](/Users/ramon/projects/personal/magos/hack/values.ui-hot-reload.yaml).
 
 #### Sample Resources
 
