@@ -95,6 +95,9 @@ func (c Config) Validate() error {
 	if c.SessionTTL <= 0 {
 		return fmt.Errorf("MAGOS_AUTH_SESSION_TTL must be positive")
 	}
+	if !c.Admin.Enabled && !c.OIDC.Enabled {
+		return fmt.Errorf("at least one interactive auth provider must be enabled when auth is enabled")
+	}
 	if c.Admin.Enabled && c.Admin.PasswordHash == "" {
 		return fmt.Errorf("MAGOS_AUTH_ADMIN_PASSWORD_HASH is required when admin auth is enabled")
 	}

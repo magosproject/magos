@@ -66,17 +66,31 @@ export async function adminLogin(password: string): Promise<MeResponse> {
     body: JSON.stringify({ password }),
   });
   if (!response.ok) {
-    throw new Error("invalid admin password");
+    throw new Error(await errorMessage(response, "failed to sign in"));
   }
   return response.json() as Promise<MeResponse>;
 }
 
 export async function logout(): Promise<void> {
+  const token = csrfToken();
   await fetch("/auth/logout", {
     method: "POST",
     credentials: "include",
-    headers: csrfToken() ? { "X-CSRF-Token": csrfToken() ?? "" } : undefined,
+    headers: token ? { "X-CSRF-Token": token } : undefined,
   });
+}
+
+async function errorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const body: unknown = await response.json();
+    if (body && typeof body === "object" && "error" in body) {
+      const error = (body as { error?: unknown }).error;
+      if (typeof error === "string" && error.trim() !== "") return error;
+    }
+  } catch {
+    // Ignore malformed or non-JSON error bodies and use the generic fallback.
+  }
+  return fallback;
 }
 
 export function loginPath(redirectTo = window.location.pathname + window.location.search): string {

@@ -92,6 +92,52 @@ func TestUnsafeUserRequestRequiresCSRFToken(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, resp.Code)
 }
 
+func TestLogoutRequiresCSRFTokenWhenSessionCookieIsPresent(t *testing.T) {
+	m := testManager(t)
+	mux := http.NewServeMux()
+	m.RegisterRoutes(mux)
+	handler := m.Middleware(mux)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/auth/admin/login", strings.NewReader(`{"password":"secret"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginResp := httptest.NewRecorder()
+	handler.ServeHTTP(loginResp, loginReq)
+	require.Equal(t, http.StatusOK, loginResp.Code)
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	for _, cookie := range loginResp.Result().Cookies() {
+		req.AddCookie(cookie)
+	}
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusForbidden, resp.Code)
+
+	for _, cookie := range loginResp.Result().Cookies() {
+		if cookie.Name == csrfCookieName {
+			req.Header.Set("X-CSRF-Token", cookie.Value)
+		}
+	}
+	resp = httptest.NewRecorder()
+	handler.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNoContent, resp.Code)
+	requireLogoutClearsCookie(t, resp.Result().Cookies(), sessionCookieName)
+	requireLogoutClearsCookie(t, resp.Result().Cookies(), csrfCookieName)
+}
+
+func TestLogoutWithoutSessionCookieDoesNotClearSession(t *testing.T) {
+	m := testManager(t)
+	mux := http.NewServeMux()
+	m.RegisterRoutes(mux)
+	handler := m.Middleware(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusNoContent, resp.Code)
+	require.Empty(t, resp.Result().Cookies())
+}
+
 func TestInternalRouteRequiresServiceToken(t *testing.T) {
 	m := testManager(t)
 	mux := http.NewServeMux()
@@ -113,4 +159,16 @@ func TestInternalRouteRequiresServiceToken(t *testing.T) {
 	resp = httptest.NewRecorder()
 	handler.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusNoContent, resp.Code)
+}
+
+func requireLogoutClearsCookie(t *testing.T, cookies []*http.Cookie, name string) {
+	t.Helper()
+	for _, cookie := range cookies {
+		if cookie.Name == name {
+			require.Equal(t, -1, cookie.MaxAge)
+			require.Empty(t, cookie.Value)
+			return
+		}
+	}
+	require.Failf(t, "missing cookie", "expected %q to be cleared", name)
 }

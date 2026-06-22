@@ -180,7 +180,19 @@ func (m *Manager) adminLogin(w http.ResponseWriter, r *http.Request) {
 //	@Success	204
 //	@Failure	200	{object}	ErrorResponse
 //	@Router		/auth/logout [post]
-func (m *Manager) logout(w http.ResponseWriter, _ *http.Request) {
+func (m *Manager) logout(w http.ResponseWriter, r *http.Request) {
+	if !m.cfg.Enabled {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if _, err := r.Cookie(sessionCookieName); err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if !m.csrfValid(r) {
+		writeError(w, http.StatusForbidden, "csrf token is required")
+		return
+	}
 	m.clearSession(w)
 	w.WriteHeader(http.StatusNoContent)
 }
