@@ -42,6 +42,7 @@ func (m *Manager) oidcOAuthConfig() oauth2.Config {
 //	@Param		redirectTo	query	string	false	"Path to redirect to after login"
 //	@Success	302
 //	@Failure	404	{object}	ErrorResponse
+//	@Failure	500	{object}	ErrorResponse
 //	@Failure	503	{object}	ErrorResponse
 //	@Router		/auth/oidc/login [get]
 func (m *Manager) startOIDC(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +107,9 @@ func (m *Manager) startOIDC(w http.ResponseWriter, r *http.Request) {
 //	@Success	302
 //	@Failure	400	{object}	ErrorResponse
 //	@Failure	401	{object}	ErrorResponse
+//	@Failure	404	{object}	ErrorResponse
+//	@Failure	500	{object}	ErrorResponse
+//	@Failure	503	{object}	ErrorResponse
 //	@Router		/auth/oidc/callback [get]
 func (m *Manager) completeOIDC(w http.ResponseWriter, r *http.Request) {
 	if !m.cfg.Enabled || !m.cfg.OIDC.Enabled {

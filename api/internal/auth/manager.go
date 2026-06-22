@@ -178,7 +178,7 @@ func (m *Manager) adminLogin(w http.ResponseWriter, r *http.Request) {
 //	@Summary	Logout and clear session
 //	@Tags		Auth
 //	@Success	204
-//	@Failure	200	{object}	ErrorResponse
+//	@Failure	403	{object}	ErrorResponse
 //	@Router		/auth/logout [post]
 func (m *Manager) logout(w http.ResponseWriter, r *http.Request) {
 	if !m.cfg.Enabled {

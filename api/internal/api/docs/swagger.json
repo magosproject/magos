@@ -2532,7 +2532,10 @@
         "/auth/logout": {
             "post": {
                 "responses": {
-                    "200": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2540,10 +2543,7 @@
                                 }
                             }
                         },
-                        "description": "OK"
-                    },
-                    "204": {
-                        "description": "No Content"
+                        "description": "Forbidden"
                     }
                 },
                 "summary": "Logout and clear session",
@@ -2632,6 +2632,36 @@
                             }
                         },
                         "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
                     }
                 },
                 "summary": "OIDC callback – completes the login flow",
@@ -2665,6 +2695,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
                     },
                     "503": {
                         "content": {
