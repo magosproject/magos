@@ -1,13 +1,20 @@
 // Package main is the entry point for the Magos API server.
 //
-//	@title			Magos API
-//	@version		v1alpha1
-//	@description	API for managing Magos resources (Projects, Workspaces, Rollouts, VariableSets)
+//	@title						Magos API
+//	@version					v1alpha1
+//	@description				API for managing Magos resources (Projects, Workspaces, Rollouts, VariableSets)
 //
-//	@servers		http://localhost:8080	local
+//	@servers					http://localhost:8080	local
 //
-//	@license.name	Apache 2.0
-//	@license.url	http://www.apache.org/licenses/LICENSE-2.0.html
+//	@license.name				Apache 2.0
+//	@license.url				http://www.apache.org/licenses/LICENSE-2.0.html
+//
+//	@securityDefinitions.apikey	CookieAuth
+//	@in							cookie
+//	@name						magos_session
+//	@description				Browser session cookie set by /auth/admin/login or /auth/oidc/callback.
+//
+//	@Security					CookieAuth
 package main
 
 import (

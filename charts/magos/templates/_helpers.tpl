@@ -203,6 +203,11 @@ Create the name of the service account to use for the API
 {{- end }}
 {{- end }}
 
+{{- define "magos.authSecretName" -}}
+{{- default (printf "%s-auth" (include "magos.fullname" .)) .Values.auth.secret.name -}}
+{{- end -}}
+
+
 {{/*
 Resolve and validate the postgres mode.
 */}}

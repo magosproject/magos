@@ -26,9 +26,12 @@ import {
   IconHexagon,
   IconArrowsShuffle,
   IconSettings,
+  IconLogout,
 } from "@tabler/icons-react";
 import { Link, Outlet, useLocation } from "react-router";
+import { useEffect, useState } from "react";
 import BlinkingCursor from "./BlinkingCursor";
+import { getAuthConfig, getMe, loginPath, logout, type Identity } from "../api/auth";
 
 const navItems = [
   { label: "Projects", icon: IconFolderOpen, to: "/projects" },
@@ -45,8 +48,30 @@ export default function Shell() {
   const location = useLocation();
   const theme = useMantineTheme();
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const [identity, setIdentity] = useState<Identity | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
 
   const navWidth = collapsed ? 60 : 220;
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([getAuthConfig(), getMe()])
+      .then(([config, me]) => {
+        if (cancelled) return;
+        if (config.enabled && !me.authenticated) {
+          window.location.replace(loginPath());
+          return;
+        }
+        setIdentity(me.identity ?? null);
+        setAuthChecked(true);
+      })
+      .catch(() => {
+        if (!cancelled) window.location.replace(loginPath());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const renderNavItem = (item: (typeof navItems)[number], extraProps?: Record<string, unknown>) => {
     const isActive = location.pathname.startsWith(item.to);
@@ -84,6 +109,10 @@ export default function Shell() {
       link
     );
   };
+
+  if (!authChecked) {
+    return null;
+  }
 
   return (
     <AppShell
@@ -126,9 +155,14 @@ export default function Shell() {
           </Group>
 
           <Group gap="xs">
-            <Anchor href="#" size="sm" c="dimmed" underline="hover" style={{ fontWeight: 500 }}>
+            <Anchor href="/docs" target="_blank" rel="noopener noreferrer" size="sm" c="dimmed" underline="hover" style={{ fontWeight: 500 }}>
               API Reference
             </Anchor>
+            {identity && (
+              <Text size="sm" c="dimmed" visibleFrom="sm">
+                {identity.username || identity.subject}
+              </Text>
+            )}
             <Tooltip label="Toggle color scheme">
               <ActionIcon variant="subtle" color="magos.5" onClick={() => toggleColorScheme()}>
                 {colorScheme === "dark" ? <IconSun size={18} /> : <IconMoon size={18} />}
@@ -158,6 +192,19 @@ export default function Shell() {
                 <IconBrandDiscord size={18} />
               </ActionIcon>
             </Tooltip>
+            {identity && (
+              <Tooltip label="Sign out">
+                <ActionIcon
+                  variant="subtle"
+                  color="magos.5"
+                  onClick={() => {
+                    void logout().finally(() => window.location.replace("/login"));
+                  }}
+                >
+                  <IconLogout size={18} />
+                </ActionIcon>
+              </Tooltip>
+            )}
           </Group>
         </Group>
       </AppShell.Header>
