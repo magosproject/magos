@@ -191,7 +191,7 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 ##@ Deployment
 
 .PHONY: dev
-dev: generate ## Generate, build all images, load into kind, install/upgrade the chart.
+dev: deps generate ## Generate, build all images, load into kind, install/upgrade the chart.
 	@$(KIND) get clusters | grep -qx $(KIND_CLUSTER) || { \
 	    echo "ERROR: kind cluster '$(KIND_CLUSTER)' not found. Run 'make kind-cluster' first."; \
 	    exit 1; \
