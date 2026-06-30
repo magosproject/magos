@@ -22,6 +22,8 @@ The Magos operator manages the lifecycle of your infrastructure directly from Ku
 - Kind
 - Helm
 - kubectl
+- Node.js
+- npm
 
 ### Local Development
 
