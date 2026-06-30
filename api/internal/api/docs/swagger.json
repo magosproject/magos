@@ -1,6 +1,118 @@
 {
     "components": {
         "schemas": {
+            "auth.AdminLoginRequest": {
+                "properties": {
+                    "password": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "auth.AuthResponse": {
+                "properties": {
+                    "authenticated": {
+                        "type": "boolean"
+                    },
+                    "identity": {
+                        "$ref": "#/components/schemas/github_com_magosproject_magos_api_internal_auth.Identity"
+                    }
+                },
+                "type": "object"
+            },
+            "auth.ConfigResponse": {
+                "properties": {
+                    "adminEnabled": {
+                        "type": "boolean"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "oidc": {
+                        "$ref": "#/components/schemas/auth.OIDCConfig"
+                    }
+                },
+                "type": "object"
+            },
+            "auth.ErrorResponse": {
+                "properties": {
+                    "error": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "auth.OIDCConfig": {
+                "properties": {
+                    "additionalScopes": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "clientId": {
+                        "type": "string"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "groupsClaim": {
+                        "type": "string"
+                    },
+                    "issuerUrl": {
+                        "type": "string"
+                    },
+                    "loginUrl": {
+                        "type": "string"
+                    },
+                    "usernameClaim": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "auth.Provider": {
+                "enum": [
+                    "admin",
+                    "oidc",
+                    "service"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "ProviderAdmin",
+                    "ProviderOIDC",
+                    "ProviderService"
+                ]
+            },
+            "github_com_magosproject_magos_api_internal_auth.Identity": {
+                "properties": {
+                    "claims": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "groups": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "isAdmin": {
+                        "type": "boolean"
+                    },
+                    "provider": {
+                        "$ref": "#/components/schemas/auth.Provider"
+                    },
+                    "subject": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "github_com_magosproject_magos_types_magosproject_v1alpha1.Variable": {
                 "properties": {
                     "name": {
@@ -1148,6 +1260,14 @@
                     "Error"
                 ]
             }
+        },
+        "securitySchemes": {
+            "CookieAuth": {
+                "description": "Browser session cookie set by /auth/admin/login or /auth/oidc/callback.",
+                "in": "cookie",
+                "name": "magos_session",
+                "type": "apiKey"
+            }
         }
     },
     "info": {
@@ -1191,6 +1311,11 @@
                         "description": "Internal Server Error"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "List Project resources",
                 "tags": [
                     "Project"
@@ -1212,6 +1337,11 @@
                         "description": "OK"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Stream Project events",
                 "tags": [
                     "Project"
@@ -1272,6 +1402,11 @@
                         "description": "Not Found"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Get Project resource",
                 "tags": [
                     "Project"
@@ -1305,6 +1440,11 @@
                         "description": "Internal Server Error"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "List Rollout resources",
                 "tags": [
                     "Rollout"
@@ -1326,6 +1466,11 @@
                         "description": "OK"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Stream Rollout events",
                 "tags": [
                     "Rollout"
@@ -1386,6 +1531,11 @@
                         "description": "Not Found"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Get Rollout resource",
                 "tags": [
                     "Rollout"
@@ -1419,6 +1569,11 @@
                         "description": "Internal Server Error"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "List VariableSet resources",
                 "tags": [
                     "VariableSet"
@@ -1440,6 +1595,11 @@
                         "description": "OK"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Stream VariableSet events",
                 "tags": [
                     "VariableSet"
@@ -1500,6 +1660,11 @@
                         "description": "Not Found"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Get VariableSet resource",
                 "tags": [
                     "VariableSet"
@@ -1533,6 +1698,11 @@
                         "description": "Internal Server Error"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "List Workspace resources",
                 "tags": [
                     "Workspace"
@@ -1580,6 +1750,11 @@
                         "description": "OK"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Stream Workspace events",
                 "tags": [
                     "Workspace"
@@ -1640,6 +1815,11 @@
                         "description": "Not Found"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Get Workspace resource",
                 "tags": [
                     "Workspace"
@@ -1728,6 +1908,11 @@
                         "description": "Internal Server Error"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Patch a Workspace resource",
                 "tags": [
                     "Workspace"
@@ -1798,6 +1983,11 @@
                         "description": "Internal Server Error"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Request Workspace reconcile",
                 "tags": [
                     "Workspace"
@@ -1874,6 +2064,11 @@
                         "description": "Not Found"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "List runs for a Workspace",
                 "tags": [
                     "Workspace"
@@ -1934,6 +2129,11 @@
                         "description": "Not Found"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Stream live logs from the in-progress plan and apply run",
                 "tags": [
                     "Workspace"
@@ -2042,6 +2242,11 @@
                         "description": "Internal Server Error"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Approve a parked plan for a workspace",
                 "tags": [
                     "Workspace"
@@ -2119,6 +2324,11 @@
                         "description": "Not Found"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Get the archived log for one phase of a plan and apply run",
                 "tags": [
                     "Workspace"
@@ -2228,9 +2438,288 @@
                         "description": "Internal Server Error"
                     }
                 },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
                 "summary": "Reject a parked plan for a workspace",
                 "tags": [
                     "Workspace"
+                ]
+            }
+        },
+        "/auth/admin/login": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/auth.AdminLoginRequest",
+                                        "summary": "body",
+                                        "description": "Login credentials"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Login credentials",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.AuthResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "summary": "Login with admin password",
+                "tags": [
+                    "Auth"
+                ]
+            }
+        },
+        "/auth/config": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ConfigResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Get authentication configuration",
+                "tags": [
+                    "Auth"
+                ]
+            }
+        },
+        "/auth/logout": {
+            "post": {
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "summary": "Logout and clear session",
+                "tags": [
+                    "Auth"
+                ]
+            }
+        },
+        "/auth/me": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.AuthResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
+                "summary": "Get current authenticated identity",
+                "tags": [
+                    "Auth"
+                ]
+            }
+        },
+        "/auth/oidc/callback": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Authorization code",
+                        "in": "query",
+                        "name": "code",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "OAuth2 state",
+                        "in": "query",
+                        "name": "state",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "summary": "OIDC callback – completes the login flow",
+                "tags": [
+                    "Auth"
+                ]
+            }
+        },
+        "/auth/oidc/login": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Path to redirect to after login",
+                        "in": "query",
+                        "name": "redirectTo",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "summary": "Initiate OIDC login flow",
+                "tags": [
+                    "Auth"
                 ]
             }
         },

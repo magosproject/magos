@@ -109,6 +109,13 @@ spec:
         {{- include "magos.postgresEnv" $root | nindent 8 }}
         - name: MAGOS_LOGS_API_URL
           value: {{ printf "http://%s-api:%v" (include "magos.fullname" $root) $root.Values.api.service.port | quote }}
+        {{- if $root.Values.auth.enabled }}
+        - name: MAGOS_AUTH_INTERNAL_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "magos.authSecretName" $root }}
+              key: internalToken
+        {{- end }}
         {{- end }}
         {{- with (concat (default list $root.Values.global.env) (default list $controller.env)) }}
         {{- toYaml . | nindent 8 }}

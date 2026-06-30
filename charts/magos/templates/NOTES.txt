@@ -20,6 +20,37 @@ NOTE: cert-manager CRDs must be installed in this cluster.
       ui.{tls,ingress.tls}.selfSignedCert=false and bring your own Secret.
 {{- end }}
 
+{{- if and .Values.auth.enabled .Values.auth.admin.enabled }}
+
+Authentication is enabled with the built-in admin account.
+
+{{- if .Values.auth.secret.name }}
+The admin password hash is read from Secret {{ .Values.auth.secret.name }} key `adminPasswordHash`.
+{{- else }}
+The generated admin password is stored in Secret {{ include "magos.authSecretName" . }}:
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "magos.authSecretName" . }} -o jsonpath='{.data.adminPassword}' | base64 -d
+
+{{- end }}
+
+NOTE: For production, it is recommended to disable the admin account (auth.admin.enabled=false) and
+      use OIDC instead (auth.oidc.enabled=true).
+{{- end }}
+
+{{- if and .Values.auth.enabled .Values.auth.oidc.enabled }}
+
+OIDC authentication is enabled (issuer: {{ .Values.auth.oidc.issuerURL }}).
+{{- if not .Values.auth.oidc.clientSecretRef.name }}
+
+NOTE: If your OIDC provider requires a client secret (e.g. Google "Web application"
+      client type), create a Secret and reference it:
+
+  kubectl -n {{ .Release.Namespace }} create secret generic magos-oidc-secret \
+    --from-literal=oidcClientSecret=<your-client-secret>
+
+  Then set auth.oidc.clientSecretRef.name=magos-oidc-secret when upgrading.
+{{- end }}
+{{- end }}
 {{- if eq (include "magos.postgresMode" .) "embedded" }}
 {{- if not .Values.postgres.embedded.auth.secret.name }}
 

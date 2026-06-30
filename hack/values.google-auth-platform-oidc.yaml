@@ -1,0 +1,21 @@
+auth:
+  enabled: true
+  baseURL: "http://localhost:8080"
+  admin:
+    enabled: false
+  oidc:
+    enabled: true
+    issuerURL: https://accounts.google.com
+    clientID: <CLIENT_ID>
+    # Google "Web application" clients require a client secret.
+    # Create the Secret first:
+    #   kubectl -n magos-system create secret generic magos-oidc-secret \
+    #     --from-literal=oidcClientSecret=<your-client-secret>
+    clientSecretRef:
+      name: magos-oidc-secret
+      key: oidcClientSecret
+    usernameClaim: email
+    groupsClaim: ""
+    additionalScopes:
+      - profile
+      - email

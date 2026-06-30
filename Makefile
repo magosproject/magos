@@ -131,7 +131,7 @@ generate-swagger: swag ## Generate OpenAPI spec (swagger.json) from handler anno
 	cd api && $(SWAG) fmt -g cmd/api/main.go -d ./cmd/api/,./internal/
 	cd api && $(SWAG) init \
 		-g main.go \
-		--dir ./cmd/api/,./internal/api/,./internal/service/ \
+		--dir ./cmd/api/,./internal/api/,./internal/auth/,./internal/service/ \
 		--output internal/api/docs \
 		--outputTypes json \
 		--v3.1 \
@@ -239,6 +239,15 @@ run: generate ## Build all images, deploy the chart with the in-cluster UI disab
 	done
 	@echo "UI:  http://127.0.0.1:$(MAGOS_UI_PORT)"
 	@echo "API: http://127.0.0.1:$(MAGOS_API_PORT)"
+	@if $(KUBECTL) -n $(MAGOS_NAMESPACE) get secret $(MAGOS_RELEASE)-auth >/dev/null 2>&1; then \
+	    admin_password_b64="$$($(KUBECTL) -n $(MAGOS_NAMESPACE) get secret $(MAGOS_RELEASE)-auth -o jsonpath='{.data.adminPassword}' 2>/dev/null)"; \
+	    if [ -n "$$admin_password_b64" ]; then \
+	        admin_password="$$(printf '%s' "$$admin_password_b64" | base64 -d 2>/dev/null || printf '%s' "$$admin_password_b64" | base64 -D 2>/dev/null)"; \
+	        if [ -n "$$admin_password" ]; then \
+	            echo "Admin password: $$admin_password"; \
+	        fi; \
+	    fi; \
+	fi
 	@trap 'kill 0' EXIT; \
 	$(KUBECTL) -n $(MAGOS_NAMESPACE) port-forward svc/$(MAGOS_RELEASE)-api $(MAGOS_API_PORT):80 >/tmp/$(MAGOS_RELEASE)-api-port-forward.log 2>&1 & \
 	api_pf_pid=$$!; \
