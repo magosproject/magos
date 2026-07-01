@@ -81,6 +81,29 @@ func TestCreateApplyJobIfApproved_DecisionRejected(t *testing.T) {
 	}
 }
 
+// TestCreateApplyJobIfApproved_DecisionRejected_ConsumesDetectedRevision
+// verifies that rejecting a plan that was triggered by a RefWatcher commit also
+// consumes the detected-revision annotation. If it survives, checkCycleNeeded
+// sees detected-revision != observedRevision while the phase is the terminal
+// Rejected and immediately restarts a fresh plan, so the rejection never sticks.
+func TestCreateApplyJobIfApproved_DecisionRejected_ConsumesDetectedRevision(t *testing.T) {
+	scheme := newApprovalScheme(t)
+	ws := newParkedWorkspace(v1alpha1.ApprovalDecisionRejected)
+	ws.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation] = "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+	ws.Status.ObservedRevision = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ws).WithStatusSubresource(ws).Build()
+	r := WorkspaceReconciler{Client: cli, Scheme: scheme}
+
+	err := r.createApplyJobIfApproved(context.Background(), ws, runContext{planJob: &batchv1.Job{}})
+	assert.NoError(t, err)
+
+	got := &v1alpha1.Workspace{}
+	assert.NoError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(ws), got))
+	assert.Equal(t, v1alpha1.PhaseRejected, got.Status.Phase)
+	_, hasDetected := got.Annotations[v1alpha1.WorkspaceDetectedRevisionAnnotation]
+	assert.False(t, hasDetected, "rejection must consume detected-revision so it does not immediately re-plan")
+}
+
 // TestCreateApplyJobIfApproved_DecisionApproved verifies that an approved plan
 // creates an apply job, transitions the workspace to PhaseApplying, and
 // consumes the decision annotation.

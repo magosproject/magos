@@ -87,10 +87,12 @@ func (r *WorkspaceReconciler) reconcileApplyJob(
 // Decision routing:
 //
 //   - magosproject.io/approval-decision=rejected: move the workspace to
-//     PhaseRejected, consume the decision and execution-lock annotations, and
-//     return without creating an apply job. PhaseRejected is terminal but
-//     restartable: a new commit detected by the RefWatcher or a manual
-//     reconcile request starts a fresh cycle.
+//     PhaseRejected, consume the decision, execution-lock, and detected-revision
+//     annotations, and return without creating an apply job. PhaseRejected is
+//     terminal but restartable: a genuinely new commit detected by the
+//     RefWatcher or a manual reconcile request starts a fresh cycle. Consuming
+//     detected-revision is what keeps the rejection from immediately restarting
+//     against the same commit (see the comment at the deleteAnnotations call).
 //
 //   - magosproject.io/approval-decision=approved: consume the annotation and
 //     proceed to create the Apply Job.
@@ -131,10 +133,18 @@ func (r *WorkspaceReconciler) createApplyJobIfApproved(
 			"Plan was rejected. See run history for details.",
 			metav1.ConditionFalse,
 		)
+		// Consume detected-revision alongside the decision and execution-lock
+		// annotations. PhaseRejected is a terminal-recorded phase, so without
+		// this checkCycleNeeded would see the surviving detected-revision differ
+		// from the (un-advanced) observedRevision and immediately restart a fresh
+		// plan for the just-rejected commit. We do not advance observedRevision
+		// because nothing was applied; RefWatcher's lastSHA still holds the
+		// rejected SHA, so only a genuinely newer commit starts a fresh cycle.
 		if err := r.deleteAnnotations(ctx, workspace,
 			v1alpha1.WorkspaceApprovalDecisionAnnotation,
 			v1alpha1.WorkspaceExecutionAllowedAnnotation,
 			v1alpha1.WorkspaceReconcileRequestAnnotation,
+			v1alpha1.WorkspaceDetectedRevisionAnnotation,
 		); err != nil {
 			logger.Error(err, "Failed to consume rejection annotations via Patch")
 			return err
