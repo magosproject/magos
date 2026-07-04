@@ -20,3 +20,7 @@ spec:
   terraform:
     version: "1.14.8"
     tfvarsPath: env/staging/vars.tfvars
+  validation:
+    policySelector:
+      matchLabels:
+        compliance: pci-dss
