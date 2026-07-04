@@ -10,9 +10,11 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -531,7 +533,7 @@ func logTerraformEnvVars() {
 // run drives a single job. Plan pods clone into
 // /workspace-data/runs/<runID>/source; apply pods reuse that tree. A
 // successful apply removes the run's directory.
-func run() error {
+func run(ctx context.Context) error {
 	// Prefix every log line with [magos-job] so pod logs are easy to scan.
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 	log.SetPrefix("[magos-job] ")
@@ -549,7 +551,6 @@ func run() error {
 	// names-only.
 	logTerraformEnvVars()
 
-	ctx := context.Background()
 	src := sourcePath(cfg.RunID)
 
 	switch cfg.JobType {
@@ -586,7 +587,12 @@ func run() error {
 // the workspace controller watches for when it reconciles a plan or apply
 // phase.
 func main() {
-	if err := run(); err != nil {
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	err := run(ctx)
+	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}
 }
