@@ -79,9 +79,10 @@ kubectl get jobs -A
 
 #### BucketGit Sources
 
-Magos can clone BucketGit repositories from Workspace source URLs when the job
-image includes the `bgit` binary. Use an explicit `bgit+` prefix when a URL
-should be fetched with `bgit clone` instead of the built-in Go Git client:
+Magos can clone BucketGit repositories from Workspace source URLs. The default
+job image includes the `bgit` binary and `git-remote-bgit` helper. Use an
+explicit `bgit+` prefix when a URL should be fetched with `bgit clone` instead
+of the built-in Go Git client:
 
 ```yaml
 source:

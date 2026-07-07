@@ -16,6 +16,20 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -o job cmd/job/main.go
 
+FROM golang:1.26.1-alpine AS bgit-builder
+ARG TARGETOS
+ARG TARGETARCH
+ARG BGIT_REF=1.3.5
+
+RUN apk add --no-cache git
+
+WORKDIR /workspace/bgit
+RUN git clone --depth=1 --branch ${BGIT_REF} https://github.com/bucketgit/bgit.git .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+    go build -ldflags="-s -w" -o /out/bgit .
+
 FROM alpine:3.19
 RUN apk add --no-cache git ca-certificates curl
 
@@ -25,5 +39,7 @@ RUN curl -sSL https://github.com/kyverno/kyverno/releases/download/v1.17.0/kyver
 
 WORKDIR /
 COPY --from=builder /workspace/job /usr/local/bin/job
+COPY --from=bgit-builder /out/bgit /usr/local/bin/bgit
+RUN ln -s /usr/local/bin/bgit /usr/local/bin/git-remote-bgit
 
 ENTRYPOINT ["/usr/local/bin/job"]
