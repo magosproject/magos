@@ -33,6 +33,8 @@ import (
 	"github.com/magosproject/magos/internal/terraform"
 )
 
+var execCommandContext = exec.CommandContext
+
 // Config holds every input this job needs to run a terraform plan or apply
 // inside a Kubernetes pod. All fields are populated from environment variables
 // that the workspace controller sets when it creates the Job, which is why the
@@ -162,20 +164,133 @@ func validateSourceDir(sourceDir string) error {
 	return nil
 }
 
+type repositoryFetcher int
+
+const (
+	repositoryFetcherGoGit repositoryFetcher = iota
+	repositoryFetcherBgit
+	repositoryFetcherGitRemoteHelper
+)
+
+func fetcherForRepoURL(repoURL string) (repositoryFetcher, string) {
+	switch {
+	case strings.HasPrefix(repoURL, "bgit+"):
+		return repositoryFetcherBgit, strings.TrimPrefix(repoURL, "bgit+")
+	case strings.HasPrefix(repoURL, "s3://"), strings.HasPrefix(repoURL, "gs://"):
+		return repositoryFetcherBgit, repoURL
+	case strings.HasPrefix(repoURL, "bgit::"), strings.HasPrefix(repoURL, "bgit://"):
+		return repositoryFetcherGitRemoteHelper, repoURL
+	default:
+		return repositoryFetcherGoGit, repoURL
+	}
+}
+
+func runCommand(ctx context.Context, name string, args ...string) error {
+	return runCommandWithEnv(ctx, os.Environ(), name, args...)
+}
+
+func runCommandWithEnv(ctx context.Context, env []string, name string, args ...string) error {
+	cmd := execCommandContext(ctx, name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = env
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s %s failed: %w", name, strings.Join(args, " "), err)
+	}
+	return nil
+}
+
+func checkoutWithGit(ctx context.Context, dest, targetRevision string) error {
+	if err := runCommand(ctx, "git", "-C", dest, "checkout", targetRevision); err != nil {
+		return fmt.Errorf("failed to checkout revision %q: %w", targetRevision, err)
+	}
+	log.Printf("Successfully checked out revision %s", targetRevision)
+	return nil
+}
+
+func cloneRepositoryWithBgit(ctx context.Context, repoURL, targetRevision, dest string) error {
+	if _, err := exec.LookPath("bgit"); err != nil {
+		return fmt.Errorf("failed to find bgit binary in PATH: %w", err)
+	}
+
+	log.Printf("Cloning BucketGit repository %s into %s", repoURL, dest)
+	if err := runCommand(ctx, "bgit", "clone", repoURL, dest); err != nil {
+		return fmt.Errorf("failed to clone BucketGit repository: %w", err)
+	}
+	return checkoutWithGit(ctx, dest, targetRevision)
+}
+
+func cloneRepositoryWithGitRemoteHelper(ctx context.Context, repoURL, targetRevision, dest string) error {
+	env := os.Environ()
+	if _, err := exec.LookPath("git-remote-bgit"); err != nil {
+		bgitPath, bgitErr := exec.LookPath("bgit")
+		if bgitErr != nil {
+			return fmt.Errorf("failed to find git-remote-bgit helper or bgit binary in PATH: %w", err)
+		}
+
+		helperDir, mkErr := os.MkdirTemp("", "magos-git-remote-bgit-*")
+		if mkErr != nil {
+			return fmt.Errorf("failed to create temporary git remote helper directory: %w", mkErr)
+		}
+		defer func() {
+			if rmErr := os.RemoveAll(helperDir); rmErr != nil {
+				log.Printf("Warning: failed to remove temporary git remote helper directory %s: %v", helperDir, rmErr)
+			}
+		}()
+
+		helperPath := filepath.Join(helperDir, "git-remote-bgit")
+		if symlinkErr := os.Symlink(bgitPath, helperPath); symlinkErr != nil {
+			return fmt.Errorf("failed to create temporary git-remote-bgit helper symlink: %w", symlinkErr)
+		}
+		env = prependPath(env, helperDir)
+	}
+
+	log.Printf("Cloning BucketGit remote-helper repository %s into %s", repoURL, dest)
+	if err := runCommandWithEnv(ctx, env, "git", "clone", repoURL, dest); err != nil {
+		return fmt.Errorf("failed to clone BucketGit repository through git remote helper: %w", err)
+	}
+	return checkoutWithGit(ctx, dest, targetRevision)
+}
+
+func prependPath(env []string, dir string) []string {
+	out := make([]string, 0, len(env)+1)
+	found := false
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "PATH=") {
+			out = append(out, "PATH="+dir+string(os.PathListSeparator)+strings.TrimPrefix(entry, "PATH="))
+			found = true
+			continue
+		}
+		out = append(out, entry)
+	}
+	if !found {
+		out = append(out, "PATH="+dir)
+	}
+	return out
+}
+
 // cloneRepository performs a shallow clone of the configured repository into
 // dest and checks out the exact revision the controller asked for. The shallow
 // clone keeps pod startup fast and avoids pulling years of history the job is
 // never going to read. Only the plan pod calls this; the apply pod reuses the
 // working tree the plan pod produced. dest is expected to be empty or missing.
 func cloneRepository(ctx context.Context, cfg *Config, dest string) error {
+	fetcher, repoURL := fetcherForRepoURL(cfg.RepoURL)
+	switch fetcher {
+	case repositoryFetcherBgit:
+		return cloneRepositoryWithBgit(ctx, repoURL, cfg.TargetRevision, dest)
+	case repositoryFetcherGitRemoteHelper:
+		return cloneRepositoryWithGitRemoteHelper(ctx, repoURL, cfg.TargetRevision, dest)
+	}
+
 	auth, err := getAuthMethod(cfg)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("Cloning repository %s into %s", cfg.RepoURL, dest)
+	log.Printf("Cloning repository %s into %s", repoURL, dest)
 	repo, err := git.PlainCloneContext(ctx, dest, false, &git.CloneOptions{
-		URL:   cfg.RepoURL,
+		URL:   repoURL,
 		Auth:  auth,
 		Depth: 1, // Shallow clone to minimize memory and network usage
 	})

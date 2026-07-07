@@ -77,6 +77,48 @@ kubectl get projects,workspaces,rollouts -A
 kubectl get jobs -A
 ```
 
+#### BucketGit Sources
+
+Magos can clone BucketGit repositories from Workspace source URLs when the job
+image includes the `bgit` binary. Use an explicit `bgit+` prefix when a URL
+should be fetched with `bgit clone` instead of the built-in Go Git client:
+
+```yaml
+source:
+  repoURL: bgit+https://broker.example.com/demo.git
+  targetRevision: main
+  path: infra
+```
+
+Local-broker storage URLs are supported through `bgit clone` as well:
+
+```yaml
+source:
+  repoURL: bgit+file://demo.git
+  targetRevision: main
+```
+
+```yaml
+source:
+  repoURL: s3://demo.git
+  targetRevision: main
+```
+
+```yaml
+source:
+  repoURL: gs://demo.git
+  targetRevision: main
+```
+
+Native Git remote-helper URLs are also supported when `git-remote-bgit` is on
+the job image `PATH`:
+
+```yaml
+source:
+  repoURL: bgit::https://broker.example.com/demo.git
+  targetRevision: main
+```
+
 #### Tear Down
 
 Uninstall Magos and delete the Kind cluster:
