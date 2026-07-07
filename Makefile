@@ -20,10 +20,13 @@ GOBIN=$(shell go env GOBIN)
 endif
 
 # CONTAINER_TOOL defines the container tool to be used for building images.
-# Be aware that the target commands are only tested with Docker which is
-# scaffolded by default. However, you might want to replace it to use other
-# tools. (i.e. podman)
-CONTAINER_TOOL ?= docker
+# Auto-detect Podman first, then Docker, while still allowing callers to
+# override the value explicitly.
+CONTAINER_TOOL ?= $(shell \
+	if command -v podman >/dev/null 2>&1; then printf podman; \
+	elif command -v docker >/dev/null 2>&1; then printf docker; \
+	else printf docker; \
+	fi)
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -149,37 +152,48 @@ build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
-# (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
+# (i.e. podman build --platform linux/arm64). However, you must enable your
+# container engine's build support for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-.PHONY: docker-build
-docker-build: ## Build docker images for all components.
+.PHONY: container-build
+container-build: ## Build container images for all components.
 	$(CONTAINER_TOOL) build -t ${IMG} .
 	$(CONTAINER_TOOL) build -t ${UI_IMG} -f ui/Dockerfile ui/
 	$(CONTAINER_TOOL) build -t ${JOB_IMG} -f cmd/job/Dockerfile .
 	$(CONTAINER_TOOL) build -t ${API_IMG} -f api/Dockerfile .
 
-.PHONY: docker-push
-docker-push: ## Push docker images for all components.
+.PHONY: docker-build
+docker-build: container-build ## Backward-compatible alias for container-build.
+
+.PHONY: container-push
+container-push: ## Push container images for all components.
 	$(CONTAINER_TOOL) push ${IMG}
 	$(CONTAINER_TOOL) push ${UI_IMG}
 	$(CONTAINER_TOOL) push ${JOB_IMG}
 	$(CONTAINER_TOOL) push ${API_IMG}
 
-.PHONY: kind-load
-kind-load: kind ## load locally built docker image(s) into kind cluster.
-	$(KIND) load docker-image ${IMG} --name $(KIND_CLUSTER)
-	$(KIND) load docker-image ${UI_IMG} --name $(KIND_CLUSTER)
-	$(KIND) load docker-image ${JOB_IMG} --name $(KIND_CLUSTER)
-	$(KIND) load docker-image ${API_IMG} --name $(KIND_CLUSTER)
+.PHONY: docker-push
+docker-push: container-push ## Backward-compatible alias for container-push.
 
-# architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
-# - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
+.PHONY: kind-load
+kind-load: kind ## Load locally built container image(s) into kind cluster.
+	@tmpdir="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmpdir"' EXIT; \
+	for image in ${IMG} ${UI_IMG} ${JOB_IMG} ${API_IMG}; do \
+	    archive_name="$$(printf '%s' "$$image" | tr '/:' '__')"; \
+	    archive="$$tmpdir/$$archive_name.tar"; \
+	    $(CONTAINER_TOOL) save -o "$$archive" "$$image"; \
+	    $(KIND) load image-archive "$$archive" --name $(KIND_CLUSTER); \
+	done
+
+# architectures. (i.e. make container-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
+# - be able to use your selected container engine's buildx support. More info: https://docs.docker.com/build/buildx/
 # - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 # - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
 # To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
 PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
-.PHONY: docker-buildx
-docker-buildx: ## Build and push docker image for the manager for cross-platform support
+.PHONY: container-buildx
+container-buildx: ## Build and push the manager image for cross-platform support.
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name magos-builder
@@ -187,6 +201,9 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm magos-builder
 	rm Dockerfile.cross
+
+.PHONY: docker-buildx
+docker-buildx: container-buildx ## Backward-compatible alias for container-buildx.
 
 ##@ Deployment
 
@@ -196,7 +213,7 @@ dev: deps generate ## Generate, build all images, load into kind, install/upgrad
 	    echo "ERROR: kind cluster '$(KIND_CLUSTER)' not found. Run 'make kind-cluster' first."; \
 	    exit 1; \
 	}
-	$(MAKE) docker-build
+	$(MAKE) container-build
 	$(MAKE) kind-load
 	$(KUBECTL) get namespace magos-system >/dev/null 2>&1 || $(KUBECTL) create namespace magos-system
 	$(HELM) upgrade --install magos charts/magos/ \
@@ -222,7 +239,7 @@ run: generate ## Build all images, deploy the chart with the in-cluster UI disab
 	    echo "ERROR: kind cluster '$(KIND_CLUSTER)' not found. Run 'make kind-cluster' first."; \
 	    exit 1; \
 	}
-	$(MAKE) docker-build
+	$(MAKE) container-build
 	$(MAKE) kind-load
 	$(KUBECTL) get namespace $(MAGOS_NAMESPACE) >/dev/null 2>&1 || $(KUBECTL) create namespace $(MAGOS_NAMESPACE)
 	$(HELM) upgrade --install $(MAGOS_RELEASE) charts/magos/ \
@@ -357,7 +374,7 @@ $(INFORMER_GEN): $(LOCALBIN)
 
 .PHONY: chart-docs
 chart-docs: ## Generate charts/magos/README.md from values.yaml @param annotations.
-	@command -v readme-generator >/dev/null || npm install -g @bitnami/readme-generator-for-helm
+	@command -v readme-generator >/dev/null || npm install @bitnami/readme-generator-for-helm
 	bash hack/helm-docs/helm-docs.sh
 
 
