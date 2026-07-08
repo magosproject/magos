@@ -135,6 +135,33 @@ spec:
               source:
                 description: Source defines the Git repository configuration
                 properties:
+                  bucketGit:
+                    description: |-
+                      BucketGit configures BucketGit-specific runtime settings for sources
+                      fetched through bgit. It is only meaningful for repoURL values using
+                      bgit+, bgit::, bgit://, s3://, or gs://.
+                    properties:
+                      home:
+                        description: |-
+                          Home mounts a Kubernetes volume as BGIT_HOME for the plan and apply
+                          jobs. This can provide BucketGit config.yaml and local-broker storage
+                          without adding generic arbitrary mounts to Workspace.
+                        properties:
+                          persistentVolumeClaim:
+                            description: PersistentVolumeClaim mounts an existing
+                              PVC as BGIT_HOME.
+                            properties:
+                              claimName:
+                                description: |-
+                                  ClaimName is the name of an existing PersistentVolumeClaim in the
+                                  Workspace namespace.
+                                minLength: 1
+                                type: string
+                            required:
+                            - claimName
+                            type: object
+                        type: object
+                    type: object
                   path:
                     default: .
                     description: Path is the directory path within the Git repository

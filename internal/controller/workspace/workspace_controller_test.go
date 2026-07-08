@@ -111,6 +111,118 @@ func TestConstructJobForWorkspaceSetsContainerResources(t *testing.T) {
 	assert.Equal(t, jobResources, got)
 }
 
+func TestConstructJobForWorkspaceMountsBucketGitHome(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := batchv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+
+	reconciler := WorkspaceReconciler{
+		Client:   fake.NewClientBuilder().WithScheme(scheme).Build(),
+		Scheme:   scheme,
+		JobImage: "ghcr.io/magosproject/magos/job:test",
+	}
+
+	workspace := &v1alpha1.Workspace{}
+	workspace.Name = "demo"
+	workspace.Namespace = "default"
+	workspace.Spec.Source.RepoURL = "bgit+file://demo.git"
+	workspace.Spec.Source.TargetRevision = "main"
+	workspace.Spec.Source.BucketGit = &v1alpha1.BucketGitSourceSpec{
+		Home: &v1alpha1.BucketGitHomeSpec{
+			PersistentVolumeClaim: &v1alpha1.BucketGitPersistentVolumeClaimSource{
+				ClaimName: "bgit-home",
+			},
+		},
+	}
+	workspace.Spec.Terraform.Version = "1.9.0"
+	workspace.Spec.ProjectRef.Name = "platform"
+
+	job, err := reconciler.constructJobForWorkspace(
+		context.Background(),
+		workspace,
+		runContext{
+			planJobName:  "demo-plan-1234abcd",
+			applyJobName: "demo-apply-1234abcd",
+			planFile:     "/workspace-data/run-1234abcd.tfplan",
+			pvcName:      "demo-data",
+		},
+		jobTypePlan,
+		"20260519T120000-deadbeef",
+	)
+	if err != nil {
+		t.Fatalf("constructJobForWorkspace() error = %v", err)
+	}
+
+	podSpec := job.Spec.Template.Spec
+	container := podSpec.Containers[0]
+	assert.Contains(t, podSpec.Volumes, corev1.Volume{
+		Name: "bucketgit-home",
+		VolumeSource: corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "bgit-home"},
+		},
+	})
+	assert.Contains(t, container.VolumeMounts, corev1.VolumeMount{
+		Name:      "bucketgit-home",
+		MountPath: "/bgit",
+	})
+	assert.Contains(t, container.Env, corev1.EnvVar{Name: "BGIT_HOME", Value: "/bgit"})
+}
+
+func TestConstructJobForWorkspaceRejectsBucketGitHomeForPlainGitSource(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := batchv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+
+	reconciler := WorkspaceReconciler{
+		Client:   fake.NewClientBuilder().WithScheme(scheme).Build(),
+		Scheme:   scheme,
+		JobImage: "ghcr.io/magosproject/magos/job:test",
+	}
+
+	workspace := &v1alpha1.Workspace{}
+	workspace.Name = "demo"
+	workspace.Namespace = "default"
+	workspace.Spec.Source.RepoURL = "https://github.com/magosproject/demo"
+	workspace.Spec.Source.TargetRevision = "main"
+	workspace.Spec.Source.BucketGit = &v1alpha1.BucketGitSourceSpec{
+		Home: &v1alpha1.BucketGitHomeSpec{
+			PersistentVolumeClaim: &v1alpha1.BucketGitPersistentVolumeClaimSource{
+				ClaimName: "bgit-home",
+			},
+		},
+	}
+	workspace.Spec.Terraform.Version = "1.9.0"
+	workspace.Spec.ProjectRef.Name = "platform"
+
+	_, err := reconciler.constructJobForWorkspace(
+		context.Background(),
+		workspace,
+		runContext{
+			planJobName:  "demo-plan-1234abcd",
+			applyJobName: "demo-apply-1234abcd",
+			planFile:     "/workspace-data/run-1234abcd.tfplan",
+			pvcName:      "demo-data",
+		},
+		jobTypePlan,
+		"20260519T120000-deadbeef",
+	)
+	assert.ErrorContains(t, err, "source.bucketGit.home is only supported for BucketGit source URLs")
+}
+
 func TestNormalizeRepoURLStripsGitSuffix(t *testing.T) {
 	assert.Equal(t, "https://github.com/foo/bar", normalizeRepoURL("https://github.com/foo/bar.git"))
 }

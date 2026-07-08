@@ -89,6 +89,37 @@ type SourceSpec struct {
 	// +optional
 	// +kubebuilder:default="."
 	Path string `json:"path,omitempty"`
+
+	// BucketGit configures BucketGit-specific runtime settings for sources
+	// fetched through bgit. It is only meaningful for repoURL values using
+	// bgit+, bgit::, bgit://, s3://, or gs://.
+	// +optional
+	BucketGit *BucketGitSourceSpec `json:"bucketGit,omitempty"`
+}
+
+// BucketGitSourceSpec configures BucketGit runtime state used by the job pod.
+type BucketGitSourceSpec struct {
+	// Home mounts a Kubernetes volume as BGIT_HOME for the plan and apply
+	// jobs. This can provide BucketGit config.yaml and local-broker storage
+	// without adding generic arbitrary mounts to Workspace.
+	// +optional
+	Home *BucketGitHomeSpec `json:"home,omitempty"`
+}
+
+// BucketGitHomeSpec defines where BucketGit should read its BGIT_HOME from.
+type BucketGitHomeSpec struct {
+	// PersistentVolumeClaim mounts an existing PVC as BGIT_HOME.
+	// +optional
+	PersistentVolumeClaim *BucketGitPersistentVolumeClaimSource `json:"persistentVolumeClaim,omitempty"`
+}
+
+// BucketGitPersistentVolumeClaimSource references a PVC to mount as BGIT_HOME.
+type BucketGitPersistentVolumeClaimSource struct {
+	// ClaimName is the name of an existing PersistentVolumeClaim in the
+	// Workspace namespace.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	ClaimName string `json:"claimName"`
 }
 
 // TerraformSpec defines the Terraform or OpenTofu configuration

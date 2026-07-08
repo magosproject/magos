@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"strings"
 
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -65,7 +66,17 @@ const (
 	// jobTypeLabelKey is the label key set on every Job and Pod with the run
 	// type ("plan" or "apply").
 	jobTypeLabelKey = "magosproject.io/job-type"
+
+	bucketGitHomeMountPath = "/bgit"
 )
+
+func isBucketGitRepoURL(repoURL string) bool {
+	return strings.HasPrefix(repoURL, "bgit+") ||
+		strings.HasPrefix(repoURL, "bgit::") ||
+		strings.HasPrefix(repoURL, "bgit://") ||
+		strings.HasPrefix(repoURL, "s3://") ||
+		strings.HasPrefix(repoURL, "gs://")
+}
 
 // getSpecHash produces a short, deterministic hash of the Workspace spec. This
 // hash is used as a suffix on Job names (e.g. "myworkspace-plan-a1b2c3d4") so
@@ -333,6 +344,47 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 		maps.Copy(podAnnotations, overrides)
 	}
 
+	volumes := []corev1.Volume{
+		{
+			Name: "workspace-data",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: rc.pvcName,
+				},
+			},
+		},
+	}
+	volumeMounts := []corev1.VolumeMount{
+		{
+			Name:      "workspace-data",
+			MountPath: "/workspace-data",
+		},
+	}
+
+	if ws.Spec.Source.BucketGit != nil && ws.Spec.Source.BucketGit.Home != nil &&
+		ws.Spec.Source.BucketGit.Home.PersistentVolumeClaim != nil {
+		if !isBucketGitRepoURL(ws.Spec.Source.RepoURL) {
+			return nil, fmt.Errorf("source.bucketGit.home is only supported for BucketGit source URLs")
+		}
+		claimName := ws.Spec.Source.BucketGit.Home.PersistentVolumeClaim.ClaimName
+		if claimName == "" {
+			return nil, fmt.Errorf("source.bucketGit.home.persistentVolumeClaim.claimName is required")
+		}
+		envVars = append(envVars, corev1.EnvVar{Name: "BGIT_HOME", Value: bucketGitHomeMountPath})
+		volumes = append(volumes, corev1.Volume{
+			Name: "bucketgit-home",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: claimName,
+				},
+			},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "bucketgit-home",
+			MountPath: bucketGitHomeMountPath,
+		})
+	}
+
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
@@ -358,16 +410,7 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 				Spec: corev1.PodSpec{
 					RestartPolicy:      corev1.RestartPolicyNever,
 					ServiceAccountName: ws.Spec.ServiceAccountName,
-					Volumes: []corev1.Volume{
-						{
-							Name: "workspace-data",
-							VolumeSource: corev1.VolumeSource{
-								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-									ClaimName: rc.pvcName,
-								},
-							},
-						},
-					},
+					Volumes:            volumes,
 					Containers: []corev1.Container{
 						{
 							Name:            "job",
@@ -375,12 +418,7 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Env:             envVars,
 							Resources:       r.jobResources,
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "workspace-data",
-									MountPath: "/workspace-data",
-								},
-							},
+							VolumeMounts:    volumeMounts,
 							SecurityContext: &corev1.SecurityContext{
 								RunAsNonRoot:             new(true),
 								AllowPrivilegeEscalation: new(false),

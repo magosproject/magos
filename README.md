@@ -120,6 +120,20 @@ source:
   targetRevision: main
 ```
 
+When a BucketGit source needs a persisted `BGIT_HOME` (for example
+`bgit+file://` local-broker storage), mount an existing PVC with
+`source.bucketGit.home`:
+
+```yaml
+source:
+  repoURL: bgit+file://demo.git
+  targetRevision: main
+  bucketGit:
+    home:
+      persistentVolumeClaim:
+        claimName: bgit-home
+```
+
 #### Tear Down
 
 Uninstall Magos and delete the Kind cluster:
