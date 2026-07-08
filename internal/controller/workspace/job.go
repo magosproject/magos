@@ -79,6 +79,11 @@ func isBucketGitRepoURL(repoURL string) bool {
 		strings.HasPrefix(repoURL, "gs://")
 }
 
+func isBucketGitGCSRepoURL(repoURL string) bool {
+	return strings.HasPrefix(repoURL, "gs://") ||
+		strings.HasPrefix(repoURL, "bgit+gs://")
+}
+
 // getSpecHash produces a short, deterministic hash of the Workspace spec. This
 // hash is used as a suffix on Job names (e.g. "myworkspace-plan-a1b2c3d4") so
 // that a spec change naturally creates new Jobs while leaving old ones to be
@@ -392,6 +397,9 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 			corev1.EnvVar{Name: "BGIT_HOME", Value: bucketGitDefaultHomeMountPath},
 			corev1.EnvVar{Name: "HOME", Value: bucketGitDefaultHomeMountPath},
 		)
+	}
+	if isBucketGitGCSRepoURL(ws.Spec.Source.RepoURL) {
+		envVars = append(envVars, corev1.EnvVar{Name: "BGIT_AUTH", Value: "adc"})
 	}
 
 	job := &batchv1.Job{

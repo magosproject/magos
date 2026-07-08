@@ -221,6 +221,7 @@ func TestConstructJobForWorkspaceSetsDefaultBucketGitHome(t *testing.T) {
 	container := job.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Env, corev1.EnvVar{Name: "BGIT_HOME", Value: "/workspace-data/bgit-home"})
 	assert.Contains(t, container.Env, corev1.EnvVar{Name: "HOME", Value: "/workspace-data/bgit-home"})
+	assert.Contains(t, container.Env, corev1.EnvVar{Name: "BGIT_AUTH", Value: "adc"})
 }
 
 func TestConstructJobForWorkspaceRejectsBucketGitHomeForPlainGitSource(t *testing.T) {
