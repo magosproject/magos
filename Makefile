@@ -24,6 +24,8 @@ endif
 # override the value explicitly.
 CONTAINER_TOOL ?= $(shell \
 	if command -v podman >/dev/null 2>&1; then printf podman; \
+	elif command -v nerdctl >/dev/null 2>&1; then printf nerdctl; \
+	elif command -v finch >/dev/null 2>&1; then printf finch; \
 	elif command -v docker >/dev/null 2>&1; then printf docker; \
 	else printf docker; \
 	fi)
