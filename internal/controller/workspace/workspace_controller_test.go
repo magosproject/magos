@@ -176,6 +176,53 @@ func TestConstructJobForWorkspaceMountsBucketGitHome(t *testing.T) {
 	assert.Contains(t, container.Env, corev1.EnvVar{Name: "HOME", Value: "/bgit"})
 }
 
+func TestConstructJobForWorkspaceSetsDefaultBucketGitHome(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := batchv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+
+	reconciler := WorkspaceReconciler{
+		Client:   fake.NewClientBuilder().WithScheme(scheme).Build(),
+		Scheme:   scheme,
+		JobImage: "ghcr.io/magosproject/magos/job:test",
+	}
+
+	workspace := &v1alpha1.Workspace{}
+	workspace.Name = "demo"
+	workspace.Namespace = "default"
+	workspace.Spec.Source.RepoURL = "bgit+gs://demo.git"
+	workspace.Spec.Source.TargetRevision = "main"
+	workspace.Spec.Terraform.Version = "1.9.0"
+	workspace.Spec.ProjectRef.Name = "platform"
+
+	job, err := reconciler.constructJobForWorkspace(
+		context.Background(),
+		workspace,
+		runContext{
+			planJobName:  "demo-plan-1234abcd",
+			applyJobName: "demo-apply-1234abcd",
+			planFile:     "/workspace-data/run-1234abcd.tfplan",
+			pvcName:      "demo-data",
+		},
+		jobTypePlan,
+		"20260519T120000-deadbeef",
+	)
+	if err != nil {
+		t.Fatalf("constructJobForWorkspace() error = %v", err)
+	}
+
+	container := job.Spec.Template.Spec.Containers[0]
+	assert.Contains(t, container.Env, corev1.EnvVar{Name: "BGIT_HOME", Value: "/workspace-data/bgit-home"})
+	assert.Contains(t, container.Env, corev1.EnvVar{Name: "HOME", Value: "/workspace-data/bgit-home"})
+}
+
 func TestConstructJobForWorkspaceRejectsBucketGitHomeForPlainGitSource(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1alpha1.AddToScheme(scheme); err != nil {

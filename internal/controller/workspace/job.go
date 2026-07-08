@@ -67,7 +67,8 @@ const (
 	// type ("plan" or "apply").
 	jobTypeLabelKey = "magosproject.io/job-type"
 
-	bucketGitHomeMountPath = "/bgit"
+	bucketGitHomeMountPath        = "/bgit"
+	bucketGitDefaultHomeMountPath = "/workspace-data/bgit-home"
 )
 
 func isBucketGitRepoURL(repoURL string) bool {
@@ -386,6 +387,11 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 			Name:      "bucketgit-home",
 			MountPath: bucketGitHomeMountPath,
 		})
+	} else if isBucketGitRepoURL(ws.Spec.Source.RepoURL) {
+		envVars = append(envVars,
+			corev1.EnvVar{Name: "BGIT_HOME", Value: bucketGitDefaultHomeMountPath},
+			corev1.EnvVar{Name: "HOME", Value: bucketGitDefaultHomeMountPath},
+		)
 	}
 
 	job := &batchv1.Job{
