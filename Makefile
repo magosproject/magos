@@ -164,18 +164,12 @@ container-build: ## Build container images for all components.
 	$(CONTAINER_TOOL) build -t ${JOB_IMG} -f cmd/job/Dockerfile .
 	$(CONTAINER_TOOL) build -t ${API_IMG} -f api/Dockerfile .
 
-.PHONY: docker-build
-docker-build: container-build ## Backward-compatible alias for container-build.
-
 .PHONY: container-push
 container-push: ## Push container images for all components.
 	$(CONTAINER_TOOL) push ${IMG}
 	$(CONTAINER_TOOL) push ${UI_IMG}
 	$(CONTAINER_TOOL) push ${JOB_IMG}
 	$(CONTAINER_TOOL) push ${API_IMG}
-
-.PHONY: docker-push
-docker-push: container-push ## Backward-compatible alias for container-push.
 
 .PHONY: kind-load
 kind-load: kind ## Load locally built container image(s) into kind cluster.
@@ -203,9 +197,6 @@ container-buildx: ## Build and push the manager image for cross-platform support
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm magos-builder
 	rm Dockerfile.cross
-
-.PHONY: docker-buildx
-docker-buildx: container-buildx ## Backward-compatible alias for container-buildx.
 
 ##@ Deployment
 
