@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM golang:1.26.1-alpine AS bgit-builder
 ARG TARGETOS
 ARG TARGETARCH
-ARG BGIT_REF=1.3.6
+ARG BGIT_REF=1.3.7
 
 RUN apk add --no-cache git
 
