@@ -370,7 +370,10 @@ func (r *WorkspaceReconciler) constructJobForWorkspace(ctx context.Context, ws *
 		if claimName == "" {
 			return nil, fmt.Errorf("source.bucketGit.home.persistentVolumeClaim.claimName is required")
 		}
-		envVars = append(envVars, corev1.EnvVar{Name: "BGIT_HOME", Value: bucketGitHomeMountPath})
+		envVars = append(envVars,
+			corev1.EnvVar{Name: "BGIT_HOME", Value: bucketGitHomeMountPath},
+			corev1.EnvVar{Name: "HOME", Value: bucketGitHomeMountPath},
+		)
 		volumes = append(volumes, corev1.Volume{
 			Name: "bucketgit-home",
 			VolumeSource: corev1.VolumeSource{

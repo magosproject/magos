@@ -120,6 +120,11 @@ source:
   targetRevision: main
 ```
 
+Repository credential Secrets are matched against the Workspace
+`spec.source.repoURL`. For BucketGit sources, set the Secret `repoURL` to the
+same URL form used by the Workspace, including prefixes such as `bgit+`,
+`s3://`, `gs://`, `bgit::`, or `bgit://`.
+
 When a BucketGit source needs a persisted `BGIT_HOME` (for example
 `bgit+file://` local-broker storage), mount an existing PVC with
 `source.bucketGit.home`:

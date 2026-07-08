@@ -173,6 +173,7 @@ func TestConstructJobForWorkspaceMountsBucketGitHome(t *testing.T) {
 		MountPath: "/bgit",
 	})
 	assert.Contains(t, container.Env, corev1.EnvVar{Name: "BGIT_HOME", Value: "/bgit"})
+	assert.Contains(t, container.Env, corev1.EnvVar{Name: "HOME", Value: "/bgit"})
 }
 
 func TestConstructJobForWorkspaceRejectsBucketGitHomeForPlainGitSource(t *testing.T) {
