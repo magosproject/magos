@@ -28,7 +28,7 @@ RUN git clone --depth=1 --branch ${BGIT_REF} https://github.com/bucketgit/bgit.g
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -ldflags="-s -w" -o /out/bgit .
+    go build -ldflags="-s -w -X main.version=${BGIT_REF}" -o /out/bgit .
 
 FROM alpine:3.19
 RUN apk add --no-cache git ca-certificates curl
