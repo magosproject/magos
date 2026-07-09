@@ -367,7 +367,7 @@ $(INFORMER_GEN): $(LOCALBIN)
 
 .PHONY: chart-docs
 chart-docs: ## Generate charts/magos/README.md from values.yaml @param annotations.
-	@command -v ./node_modules/.bin/readme-generator >/dev/null || npm install @bitnami/readme-generator-for-helm
+	@command -v ./node_modules/.bin/readme-generator >/dev/null || npm install @bitnami/readme-generator-for-helm --no-package-lock
 	bash hack/helm-docs/helm-docs.sh
 
 
