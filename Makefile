@@ -201,7 +201,7 @@ container-buildx: ## Build and push the manager image for cross-platform support
 ##@ Deployment
 
 .PHONY: dev
-dev: deps generate ## Generate, build all images, load into kind, install/upgrade the chart.
+dev: deps kind generate ## Generate, build all images, load into kind, install/upgrade the chart.
 	@$(KIND) get clusters | grep -qx $(KIND_CLUSTER) || { \
 	    echo "ERROR: kind cluster '$(KIND_CLUSTER)' not found. Run 'make kind-cluster' first."; \
 	    exit 1; \
@@ -227,7 +227,7 @@ dev: deps generate ## Generate, build all images, load into kind, install/upgrad
 	done
 
 .PHONY: run
-run: generate ## Build all images, deploy the chart with the in-cluster UI disabled, and run the React UI locally.
+run: kind generate ## Build all images, deploy the chart with the in-cluster UI disabled, and run the React UI locally.
 	@$(KIND) get clusters | grep -qx $(KIND_CLUSTER) || { \
 	    echo "ERROR: kind cluster '$(KIND_CLUSTER)' not found. Run 'make kind-cluster' first."; \
 	    exit 1; \
@@ -367,7 +367,7 @@ $(INFORMER_GEN): $(LOCALBIN)
 
 .PHONY: chart-docs
 chart-docs: ## Generate charts/magos/README.md from values.yaml @param annotations.
-	@command -v readme-generator >/dev/null || npm install @bitnami/readme-generator-for-helm
+	@command -v ./node_modules/.bin/readme-generator >/dev/null || npm install @bitnami/readme-generator-for-helm
 	bash hack/helm-docs/helm-docs.sh
 
 
