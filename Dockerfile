@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # Use alpine as base image for shell support (required for Vault agent injection)
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata && \
+RUN apk add --no-cache ca-certificates git tzdata && \
     adduser -D -u 65532 nonroot
 WORKDIR /
 COPY --from=builder /workspace/manager .

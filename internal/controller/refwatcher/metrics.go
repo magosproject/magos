@@ -65,10 +65,10 @@ var (
 		},
 	)
 
-	// pollDuration measures the wall-clock time of each go-git remote.List
-	// call (the actual network round-trip). This is the primary latency
-	// indicator — a jump here usually points to Git host degradation or
-	// network issues rather than a problem in RefWatcher itself.
+	// pollDuration measures the wall-clock time of each remote ref lookup,
+	// including network latency and helper execution. This is the primary
+	// latency indicator — a jump here usually points to Git host degradation,
+	// a slow helper, or network issues rather than RefWatcher itself.
 	pollDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "refwatcher_poll_duration_seconds",
