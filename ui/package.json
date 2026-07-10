@@ -17,7 +17,7 @@
     "@coreui/icons-react": "^2.3.0",
     "@mantine/core": "^8.3.18",
     "@mantine/hooks": "^8.3.18",
-    "@react-router/node": "7.13.2",
+    "@react-router/node": "^7.18.1",
     "@tabler/icons-react": "^3.41.0",
     "@xyflow/react": "^12.10.2",
     "ansi-to-html": "^0.7.2",
@@ -25,12 +25,12 @@
     "openapi-fetch": "^0.17.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-router": "7.13.2",
+    "react-router": "^7.18.1",
     "simple-icons": "^16.14.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
-    "@react-router/dev": "7.13.2",
+    "@react-router/dev": "^7.18.1",
     "@types/node": "^22",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
