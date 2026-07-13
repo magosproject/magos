@@ -24,8 +24,8 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
-	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/storage/memory"
+	"github.com/magosproject/magos/internal/gittransport"
 	"github.com/magosproject/magos/types/magosproject/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,8 +35,8 @@ import (
 )
 
 const (
-	// gitTimeout is the context deadline applied to every go-git remote.List
-	// call. 10 seconds is generous for an ls-remote against most Git hosts.
+	// gitTimeout is the context deadline applied to every remote ref lookup.
+	// 10 seconds is generous for an ls-remote against most Git hosts.
 	// If a remote consistently exceeds this, it will surface as "error" in the
 	// refwatcher_poll_total metric rather than blocking a worker indefinitely.
 	gitTimeout = 10 * time.Second
@@ -592,9 +592,9 @@ func (r *RefWatcherReconciler) reschedule(key types.NamespacedName, interval tim
 }
 
 // resolveRef performs a git ls-remote against the given URL and resolves the
-// named ref to a commit SHA. We use go-git's in-memory remote to avoid
-// requiring a git binary in the container image and to avoid the overhead of
-// spawning a child process on every poll.
+// named ref to a commit SHA. Known transports use go-git's in-memory remote.
+// Unknown URL schemes use native Git so custom controller images can provide
+// git-remote-* helpers without adding transport-specific controller code.
 //
 // The ref is first matched as a branch (refs/heads/<ref>), then as a tag
 // (refs/tags/<ref>), then as a fully qualified ref name (e.g.
@@ -607,44 +607,34 @@ func resolveRef(ctx context.Context, url, ref string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 
-	remote := gogit.NewRemote(memory.NewStorage(), &config.RemoteConfig{
-		Name: "origin",
-		URLs: []string{url},
-	})
+	var refs []gittransport.RemoteRef
+	if gittransport.ModeForURL(url) == gittransport.NativeGit {
+		var err error
+		refs, err = gittransport.ListRemote(ctx, url)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		remote := gogit.NewRemote(memory.NewStorage(), &config.RemoteConfig{
+			Name: "origin",
+			URLs: []string{url},
+		})
 
-	refs, err := remote.ListContext(ctx, &gogit.ListOptions{})
-	if err != nil {
-		return "", err
-	}
-
-	// Try branch, then tag, then the ref as a fully qualified name.
-	candidates := []string{
-		"refs/heads/" + ref,
-		"refs/tags/" + ref,
-		ref,
-	}
-
-	for _, candidate := range candidates {
-		for _, r := range refs {
-			if r.Name() == plumbing.ReferenceName(candidate) {
-				return r.Hash().String(), nil
-			}
+		listed, err := remote.ListContext(ctx, &gogit.ListOptions{})
+		if err != nil {
+			return "", err
+		}
+		refs = make([]gittransport.RemoteRef, 0, len(listed))
+		for _, listedRef := range listed {
+			refs = append(refs, gittransport.RemoteRef{
+				Hash: listedRef.Hash().String(),
+				Name: listedRef.Name().String(),
+			})
 		}
 	}
 
-	// A 40-character hex ref is likely a pinned commit SHA. It won't appear
-	// as a ref name in ls-remote output, but we already have it.
-	if len(ref) == 40 {
-		return ref, nil
-	}
-
-	// Fall back to HEAD for empty or literal "HEAD" refs.
-	if ref == "" || ref == "HEAD" {
-		for _, r := range refs {
-			if r.Name() == plumbing.HEAD {
-				return r.Hash().String(), nil
-			}
-		}
+	if hash, ok := gittransport.ResolveRef(refs, ref); ok {
+		return hash, nil
 	}
 
 	return "", &RefNotFoundError{Ref: ref, URL: url}

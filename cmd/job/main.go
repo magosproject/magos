@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/yaml"
 
+	"github.com/magosproject/magos/internal/gittransport"
 	"github.com/magosproject/magos/internal/terraform"
 )
 
@@ -162,12 +163,22 @@ func validateSourceDir(sourceDir string) error {
 	return nil
 }
 
-// cloneRepository performs a shallow clone of the configured repository into
-// dest and checks out the exact revision the controller asked for. The shallow
-// clone keeps pod startup fast and avoids pulling years of history the job is
-// never going to read. Only the plan pod calls this; the apply pod reuses the
-// working tree the plan pod produced. dest is expected to be empty or missing.
+// cloneRepository clones the configured repository into dest and checks out
+// the exact revision the controller asked for. Known transports use go-git's
+// shallow clone path. Unknown URL schemes are delegated to native Git so a
+// git-remote-* helper supplied by a custom job image can handle the transport.
+// Only the plan pod calls this; the apply pod reuses the working tree the plan
+// pod produced. dest is expected to be empty or missing.
 func cloneRepository(ctx context.Context, cfg *Config, dest string) error {
+	if gittransport.ModeForURL(cfg.RepoURL) == gittransport.NativeGit {
+		log.Printf("Cloning helper-backed repository %s into %s with native Git", cfg.RepoURL, dest)
+		if err := gittransport.Clone(ctx, cfg.RepoURL, cfg.TargetRevision, dest); err != nil {
+			return fmt.Errorf("failed to clone helper-backed repository: %w", err)
+		}
+		log.Printf("Successfully checked out revision %s", cfg.TargetRevision)
+		return nil
+	}
+
 	auth, err := getAuthMethod(cfg)
 	if err != nil {
 		return err
